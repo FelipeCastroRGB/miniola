@@ -22,7 +22,7 @@ picam2.start()
 
 # --- GEOMETRIA RESTRITA (ROI) ---
 # Aqui definimos a fatia exata. No 320x240, os furos devem passar por aqui:
-ROI_Y, ROI_H = 0, 30  # Ajuste para que a fatia vermelha cubra SÓ os furos
+ROI_Y, ROI_H = 0, 40  # Ajuste para que a fatia vermelha cubra SÓ os furos
 LINHA_X = 160         # Gatilho central
 MARGEM = 15           # Janela de captura para altas velocidades
 
