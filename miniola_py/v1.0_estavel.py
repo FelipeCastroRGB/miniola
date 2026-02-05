@@ -14,8 +14,8 @@ picam2.configure(config)
 
 # SHUTTER CURTO: 1000us (1ms) é ideal para "congelar" o filme em movimento
 picam2.set_controls({
-    "ExposureTime": 500,
-    "AnalogueGain": 3.0,
+    "ExposureTime": 100,
+    "AnalogueGain": 5.0,
     "FrameRate": 80 # Tentamos extrair o máximo de velocidade do sensor
 })
 picam2.start()
@@ -43,7 +43,7 @@ def generate_frames():
 
         # Binarização direta (Furo Branco)
         # Usamos um threshold fixo para não perder tempo calculando Otsu
-        _, binary = cv2.threshold(gray, 190, 255, cv2.THRESH_BINARY)
+        _, binary = cv2.threshold(gray, 170, 255, cv2.THRESH_BINARY)
 
         # 3. CONTORNO E GATILHO
         contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
