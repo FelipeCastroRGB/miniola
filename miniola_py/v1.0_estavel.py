@@ -86,11 +86,21 @@ def generate_frames():
         # Marcação do limite do ROI
         cv2.rectangle(frame, (0, ROI_Y), (320, ROI_Y + ROI_H), (50, 50, 50), 1)
 
-        # Informações fora da área de visão central (Canto superior)
-        cv2.putText(frame, f"PERF: {contador}", (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        # LOGICA DE VISUALIZAÇÃO LADO A LADO ---
+        # 1. Criamos uma versão colorida da imagem binária para podermos juntar com a original
+        binary_rgb = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+        
+        # 2. Como a 'binary' é apenas o ROI, vamos criar uma imagem preta do tamanho do frame
+        # e colar o processamento nela para alinhar visualmente
+        display_binary = np.zeros_like(frame)
+        display_binary[ROI_Y:ROI_Y+ROI_H, :] = binary_rgb
 
-        # Encode JPEG com compressão para manter o FPS estável no navegador
-        ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
+        # 3. Junta as duas imagens (Original na esquerda, Binária na direita)
+        # O frame final terá 640x240
+        output_duplo = np.hstack((frame, display_binary))
+
+        # Encode JPEG (ajustado para a nova largura)
+        ret, buffer = cv2.imencode('.jpg', output_duplo, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
 @app.route('/video_feed')
