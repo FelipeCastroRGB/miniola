@@ -14,7 +14,7 @@ picam2.configure(config)
 
 # SHUTTER CURTO: 1000us (1ms) é ideal para "congelar" o filme em movimento
 picam2.set_controls({
-    "ExposureTime": 200,
+    "ExposureTime": 500,
     "AnalogueGain": 3.0,
     "FrameRate": 80 # Tentamos extrair o máximo de velocidade do sensor
 })
@@ -76,7 +76,7 @@ def generate_frames():
         cv2.putText(frame, f"PERF: {contador}", (10, 40), 1, 2, (0, 255, 0), 2)
 
         # Encode JPEG com qualidade média para priorizar FPS no navegador
-        ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 20])
+        ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 40])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
 @app.route('/video_feed')
