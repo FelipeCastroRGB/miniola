@@ -14,8 +14,8 @@ picam2.configure(config)
 
 # SHUTTER CURTO: 1000us (1ms) é ideal para "congelar" o filme em movimento
 picam2.set_controls({
-    "ExposureTime": 400,
-    "AnalogueGain": 3.5,
+    "ExposureTime": 200,
+    "AnalogueGain": 3.0,
     "FrameRate": 80 # Tentamos extrair o máximo de velocidade do sensor
 })
 picam2.start()
