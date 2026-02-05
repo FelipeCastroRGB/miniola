@@ -34,47 +34,46 @@ furo_na_linha = False
 def generate_frames():
     global contador, furo_na_linha
     while True:
-        # 1. Captura e conversão
         frame_raw = picam2.capture_array()
         frame = cv2.cvtColor(frame_raw, cv2.COLOR_BGRA2BGR)
 
-        # 2. PROCESSAMENTO ADAPTATIVO (Ideal para filmes transparentes)
         roi = frame[ROI_Y:ROI_Y+ROI_H, :]
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         
-        # O Adaptive Threshold detecta bordas por contraste local, não por brilho fixo
-        binary = cv2.adaptiveThreshold(
-            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-            cv2.THRESH_BINARY, ADAPTIVE_BLOCK, ADAPTIVE_C
-        )
+        # 1. Suavização para eliminar ruído eletrônico (crucial no Pi Zero)
+        blurred = cv2.GaussianBlur(gray, (7, 7), 0)
 
-        # 3. FILTRO MORFOLÓGICO (Limpa "chuviscos" no suporte transparente)
-        kernel = np.ones((3,3), np.uint8)
+        # 2. Threshold Binário com valor mais alto (Busca o brilho real do furo)
+        # Se o furo for a parte mais clara, ele sobreviverá a 200.
+        _, binary = cv2.threshold(blurred, 200, 255, cv2.THRESH_BINARY)
+
+        # 3. Limpeza morfológica agressiva (Remove o "chuvisco" que sobrou)
+        kernel = np.ones((5,5), np.uint8)
         binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
 
-        # 4. CONTORNO E GATILHO
         contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         furo_agora = False
         for cnt in contours:
             area = cv2.contourArea(cnt)
-            # Filtro de Área e Proporção (Perfuração é aproximadamente quadrada/retangular)
-            if 150 < area < 1200:
+            # 4. Filtro Geométrico Rígido (Padrão de perfuração)
+            if 200 < area < 1500:
                 x, y, w, h = cv2.boundingRect(cnt)
                 aspect_ratio = float(w)/h
                 
-                if 0.7 < aspect_ratio < 1.7:
+                # Perfurações são quase quadradas (0.8 a 1.4)
+                if 0.7 < aspect_ratio < 1.5:
                     centro_x = x + (w // 2)
-
-                    # Se o contorno passar no teste, desenha um quadrado branco discreto no ROI
-                    cv2.rectangle(frame, (x, y + ROI_Y), (x + w, y + h + ROI_Y), (255, 255, 255), 1)
+                    
+                    # Só desenha se passar em todos os filtros
+                    cv2.rectangle(frame, (x, y + ROI_Y), (x + w, y + h + ROI_Y), (255, 255, 255), 2)
 
                     if abs(centro_x - LINHA_X) < MARGEM:
                         furo_agora = True
                         if not furo_na_linha:
                             contador += 1
                             furo_na_linha = True
-                            break # Já contou, pode sair do loop de contornos
+                            break
 
         if not furo_agora:
             furo_na_linha = False
