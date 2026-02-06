@@ -15,7 +15,7 @@ picam2.configure(config)
 
 # Exposição curta para evitar borrão (motion blur)
 picam2.set_controls({
-    "ExposureTime": 200,
+    "ExposureTime": 300,
     "AnalogueGain": 5.0,
     "FrameRate": 80 
 })
@@ -45,7 +45,7 @@ def generate_frames():
 
         # 2. Threshold Binário com valor mais alto (Busca o brilho real do furo)
         # Se o furo for a parte mais clara, ele sobreviverá a 200.
-        _, binary = cv2.threshold(blurred, 130, 255, cv2.THRESH_BINARY)
+        _, binary = cv2.threshold(blurred, 100, 255, cv2.THRESH_BINARY)
 
         # 3. Limpeza morfológica agressiva (Remove o "chuvisco" que sobrou)
         kernel = np.ones((5,5), np.uint8)
@@ -62,7 +62,7 @@ def generate_frames():
                 aspect_ratio = float(w)/h
                 
                 # Perfurações são quase quadradas (0.8 a 1.4)
-                if 0.7 < aspect_ratio < 1.5:
+                if 0.7 < aspect_ratio < 2.0:
                     centro_x = x + (w // 2)
                     
                     # Só desenha se passar em todos os filtros
