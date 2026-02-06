@@ -16,7 +16,7 @@ picam2.configure(config)
 # Exposição curta para evitar borrão (motion blur)
 picam2.set_controls({
     "ExposureTime": 300,
-    "AnalogueGain": 5.0,
+    "AnalogueGain": 8.0,
     "FrameRate": 80 
 })
 picam2.start()
