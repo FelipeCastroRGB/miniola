@@ -25,8 +25,8 @@ picam2.start()
 ROI_Y, ROI_H = 0, 40   # Área de busca das perfurações
 LINHA_X = 160          # Gatilho central
 MARGEM = 15            # Tolerância para captura em velocidade
-ADAPTIVE_BLOCK = 53    # Sensibilidade: vizinhança de pixels (deve ser ímpar)
-ADAPTIVE_C = 10         # Sensibilidade: quanto maior, mais ignora cinzas claros
+ADAPTIVE_BLOCK = 0    # Sensibilidade: vizinhança de pixels (deve ser ímpar)
+ADAPTIVE_C = 0         # Sensibilidade: quanto maior, mais ignora cinzas claros
 
 contador = 0
 furo_na_linha = False
@@ -45,7 +45,7 @@ def generate_frames():
 
         # 2. Threshold Binário com valor mais alto (Busca o brilho real do furo)
         # Se o furo for a parte mais clara, ele sobreviverá a 200.
-        _, binary = cv2.threshold(blurred, 200, 255, cv2.THRESH_BINARY)
+        _, binary = cv2.threshold(blurred, 210, 255, cv2.THRESH_BINARY)
 
         # 3. Limpeza morfológica agressiva (Remove o "chuvisco" que sobrou)
         kernel = np.ones((5,5), np.uint8)
