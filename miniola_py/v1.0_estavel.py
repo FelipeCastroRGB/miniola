@@ -45,7 +45,7 @@ def generate_frames():
 
         # 2. Threshold Binário com valor mais alto (Busca o brilho real do furo)
         # Se o furo for a parte mais clara, ele sobreviverá a 200.
-        _, binary = cv2.threshold(blurred, 180, 255, cv2.THRESH_BINARY)
+        _, binary = cv2.threshold(blurred, 220, 255, cv2.THRESH_BINARY)
 
         # 3. Limpeza morfológica agressiva (Remove o "chuvisco" que sobrou)
         kernel = np.ones((5,5), np.uint8)
