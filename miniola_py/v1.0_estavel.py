@@ -62,7 +62,7 @@ def generate_frames():
                 aspect_ratio = float(w)/h
                 
                 # Perfurações são quase quadradas (0.8 a 1.4)
-                if 0.7 < aspect_ratio < 2.0:
+                if 0.2 < aspect_ratio < 2.5:                
                     centro_x = x + (w // 2)
                     
                     # Só desenha se passar em todos os filtros
