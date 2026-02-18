@@ -57,7 +57,7 @@ def generate_frames():
         for cnt in contours:
             area = cv2.contourArea(cnt)
             # 4. Filtro Geométrico Rígido (Padrão de perfuração)
-            if 200 < area < 1500:
+            if 100 < area < 1500:
                 x, y, w, h = cv2.boundingRect(cnt)
                 aspect_ratio = float(w)/h
                 
