@@ -24,7 +24,7 @@ picam2.start()
 # --- GEOMETRIA E CALIBRAÇÃO ---
 ROI_Y, ROI_H = 35, 20   # Área de busca das perfurações
 LINHA_X = 160          # Gatilho central
-MARGEM = 10            # Tolerância para captura em velocidade
+MARGEM = 5            # Tolerância para captura em velocidade
 
 contador = 0
 furo_na_linha = False
