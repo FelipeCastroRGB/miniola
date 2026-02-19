@@ -25,8 +25,6 @@ picam2.start()
 ROI_Y, ROI_H = 35, 20   # Área de busca das perfurações
 LINHA_X = 160          # Gatilho central
 MARGEM = 15            # Tolerância para captura em velocidade
-ADAPTIVE_BLOCK = 0    # Sensibilidade: vizinhança de pixels (deve ser ímpar)
-ADAPTIVE_C = 0         # Sensibilidade: quanto maior, mais ignora cinzas claros
 
 contador = 0
 furo_na_linha = False
@@ -62,7 +60,7 @@ def generate_frames():
                 aspect_ratio = float(w)/h
                 
                 # Perfurações são quase quadradas (0.8 a 1.4)
-                if 0.2 < aspect_ratio < 2.5:                
+                if 0.1 < aspect_ratio < 1.4:                
                     centro_x = x + (w // 2)
                     
                     # Só desenha se passar em todos os filtros
