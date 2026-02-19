@@ -16,7 +16,7 @@ picam2.configure(config)
 # Exposição curta para evitar borrão (motion blur)
 picam2.set_controls({
     "ExposureTime": 500,
-    "AnalogueGain": 3.0,
+    "AnalogueGain": 1.0,
     "FrameRate": 80 
 })
 picam2.start()
@@ -55,12 +55,12 @@ def generate_frames():
         for cnt in contours:
             area = cv2.contourArea(cnt)
             # 4. Filtro Geométrico Rígido (Padrão de perfuração)
-            if 50 < area < 500:
+            if 30 < area < 500:
                 x, y, w, h = cv2.boundingRect(cnt)
                 aspect_ratio = float(w)/h
                 
                 # Perfurações são quase quadradas (0.8 a 1.4)
-                if 0.1 < aspect_ratio < 1.4:                
+                if 0.1 < aspect_ratio < 2.5:                
                     centro_x = x + (w // 2)
                     
                     # Só desenha se passar em todos os filtros
