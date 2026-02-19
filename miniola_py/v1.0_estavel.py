@@ -15,14 +15,14 @@ picam2.configure(config)
 
 # Exposição curta para evitar borrão (motion blur)
 picam2.set_controls({
-    "ExposureTime": 600,
+    "ExposureTime": 500,
     "AnalogueGain": 3.0,
     "FrameRate": 80 
 })
 picam2.start()
 
 # --- GEOMETRIA E CALIBRAÇÃO ---
-ROI_Y, ROI_H = 50, 20   # Área de busca das perfurações
+ROI_Y, ROI_H = 40, 20   # Área de busca das perfurações
 LINHA_X = 160          # Gatilho central
 MARGEM = 15            # Tolerância para captura em velocidade
 ADAPTIVE_BLOCK = 0    # Sensibilidade: vizinhança de pixels (deve ser ímpar)
@@ -100,7 +100,7 @@ def generate_frames():
         output_duplo = np.hstack((frame, display_binary))
 
         # Encode JPEG (ajustado para a nova largura)
-        ret, buffer = cv2.imencode('.jpg', output_duplo, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
+        ret, buffer = cv2.imencode('.jpg', output_duplo, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
 @app.route('/video_feed')
