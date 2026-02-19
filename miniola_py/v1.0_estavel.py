@@ -16,7 +16,7 @@ picam2.configure(config)
 picam2.set_controls({
     "ExposureTime": 500,
     "AnalogueGain": 2.0,
-    "FrameRate": 100 # Reduzido levemente para estabilidade térmica no Pi Zero
+    "FrameRate": 200 # Reduzido levemente para estabilidade térmica no Pi Zero
 })
 picam2.start()
 
