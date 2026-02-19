@@ -21,7 +21,7 @@ picam2.set_controls({
 picam2.start()
 
 # --- GEOMETRIA (Ajuste aqui enquanto olha o preview) ---
-ROI_Y, ROI_H = 20, 15
+ROI_Y, ROI_H = 20, 5
 LINHA_X, MARGEM = 80, 8
 THRESH_VAL = 110
 
