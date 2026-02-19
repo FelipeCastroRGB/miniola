@@ -22,7 +22,7 @@ picam2.set_controls({
 picam2.start()
 
 # --- GEOMETRIA E CALIBRAÇÃO ---
-ROI_Y, ROI_H = 60, 30   # Área de busca das perfurações
+ROI_Y, ROI_H = 50, 20   # Área de busca das perfurações
 LINHA_X = 160          # Gatilho central
 MARGEM = 15            # Tolerância para captura em velocidade
 ADAPTIVE_BLOCK = 0    # Sensibilidade: vizinhança de pixels (deve ser ímpar)
