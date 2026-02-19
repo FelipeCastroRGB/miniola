@@ -17,14 +17,14 @@ picam2.configure(config)
 picam2.set_controls({
     "ExposureTime": 800,
     "AnalogueGain": 1.0,
-    "FrameRate": 300 
+    "FrameRate": 200 
 })
 picam2.start()
 
 # --- GEOMETRIA E CALIBRAÇÃO ---
 ROI_Y, ROI_H = 35, 20   # Área de busca das perfurações
 LINHA_X = 160          # Gatilho central
-MARGEM = 15            # Tolerância para captura em velocidade
+MARGEM = 10            # Tolerância para captura em velocidade
 
 contador = 0
 furo_na_linha = False
@@ -98,7 +98,7 @@ def generate_frames():
         output_duplo = np.hstack((frame, display_binary))
 
         # Encode JPEG (ajustado para a nova largura)
-        ret, buffer = cv2.imencode('.jpg', output_duplo, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+        ret, buffer = cv2.imencode('.jpg', output_duplo, [int(cv2.IMWRITE_JPEG_QUALITY), 30])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
 @app.route('/video_feed')
