@@ -22,7 +22,7 @@ picam2.start()
 
 # --- GEOMETRIA E CALIBRAÇÃO ---
 ROI_Y, ROI_H = 20, 15
-LINHA_X, MARGEM = 80, 8
+LINHA_X, MARGEM = 80, 5
 THRESH_VAL = 110
 
 contador = 0
