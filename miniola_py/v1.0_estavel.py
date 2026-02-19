@@ -22,7 +22,7 @@ picam2.set_controls({
 picam2.start()
 
 # --- GEOMETRIA E CALIBRAÇÃO ---
-ROI_Y, ROI_H = 40, 20   # Área de busca das perfurações
+ROI_Y, ROI_H = 35, 20   # Área de busca das perfurações
 LINHA_X = 160          # Gatilho central
 MARGEM = 15            # Tolerância para captura em velocidade
 ADAPTIVE_BLOCK = 0    # Sensibilidade: vizinhança de pixels (deve ser ímpar)
@@ -57,7 +57,7 @@ def generate_frames():
         for cnt in contours:
             area = cv2.contourArea(cnt)
             # 4. Filtro Geométrico Rígido (Padrão de perfuração)
-            if 100 < area < 1500:
+            if 50 < area < 500:
                 x, y, w, h = cv2.boundingRect(cnt)
                 aspect_ratio = float(w)/h
                 
