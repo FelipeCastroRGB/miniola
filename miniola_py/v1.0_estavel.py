@@ -9,29 +9,28 @@ import time
 app = Flask(__name__)
 picam2 = Picamera2()
 
-# 1. Configuração de Hardware (160x120)
-config = picam2.create_video_configuration(main={"size": (640, 240), "format": "RGB888"})
+# 1. MÁXIMA QUALIDADE PARA FOCO
+# Usando 640x480 para manter a proporção nativa do sensor ov5647
+config = picam2.create_video_configuration(main={"size": (640, 480), "format": "RGB888"})
 picam2.configure(config)
 
 picam2.set_controls({
-    "ExposureTime": 400,
-    "AnalogueGain": 4.0,
-    "FrameRate": 120 
+    "ExposureTime": 1000, # Aumentado para compensar o ganho baixo
+    "AnalogueGain": 1.0,  # Ganho mínimo = Imagem limpa sem ruído
+    "FrameRate": 30       # Baixamos o FPS para priorizar a exposição e qualidade
 })
 picam2.start()
 
-# --- GEOMETRIA E CALIBRAÇÃO ---
-ROI_Y, ROI_H = 15, 15
-LINHA_X, MARGEM = 80, 5
+# --- GEOMETRIA TEMPORÁRIA (Ajustada para 640x480) ---
+ROI_Y, ROI_H = 100, 60   # ROI maior para facilitar a visualização do foco
+LINHA_X, MARGEM = 320, 20
 THRESH_VAL = 110
 
 contador = 0
 furo_na_linha = False
 ultimo_frame_bruto = None
 ultimo_frame_binario = None
-lista_contornos_debug = [] # Buffer para passar os contornos ao preview
-
-# --- FUNÇÕES ---
+lista_contornos_debug = []
 
 def escutar_teclado():
     global contador
@@ -60,19 +59,16 @@ def logica_scanner():
             area = cv2.contourArea(cnt)
             x, y, w, h = cv2.boundingRect(cnt)
             
-            # Filtro de área
-            if 10 < area < 400:
+            # Área ajustada para a nova resolução de 640px
+            if 100 < area < 5000:
                 centro_x = x + (w // 2)
-                # Marcar como 'detectado' (Verde)
                 temp_contornos.append({'rect': (x, y, w, h), 'color': (0, 255, 0)})
-                
                 if abs(centro_x - LINHA_X) < MARGEM:
                     furo_agora = True
                     if not furo_na_linha:
                         contador += 1
                         furo_na_linha = True
             else:
-                # Marcar como 'ruído/rejeitado' (Vermelho) - apenas para diagnóstico
                 temp_contornos.append({'rect': (x, y, w, h), 'color': (0, 0, 255)})
 
         if not furo_agora:
@@ -90,30 +86,24 @@ def generate_frames():
         
         vis = ultimo_frame_bruto.copy()
         
-        # 1. Desenhar a Linha de Gatilho e ROI
-        cor_gatilho = (0, 255, 0) if furo_na_linha else (0, 0, 255)
-        cv2.rectangle(vis, (0, ROI_Y), (160, ROI_Y + ROI_H), (100, 100, 100), 1)
-        cv2.line(vis, (LINHA_X, ROI_Y), (LINHA_X, ROI_Y + ROI_H), cor_gatilho, 1)
+        # Desenho de guias em alta definição
+        cv2.rectangle(vis, (0, ROI_Y), (640, ROI_Y + ROI_H), (255, 255, 255), 1)
+        cv2.line(vis, (LINHA_X, ROI_Y), (LINHA_X, ROI_Y + ROI_H), (0, 255, 255), 2)
 
-        # 2. Desenhar os quadradinhos de detecção (Debug)
         for item in lista_contornos_debug:
             x, y, w, h = item['rect']
-            # Ajustamos o Y para a posição global do frame (somando ROI_Y)
-            cv2.rectangle(vis, (x, y + ROI_Y), (x + w, y + h + ROI_Y), item['color'], 1)
+            cv2.rectangle(vis, (x, y + ROI_Y), (x + w, y + h + ROI_Y), item['color'], 2)
 
-        # 3. Lado Binário
+        # Output lado a lado (1280x480 para inspeção detalhada)
         bin_rgb = cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB)
         canvas_bin = np.zeros_like(vis)
         canvas_bin[ROI_Y:ROI_Y+ROI_H, :] = bin_rgb
         
-        # 4. Saída duplicada
         output = np.hstack((vis, canvas_bin))
-        output_res = cv2.resize(output, (640, 240), interpolation=cv2.INTER_NEAREST)
 
-        ret, buffer = cv2.imencode('.jpg', output_res, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+        # Qualidade 95 para inspeção de foco manual
+        ret, buffer = cv2.imencode('.jpg', output, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-
-# --- ROTAS FLASK E MAIN PERMANECEM IGUAIS ---
 
 @app.route('/video_feed')
 def video_feed():
@@ -127,10 +117,10 @@ def get_count():
 def index():
     return """
     <html>
-        <body style='background:#000; color:#0f0; text-align:center; font-family:monospace;'>
-            <h2>MINIOLA CONTOUR DEBUG</h2>
-            <div id='val' style='font-size:100px;'>0</div>
-            <img src="/video_feed" style="width:95%; border:1px solid #444;">
+        <body style='background:#111; color:#0f0; text-align:center; font-family:monospace;'>
+            <h2>MINIOLA FOCUS MODE (640x480)</h2>
+            <div id='val' style='font-size:80px;'>0</div>
+            <img src="/video_feed" style="width:100%; max-width:1280px; border:2px solid #555;">
             <script>
                 setInterval(() => {
                     fetch('/count').then(r => r.text()).then(t => { 
