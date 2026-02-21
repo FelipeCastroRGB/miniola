@@ -11,7 +11,7 @@ picam2 = Picamera2()
 
 # 1. MÁXIMA QUALIDADE PARA FOCO
 # Usando 640x480 para manter a proporção nativa do sensor ov5647
-config = picam2.create_video_configuration(main={"size": (640, 480), "format": "RGB888"})
+config = picam2.create_video_configuration(main={"size": (1280, 960), "format": "RGB888"})
 picam2.configure(config)
 
 picam2.set_controls({
