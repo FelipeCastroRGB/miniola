@@ -22,9 +22,9 @@ picam2.set_controls({
 picam2.start()
 
 # --- GEOMETRIA TEMPORÁRIA (Ajustada para 640x480) ---
-ROI_Y, ROI_H = 100, 60   # ROI maior para facilitar a visualização do foco
+ROI_Y, ROI_H = 150, 60   # ROI maior para facilitar a visualização do foco
 LINHA_X, MARGEM = 320, 20
-THRESH_VAL = 110
+THRESH_VAL = 200
 
 contador = 0
 furo_na_linha = False
@@ -102,7 +102,7 @@ def generate_frames():
         output = np.hstack((vis, canvas_bin))
 
         # Qualidade 95 para inspeção de foco manual
-        ret, buffer = cv2.imencode('.jpg', output, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+        ret, buffer = cv2.imencode('.jpg', output, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
 @app.route('/video_feed')
