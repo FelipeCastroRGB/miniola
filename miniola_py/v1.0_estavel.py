@@ -108,9 +108,9 @@ def generate_frames():
         
         # 4. Saída duplicada
         output = np.hstack((vis, canvas_bin))
-        output_res = cv2.resize(output, (160, 120), interpolation=cv2.INTER_NEAREST)
+        output_res = cv2.resize(output, (640, 240), interpolation=cv2.INTER_NEAREST)
 
-        ret, buffer = cv2.imencode('.jpg', output_res, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+        ret, buffer = cv2.imencode('.jpg', output_res, [int(cv2.IMWRITE_JPEG_QUALITY), 40])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
 # --- ROTAS FLASK E MAIN PERMANECEM IGUAIS ---
