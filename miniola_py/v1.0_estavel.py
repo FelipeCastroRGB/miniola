@@ -17,14 +17,14 @@ picam2.configure(config)
 picam2.set_controls({
     "ExposureTime": 1200, # Aumentado para compensar o ganho baixo
     "AnalogueGain": 2.0,  # Ganho mínimo = Imagem limpa sem ruído
-    "FrameRate": 50       # Baixamos o FPS para priorizar a exposição e qualidade
+    "FrameRate": 60       # Baixamos o FPS para priorizar a exposição e qualidade
 })
 picam2.start()
 
 # --- GEOMETRIA TEMPORÁRIA (Ajustada para 640x480) ---
 ROI_Y, ROI_H = 140, 60   # ROI maior para facilitar a visualização do foco
-LINHA_X, MARGEM = 320, 20
-THRESH_VAL = 208
+LINHA_X, MARGEM = 320, 15
+THRESH_VAL = 206
 
 contador = 0
 furo_na_linha = False
