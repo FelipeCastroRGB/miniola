@@ -24,7 +24,7 @@ picam2.start()
 # --- GEOMETRIA TEMPORÁRIA (Ajustada para 640x480) ---
 ROI_Y, ROI_H = 160, 60   # ROI maior para facilitar a visualização do foco
 LINHA_X, MARGEM = 320, 15
-THRESH_VAL = 170
+THRESH_VAL = 110
 
 contador = 0
 furo_na_linha = False
@@ -60,7 +60,7 @@ def logica_scanner():
             x, y, w, h = cv2.boundingRect(cnt)
             
             # Área ajustada para a nova resolução de 640px
-            if 10 < area < 100:
+            if 50 < area < 5000:
                 centro_x = x + (w // 2)
                 temp_contornos.append({'rect': (x, y, w, h), 'color': (0, 255, 0)})
                 if abs(centro_x - LINHA_X) < MARGEM:
