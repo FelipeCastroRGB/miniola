@@ -15,15 +15,15 @@ config = picam2.create_video_configuration(main={"size": (520, 720), "format": "
 picam2.configure(config)
 
 picam2.set_controls({
-    "ExposureTime": 1200, # Aumentado para compensar o ganho baixo
-    "AnalogueGain": 2.0,  # Ganho mínimo = Imagem limpa sem ruído
-    "FrameRate": 50       # Baixamos o FPS para priorizar a exposição e qualidade
+    "ExposureTime": 200, # Aumentado para compensar o ganho baixo
+    "AnalogueGain": 5.0,  # Ganho mínimo = Imagem limpa sem ruído
+    "FrameRate": 90       # Baixamos o FPS para priorizar a exposição e qualidade
 })
 picam2.start()
 
 # --- GEOMETRIA TEMPORÁRIA (Ajustada para 640x480) ---
 ROI_Y, ROI_H = 140, 60   # ROI maior para facilitar a visualização do foco
-LINHA_X, MARGEM = 320, 15
+LINHA_X, MARGEM = 290, 15
 THRESH_VAL = 207
 
 contador = 0
