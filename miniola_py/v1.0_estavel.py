@@ -17,7 +17,7 @@ picam2.configure(config)
 picam2.set_controls({
     "ExposureTime": 1200, # Aumentado para compensar o ganho baixo
     "AnalogueGain": 2.0,  # Ganho mínimo = Imagem limpa sem ruído
-    "FrameRate": 60       # Baixamos o FPS para priorizar a exposição e qualidade
+    "FrameRate": 50       # Baixamos o FPS para priorizar a exposição e qualidade
 })
 picam2.start()
 
