@@ -15,16 +15,16 @@ config = picam2.create_video_configuration(main={"size": (520, 720), "format": "
 picam2.configure(config)
 
 picam2.set_controls({
-    "ExposureTime": 1200, # Aumentado para compensar o ganho baixo
-    "AnalogueGain": 2.0,  # Ganho mínimo = Imagem limpa sem ruído
-    "FrameRate": 50       # Baixamos o FPS para priorizar a exposição e qualidade
+    "ExposureTime": 200, # Aumentado para compensar o ganho baixo
+    "AnalogueGain": 5.0,  # Ganho mínimo = Imagem limpa sem ruído
+    "FrameRate": 90       # Baixamos o FPS para priorizar a exposição e qualidade
 })
 picam2.start()
 
 # --- GEOMETRIA TEMPORÁRIA (Ajustada para 640x480) ---
 ROI_Y, ROI_H = 140, 60   # ROI maior para facilitar a visualização do foco
-LINHA_X, MARGEM = 320, 15
-THRESH_VAL = 206
+LINHA_X, MARGEM = 290, 15
+THRESH_VAL = 207
 
 contador = 0
 furo_na_linha = False
@@ -60,7 +60,7 @@ def logica_scanner():
             x, y, w, h = cv2.boundingRect(cnt)
             
             # Área ajustada para a nova resolução de 640px
-            if 500 < area < 2000:
+            if 10 < area < 2000:
                 centro_x = x + (w // 2)
                 temp_contornos.append({'rect': (x, y, w, h), 'color': (0, 255, 0)})
                 if abs(centro_x - LINHA_X) < MARGEM:
@@ -102,7 +102,7 @@ def generate_frames():
         output = np.hstack((vis, canvas_bin))
 
         # Qualidade 95 para inspeção de foco manual
-        ret, buffer = cv2.imencode('.jpg', output, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
+        ret, buffer = cv2.imencode('.jpg', output, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
 @app.route('/video_feed')
