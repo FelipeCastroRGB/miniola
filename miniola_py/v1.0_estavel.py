@@ -16,14 +16,14 @@ picam2.configure(config)
 
 picam2.set_controls({
     "ExposureTime": 1000, # Aumentado para compensar o ganho baixo
-    "AnalogueGain": 1.0,  # Ganho mínimo = Imagem limpa sem ruído
+    "AnalogueGain": 1.5,  # Ganho mínimo = Imagem limpa sem ruído
     "FrameRate": 30       # Baixamos o FPS para priorizar a exposição e qualidade
 })
 picam2.start()
 
 # --- GEOMETRIA TEMPORÁRIA (Ajustada para 640x480) ---
 ROI_Y, ROI_H = 150, 60   # ROI maior para facilitar a visualização do foco
-LINHA_X, MARGEM = 320, 20
+LINHA_X, MARGEM = 320, 15
 THRESH_VAL = 200
 
 contador = 0
@@ -60,7 +60,7 @@ def logica_scanner():
             x, y, w, h = cv2.boundingRect(cnt)
             
             # Área ajustada para a nova resolução de 640px
-            if 100 < area < 5000:
+            if 10 < area < 100:
                 centro_x = x + (w // 2)
                 temp_contornos.append({'rect': (x, y, w, h), 'color': (0, 255, 0)})
                 if abs(centro_x - LINHA_X) < MARGEM:
