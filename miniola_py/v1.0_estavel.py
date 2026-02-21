@@ -11,19 +11,19 @@ picam2 = Picamera2()
 
 # 1. MÁXIMA QUALIDADE PARA FOCO
 # Usando 640x480 para manter a proporção nativa do sensor ov5647
-config = picam2.create_video_configuration(main={"size": (640, 890), "format": "RGB888"})
+config = picam2.create_video_configuration(main={"size": (640, 720), "format": "RGB888"})
 picam2.configure(config)
 
 picam2.set_controls({
     "ExposureTime": 1200, # Aumentado para compensar o ganho baixo
     "AnalogueGain": 2.0,  # Ganho mínimo = Imagem limpa sem ruído
-    "FrameRate": 30       # Baixamos o FPS para priorizar a exposição e qualidade
+    "FrameRate": 50       # Baixamos o FPS para priorizar a exposição e qualidade
 })
 picam2.start()
 
 # --- GEOMETRIA TEMPORÁRIA (Ajustada para 640x480) ---
 ROI_Y, ROI_H = 160, 60   # ROI maior para facilitar a visualização do foco
-LINHA_X, MARGEM = 320, 40
+LINHA_X, MARGEM = 320, 20
 THRESH_VAL = 110
 
 contador = 0
