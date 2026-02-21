@@ -24,7 +24,7 @@ picam2.start()
 # --- GEOMETRIA TEMPORÁRIA (Ajustada para 640x480) ---
 ROI_Y, ROI_H = 150, 60   # ROI maior para facilitar a visualização do foco
 LINHA_X, MARGEM = 320, 20
-THRESH_VAL = 180
+THRESH_VAL = 170
 
 contador = 0
 furo_na_linha = False
