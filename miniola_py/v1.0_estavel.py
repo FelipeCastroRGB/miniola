@@ -15,7 +15,7 @@ config = picam2.create_video_configuration(main={"size": (1280, 720), "format": 
 picam2.configure(config)
 
 picam2.set_controls({
-    "ExposureTime": 100, # Aumentado para compensar o ganho baixo
+    "ExposureTime": 1000, # Aumentado para compensar o ganho baixo
     "AnalogueGain": 1.0,  # Ganho mínimo = Imagem limpa sem ruído
     "FrameRate": 60       # Baixamos o FPS para priorizar a exposição e qualidade
 })
