@@ -5,84 +5,56 @@ import numpy as np
 import threading
 import sys
 import time
+import logging # Import necessário para silenciar o log
 
+# 1. Configuração do Flask e Silenciamento de Logs
 app = Flask(__name__)
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR) # <--- ISSO VAI LIMPAR SEU TERMINAL
+
 picam2 = Picamera2()
 
-# 1. Configuração de Hardware
-config = picam2.create_video_configuration(main={"size": (640, 480), "format": "RGB888"})
-picam2.configure(config)
-
-# Valores iniciais
-params = {
-    "ExposureTime": 1000,
-    "AnalogueGain": 1.0,
-    "FrameRate": 30
-}
-
-picam2.set_controls(params)
-picam2.start()
-
-# --- GEOMETRIA E CALIBRAÇÃO (Ajuste conforme necessário) ---
-ROI_Y, ROI_H = 100, 60
-LINHA_X, MARGEM = 320, 20
-THRESH_VAL = 110
-
-contador = 0
-furo_na_linha = False
-ultimo_frame_bruto = None
-ultimo_frame_binario = None
-lista_contornos_debug = []
+# ... (restante das configurações de hardware e variáveis permanecem iguais)
 
 def painel_controle():
-    """Thread para alterar parâmetros via terminal sem parar o código."""
-    global contador, params
-    print("\n" + "="*30)
-    print(" PAINEL DE CONTROLE MINIOLA")
-    print(" Comandos: ")
-    print("  r       : Reseta contador")
-    print("  e [val] : Altera ExposureTime (ex: e 500)")
-    print("  g [val] : Altera AnalogueGain (ex: g 2.5)")
-    print("  f [val] : Altera FrameRate    (ex: f 60)")
-    print("  t [val] : Altera Threshold    (ex: t 120)")
-    print("="*30 + "\n")
+    """Thread para alterar parâmetros via terminal de forma limpa."""
+    global contador, THRESH_VAL
+    
+    # Pequeno delay para o menu aparecer depois dos logs iniciais do sistema
+    time.sleep(2) 
+    
+    print("\n" + "="*40)
+    print("  PAINEL DE CONTROLE MINIOLA ATIVO")
+    print("  (Digite o comando e aperte Enter)")
+    print("="*40)
 
     while True:
+        # O input() agora vai funcionar sem ser interrompido pelos logs
+        entrada = input("\nComando (e, g, f, t, r) >> ").split()
+        if not entrada: continue
+        
         try:
-            entrada = input("Comando >> ").split()
-            if not entrada: continue
-            
             cmd = entrada[0].lower()
-            
             if cmd == 'r':
                 contador = 0
-                print("[OK] Contador zerado.")
-            
+                print(">> [RESET] Contador zerado.")
             elif cmd == 'e' and len(entrada) > 1:
                 val = int(entrada[1])
                 picam2.set_controls({"ExposureTime": val})
-                params["ExposureTime"] = val
-                print(f"[SET] ExposureTime: {val}")
-
+                print(f">> [SET] Exposure: {val}")
             elif cmd == 'g' and len(entrada) > 1:
                 val = float(entrada[1])
                 picam2.set_controls({"AnalogueGain": val})
-                params["AnalogueGain"] = val
-                print(f"[SET] AnalogueGain: {val}")
-
+                print(f">> [SET] Gain: {val}")
+            elif cmd == 't' and len(entrada) > 1:
+                THRESH_VAL = int(entrada[1])
+                print(f">> [SET] Threshold: {THRESH_VAL}")
             elif cmd == 'f' and len(entrada) > 1:
                 val = int(entrada[1])
                 picam2.set_controls({"FrameRate": val})
-                params["FrameRate"] = val
-                print(f"[SET] FrameRate: {val}")
-
-            elif cmd == 't' and len(entrada) > 1:
-                global THRESH_VAL
-                THRESH_VAL = int(entrada[1])
-                print(f"[SET] Threshold: {THRESH_VAL}")
-
-        except Exception as err:
-            print(f"[ERRO] Comando inválido: {err}")
+                print(f">> [SET] FrameRate: {val}")
+        except Exception as e:
+            print(f">> [ERRO]: {e}")
 
 # --- RESTANTE DA LÓGICA (logica_scanner, generate_frames, routes) ---
 
