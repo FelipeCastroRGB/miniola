@@ -9,22 +9,24 @@ import time
 app = Flask(__name__)
 picam2 = Picamera2()
 
-# 1. MÁXIMA QUALIDADE PARA FOCO
-# Usando 640x480 para manter a proporção nativa do sensor ov5647
-config = picam2.create_video_configuration(main={"size": (520, 720), "format": "RGB888"})
+# 1. Configuração de Hardware
+config = picam2.create_video_configuration(main={"size": (640, 480), "format": "RGB888"})
 picam2.configure(config)
 
-picam2.set_controls({
-    "ExposureTime": 200, # Aumentado para compensar o ganho baixo
-    "AnalogueGain": 5.0,  # Ganho mínimo = Imagem limpa sem ruído
-    "FrameRate": 90       # Baixamos o FPS para priorizar a exposição e qualidade
-})
+# Valores iniciais
+params = {
+    "ExposureTime": 1000,
+    "AnalogueGain": 1.0,
+    "FrameRate": 30
+}
+
+picam2.set_controls(params)
 picam2.start()
 
-# --- GEOMETRIA TEMPORÁRIA (Ajustada para 640x480) ---
-ROI_Y, ROI_H = 140, 60   # ROI maior para facilitar a visualização do foco
-LINHA_X, MARGEM = 290, 15
-THRESH_VAL = 207
+# --- GEOMETRIA E CALIBRAÇÃO (Ajuste conforme necessário) ---
+ROI_Y, ROI_H = 100, 60
+LINHA_X, MARGEM = 320, 20
+THRESH_VAL = 110
 
 contador = 0
 furo_na_linha = False
@@ -32,13 +34,57 @@ ultimo_frame_bruto = None
 ultimo_frame_binario = None
 lista_contornos_debug = []
 
-def escutar_teclado():
-    global contador
+def painel_controle():
+    """Thread para alterar parâmetros via terminal sem parar o código."""
+    global contador, params
+    print("\n" + "="*30)
+    print(" PAINEL DE CONTROLE MINIOLA")
+    print(" Comandos: ")
+    print("  r       : Reseta contador")
+    print("  e [val] : Altera ExposureTime (ex: e 500)")
+    print("  g [val] : Altera AnalogueGain (ex: g 2.5)")
+    print("  f [val] : Altera FrameRate    (ex: f 60)")
+    print("  t [val] : Altera Threshold    (ex: t 120)")
+    print("="*30 + "\n")
+
     while True:
-        comando = sys.stdin.read(1)
-        if comando.lower() == 'r':
-            contador = 0
-            print("\n[RESET] Contador zerado.")
+        try:
+            entrada = input("Comando >> ").split()
+            if not entrada: continue
+            
+            cmd = entrada[0].lower()
+            
+            if cmd == 'r':
+                contador = 0
+                print("[OK] Contador zerado.")
+            
+            elif cmd == 'e' and len(entrada) > 1:
+                val = int(entrada[1])
+                picam2.set_controls({"ExposureTime": val})
+                params["ExposureTime"] = val
+                print(f"[SET] ExposureTime: {val}")
+
+            elif cmd == 'g' and len(entrada) > 1:
+                val = float(entrada[1])
+                picam2.set_controls({"AnalogueGain": val})
+                params["AnalogueGain"] = val
+                print(f"[SET] AnalogueGain: {val}")
+
+            elif cmd == 'f' and len(entrada) > 1:
+                val = int(entrada[1])
+                picam2.set_controls({"FrameRate": val})
+                params["FrameRate"] = val
+                print(f"[SET] FrameRate: {val}")
+
+            elif cmd == 't' and len(entrada) > 1:
+                global THRESH_VAL
+                THRESH_VAL = int(entrada[1])
+                print(f"[SET] Threshold: {THRESH_VAL}")
+
+        except Exception as err:
+            print(f"[ERRO] Comando inválido: {err}")
+
+# --- RESTANTE DA LÓGICA (logica_scanner, generate_frames, routes) ---
 
 def logica_scanner():
     global contador, furo_na_linha, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
@@ -54,13 +100,10 @@ def logica_scanner():
 
         furo_agora = False
         temp_contornos = []
-        
         for cnt in contours:
             area = cv2.contourArea(cnt)
             x, y, w, h = cv2.boundingRect(cnt)
-            
-            # Área ajustada para a nova resolução de 640px
-            if 10 < area < 2000:
+            if 100 < area < 5000:
                 centro_x = x + (w // 2)
                 temp_contornos.append({'rect': (x, y, w, h), 'color': (0, 255, 0)})
                 if abs(centro_x - LINHA_X) < MARGEM:
@@ -71,61 +114,47 @@ def logica_scanner():
             else:
                 temp_contornos.append({'rect': (x, y, w, h), 'color': (0, 0, 255)})
 
-        if not furo_agora:
-            furo_na_linha = False
-            
+        if not furo_agora: furo_na_linha = False
         ultimo_frame_bruto = frame_raw
         ultimo_frame_binario = binary
         lista_contornos_debug = temp_contornos
 
 def generate_frames():
     while True:
-        if ultimo_frame_bruto is None or ultimo_frame_binario is None:
+        if ultimo_frame_bruto is None:
             time.sleep(0.01)
             continue
-        
         vis = ultimo_frame_bruto.copy()
-        
-        # Desenho de guias em alta definição
         cv2.rectangle(vis, (0, ROI_Y), (640, ROI_Y + ROI_H), (255, 255, 255), 1)
         cv2.line(vis, (LINHA_X, ROI_Y), (LINHA_X, ROI_Y + ROI_H), (0, 255, 255), 2)
-
         for item in lista_contornos_debug:
             x, y, w, h = item['rect']
             cv2.rectangle(vis, (x, y + ROI_Y), (x + w, y + h + ROI_Y), item['color'], 2)
-
-        # Output lado a lado (1280x480 para inspeção detalhada)
+        
         bin_rgb = cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB)
         canvas_bin = np.zeros_like(vis)
         canvas_bin[ROI_Y:ROI_Y+ROI_H, :] = bin_rgb
-        
         output = np.hstack((vis, canvas_bin))
-
-        # Qualidade 95 para inspeção de foco manual
-        ret, buffer = cv2.imencode('.jpg', output, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
+        ret, buffer = cv2.imencode('.jpg', output, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
 @app.route('/video_feed')
-def video_feed():
-    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+def video_feed(): return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/count')
-def get_count():
-    return str(contador)
+def get_count(): return str(contador)
 
 @app.route('/')
 def index():
     return """
     <html>
         <body style='background:#111; color:#0f0; text-align:center; font-family:monospace;'>
-            <h2>MINIOLA FOCUS MODE (640x480)</h2>
+            <h2>MINIOLA LIVE TUNING</h2>
             <div id='val' style='font-size:80px;'>0</div>
-            <img src="/video_feed" style="width:100%; max-width:1280px; border:2px solid #555;">
+            <img src="/video_feed" style="width:100%; max-width:1200px;">
             <script>
                 setInterval(() => {
-                    fetch('/count').then(r => r.text()).then(t => { 
-                        document.getElementById('val').innerText = t; 
-                    });
+                    fetch('/count').then(r => r.text()).then(t => { document.getElementById('val').innerText = t; });
                 }, 100);
             </script>
         </body>
@@ -134,10 +163,9 @@ def index():
 
 if __name__ == '__main__':
     try:
-        threading.Thread(target=escutar_teclado, daemon=True).start()
+        # Iniciamos o painel de controle em uma thread
+        threading.Thread(target=painel_controle, daemon=True).start()
         threading.Thread(target=logica_scanner, daemon=True).start()
         app.run(host='0.0.0.0', port=5000, threaded=True, use_reloader=False)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        picam2.stop()
+    except KeyboardInterrupt: pass
+    finally: picam2.stop()
