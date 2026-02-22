@@ -41,13 +41,14 @@ lista_contornos_debug = []
 
 def painel_controle():
     """Gerencia entradas do terminal sem poluição de logs."""
-    global contador, THRESH_VAL
+    global contador, THRESH_VAL, ultimo_frame_bruto
     time.sleep(2)  # Espera o sistema inicializar
     
     print("\n" + "="*40)
     print("  MINIOLA TERMINAL CONTROL")
     print("  Comandos + [Enter]:")
     print("  r       : Reseta contador")
+    print("  a       : Auto-ajuste de Threshold (Otsu)") # NOVO COMANDO
     print("  e [val] : ExposureTime (ex: e 800)")
     print("  g [val] : AnalogueGain (ex: g 2.0)")
     print("  f [val] : FrameRate    (ex: f 60)")
@@ -64,21 +65,46 @@ def painel_controle():
             if cmd == 'r':
                 contador = 0
                 print(">> [OK] Contador zerado.")
+                
+            elif cmd == 'a':
+                # --- LÓGICA DO AUTO-THRESHOLD (OTSU) ---
+                if ultimo_frame_bruto is not None:
+                    # 1. Pegamos uma "foto" do ROI atual
+                    gray = cv2.cvtColor(ultimo_frame_bruto, cv2.COLOR_RGB2GRAY)
+                    roi = gray[ROI_Y:ROI_Y+ROI_H, :]
+                    
+                    # 2. Aplicamos o método de Otsu
+                    # Ele ignora os valores (0, 255) que passamos e calcula o limiar perfeito
+                    limiar_calculado, _ = cv2.threshold(roi, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                    
+                    # 3. Aplicamos uma margem de segurança de 10% para baixo. 
+                    # Isso garante que a geometria do furo não "encolha" se a luz oscilar sutilmente.
+                    THRESH_VAL = int(limiar_calculado * 0.9)
+                    
+                    print(f">> [AUTO] Histograma analisado (Otsu).")
+                    print(f">> [AUTO] Valor matemático: {int(limiar_calculado)} | Aplicado (com margem): {THRESH_VAL}")
+                else:
+                    print(">> [ERRO] Nenhum frame na memória. Aguarde a câmera.")
+
             elif cmd == 'e' and len(entrada) > 1:
                 val = int(entrada[1])
                 picam2.set_controls({"ExposureTime": val})
                 print(f">> [SET] ExposureTime: {val}")
+                
             elif cmd == 'g' and len(entrada) > 1:
                 val = float(entrada[1])
                 picam2.set_controls({"AnalogueGain": val})
                 print(f">> [SET] AnalogueGain: {val}")
+                
             elif cmd == 'f' and len(entrada) > 1:
                 val = int(entrada[1])
                 picam2.set_controls({"FrameRate": val})
                 print(f">> [SET] FrameRate: {val}")
+                
             elif cmd == 't' and len(entrada) > 1:
                 THRESH_VAL = int(entrada[1])
                 print(f">> [SET] Threshold: {THRESH_VAL}")
+                
         except Exception as e:
             print(f">> [ERRO]: Comando inválido ({e})")
 
