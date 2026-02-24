@@ -72,7 +72,7 @@ def painel_controle():
                     roi_analise = gray[ROI_Y:ROI_Y+ROI_H, ROI_X:ROI_X+ROI_W]
                     val_otsu, _ = cv2.threshold(roi_analise, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
                     # Margem de 10% para garantir que a binarização seja robusta
-                    THRESH_VAL = int(val_otsu * 0.9)
+                    THRESH_VAL = int(val_otsu * 1.71)
                     print(f">> [AUTO] Valor Otsu: {int(val_otsu)} | Aplicado: {THRESH_VAL}")
                 else:
                     print(">> [ERRO] Sem frame para análise.")
