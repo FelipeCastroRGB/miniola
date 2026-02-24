@@ -29,7 +29,7 @@ picam2.start()
 # Restringimos o X para evitar o "breu" das laterais da máquina
 ROI_Y, ROI_H = 100, 60
 ROI_X, ROI_W = 200, 240  
-LINHA_X, MARGEM = 320, 0
+LINHA_X, MARGEM = 320, 10
 THRESH_VAL = 110
 
 contador = 0
