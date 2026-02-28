@@ -48,7 +48,7 @@ def exibir_menu():
     MOVER ROI:   [w, a, s, d] (minúsculos)
     GATILHO:     [< , >]
     IMAGEM:      [e] Exp | [g] Gain | [t] Thresh
-    COMANDOS:    [S] GRAVAR | [P] PAUSAR | [R] RESET
+    COMANDOS:    [y] GRAVAR | [P] PAUSAR | [R] RESET
     {"="*45}
     """
     print(menu, flush=True)
@@ -66,7 +66,7 @@ def painel_controle():
             if not entrada_raw: continue
             
             # Comandos de GRAVAÇÃO (Exigem Shift/Caps Lock)
-            if entrada_raw == 'S':
+            if entrada_raw == 'y':
                 modo_gravacao = True
                 print("\n[!] STATUS: GRAVAÇÃO ATIVADA (RAM DRIVE)", flush=True)
             elif entrada_raw == 'P':
