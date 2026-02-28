@@ -1,91 +1,95 @@
 import cv2
 import numpy as np
 import time
-from flask import Flask, Response, render_template_string
+import os
 import threading
+from flask import Flask, Response, render_template_string
 from picamera2 import Picamera2
-from picamera2.outputs import NumpyOutput
 
-# --- CONFIGURAÇÕES TÉCNICAS (AMIA/SMPTE Standards) ---
-# Resolução ampliada para evitar cortes no fotograma
+# --- CONFIGURAÇÕES TÉCNICAS INICIAIS ---
 WIDTH, HEIGHT = 1280, 720 
-# ROI ajustada para as perfurações (agora considerando a rotação visual)
-# Nota: A lógica de detecção ainda corre no frame horizontal original
-ROI_X, ROI_Y = 850, 50   # Movido para a direita conforme sua imagem
+ROI_X, ROI_Y = 850, 50   
 ROI_W, ROI_H = 150, 80   
-LINHA_X = 920            # Linha de gatilho dentro da ROI
-THRESH_VAL = 60          # Sensibilidade do preto da perfuração
+LINHA_X = 920            
 
 # --- ESTADO GLOBAL ---
 perf_count = 0
 frame_count = 0
 modo_gravacao = False
 ultimo_frame_bruto = None
+# Parâmetros de Imagem
+shutter_speed = 20000 
+gain = 1.0            
+# Parâmetros de Detecção
+thresh_val = 60          
+modo_otsu = False        # Começa desativado para controle manual
 
 app = Flask(__name__)
+picam2 = Picamera2()
 
-# --- LÓGICA DO SCANNER (DETECÇÃO) ---
 def logica_scanner():
-    global perf_count, frame_count, ultimo_frame_bruto
+    global perf_count, frame_count, ultimo_frame_bruto, shutter_speed, gain, thresh_val
     
-    picam2 = Picamera2()
     config = picam2.create_preview_configuration(main={"format": "RGB888", "size": (WIDTH, HEIGHT)})
     picam2.configure(config)
     picam2.start()
     
-    output = NumpyOutput()
+    # Trava controles automáticos para consistência de arquivo
+    picam2.set_controls({"ExposureTime": shutter_speed, "AnalogueGain": gain})
+    
     perfuracao_detectada = False
 
     while True:
-        picam2.capture_array(output)
-        frame = output.array
+        frame = picam2.capture_array()
         ultimo_frame_bruto = frame.copy()
         
-        # Processamento para detecção (Grayscale + ROI)
+        # Processamento de Detecção
         gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
         roi = gray[ROI_Y:ROI_Y+ROI_H, ROI_X:ROI_X+ROI_W]
         
-        # Média de brilho na linha vertical de gatilho
+        # Lógica de Threshold Dinâmico (Otsu) ou Fixo
+        if modo_otsu:
+            # Otsu calcula o limiar ideal baseado no histograma da ROI
+            ret, thresh_img = cv2.threshold(roi, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            current_thresh = ret
+        else:
+            current_thresh = thresh_val
+        
+        # Coluna de gatilho para contagem
         coluna_gatilho = roi[:, LINHA_X - ROI_X]
         media_brilho = np.mean(coluna_gatilho)
 
-        # Lógica de Gatilho (Schmitt Trigger simples)
-        if media_brilho < THRESH_VAL and not perfuracao_detectada:
+        # Gatilho de Perfuração
+        if media_brilho < current_thresh and not perfuracao_detectada:
             perfuracao_detectada = True
             perf_count += 1
-            # A cada 4 perfurações (35mm padrão), contamos 1 frame
             if perf_count % 4 == 0:
                 frame_count += 1
                 if modo_gravacao:
-                    cv2.imwrite(f"captura/frame_{frame_count:06d}.jpg", frame)
+                    if not os.path.exists("captura"): os.makedirs("captura")
+                    frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                    cv2.imwrite(f"captura/frame_{frame_count:06d}.jpg", frame_bgr)
         
-        elif media_brilho > THRESH_VAL + 20:
+        elif media_brilho > current_thresh + 20:
             perfuracao_detectada = False
 
-# --- INTERFACE VISUAL (FLASK + OPENCV) ---
 def generate_frames():
     while True:
         if ultimo_frame_bruto is None:
             time.sleep(0.1)
             continue
             
-        # 1. Rotaciona a imagem para visionamento vertical (Personagens em pé)
-        # Usamos ROTATE_90_CLOCKWISE ou COUNTERCLOCKWISE dependendo da sua câmera
-        vis = cv2.rotate(ultimo_frame_bruto, cv2.ROTATE_90_COUNTERCLOCKWISE)
-        h_vis, w_vis = vis.shape[:2]
-
-        # 2. Desenho de Overlays (Precisamos transpor as coordenadas da ROI para a imagem rotacionada)
-        # Para facilitar o visionamento, desenhamos info fixas no topo
+        vis_base = cv2.cvtColor(ultimo_frame_bruto, cv2.COLOR_RGB2BGR)
+        vis = cv2.rotate(vis_base, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        
         status_cor = (0, 255, 0) if modo_gravacao else (0, 255, 255)
         txt_modo = "GRAVANDO" if modo_gravacao else "VISIONAMENTO"
+        txt_otsu = "OTSU: ON" if modo_otsu else f"THRESH: {thresh_val}"
         
-        cv2.putText(vis, f"MODO: {txt_modo}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, status_cor, 2)
-        cv2.putText(vis, f"PERF: {perf_count}", (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
-        cv2.putText(vis, f"FRAMES: {frame_count}", (20, 120), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 255), 3)
-
-        # 3. Desenho da Caixa de ROI (Transposta para a visão rotacionada)
-        # Nota: Simplificamos o desenho para focar no fotograma
-        cv2.rectangle(vis, (50, 50), (150, 150), (255, 0, 0), 2) # Guia visual simples
+        # Overlays Técnicos para a Mesa de Enroladeira
+        cv2.putText(vis, f"MODO: {txt_modo}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_cor, 2)
+        cv2.putText(vis, f"PERF: {perf_count} | FR: {frame_count}", (20, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
+        cv2.putText(vis, f"{txt_otsu} | EXP: {shutter_speed}", (20, 105), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
 
         _, buffer = cv2.imencode('.jpg', vis)
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
@@ -97,38 +101,45 @@ def video_feed():
 @app.route('/')
 def index():
     return render_template_string("""
-        <html>
-            <body style="background: #111; color: white; text-align: center; font-family: sans-serif;">
-                <h1>MINIOLA DIGITAL VIEWER</h1>
-                <img src="{{ url_for('video_feed') }}" style="height: 85vh; border: 2px solid #444;">
-                <p>Use o terminal para comandos de captura (S/P) e ajustes técnicos.</p>
-            </body>
-        </html>
+        <html><body style="background: #000; color: #ccc; text-align: center; font-family: monospace;">
+            <h2 style="color: #0ff;">MINIOLA DIGITAL v2.4 - DEBUG MODE</h2>
+            <img src="{{ url_for('video_feed') }}" style="height: 82vh; border: 1px solid #333;">
+            <div style="margin-top: 5px;">Comandos: S/P (Grav), E/D (Exp), G/H (Gain), T/Y (Thresh), O (Otsu)</div>
+        </body></html>
     """)
 
-# --- CONTROLE VIA TERMINAL ---
 def terminal_control():
-    global modo_gravacao, perf_count, frame_count
-    print("\n--- CONTROLE MINIOLA ATIVO ---")
-    print("S: Start Gravacao | P: Pause/Stop | R: Reset Contadores | Q: Sair")
+    global modo_gravacao, perf_count, frame_count, shutter_speed, gain, thresh_val, modo_otsu
+    print("\n--- COMANDOS DE BANCADA ---")
+    print("S/P: Start/Pause | R: Reset | O: Toggle OTSU")
+    print("E/D: Exp +/- | G/H: Gain +/- | T/Y: Thresh +/-")
+    
     while True:
-        cmd = input("Comando: ").lower()
-        if cmd == 's':
-            import os
-            if not os.path.exists("captura"): os.makedirs("captura")
-            modo_gravacao = True
-            print(">> CAPTURA INICIADA")
-        elif cmd == 'p':
-            modo_gravacao = False
-            print(">> CAPTURA PAUSADA")
-        elif cmd == 'r':
-            perf_count = 0
-            frame_count = 0
-            print(">> CONTADORES ZERADOS")
+        cmd = input(">> ").lower()
+        if cmd == 's': modo_gravacao = True
+        elif cmd == 'p': modo_gravacao = False
+        elif cmd == 'r': perf_count = frame_count = 0
+        elif cmd == 'o': 
+            modo_otsu = not modo_otsu
+            print(f">> MODO OTSU: {modo_otsu}")
+        elif cmd == 'e': 
+            shutter_speed = max(100, shutter_speed - 2000)
+            picam2.set_controls({"ExposureTime": shutter_speed})
+        elif cmd == 'd': 
+            shutter_speed += 2000
+            picam2.set_controls({"ExposureTime": shutter_speed})
+        elif cmd == 'g':
+            gain = max(1.0, gain - 0.2); picam2.set_controls({"AnalogueGain": gain})
+        elif cmd == 'h':
+            gain = min(12.0, gain + 0.2); picam2.set_controls({"AnalogueGain": gain})
+        elif cmd == 't':
+            thresh_val = max(10, thresh_val - 5)
+        elif cmd == 'y':
+            thresh_val = min(240, thresh_val + 5)
+        elif cmd == 'q': os._exit(0)
 
 if __name__ == '__main__':
     t1 = threading.Thread(target=logica_scanner, daemon=True)
     t2 = threading.Thread(target=terminal_control, daemon=True)
-    t1.start()
-    t2.start()
+    t1.start(); t2.start()
     app.run(host='0.0.0.0', port=5000, threaded=True)
