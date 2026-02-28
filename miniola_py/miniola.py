@@ -21,7 +21,7 @@ config = picam2.create_video_configuration(main={"size": (WIDTH, HEIGHT), "forma
 picam2.configure(config)
 
 # Valores iniciais
-shutter_speed = 20000
+shutter_speed = 1000
 gain = 1.0
 fps = 30
 
