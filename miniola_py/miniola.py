@@ -1,6 +1,6 @@
 from flask import Flask, Response
 from picamera2 import Picamera2
-from picamera2.previews import NullPreview  # Solução para o erro de KMS
+from picamera2.previews import NullPreview
 import cv2
 import numpy as np
 import threading
@@ -14,98 +14,91 @@ app = Flask(__name__)
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR) 
 
-# --- CAMINHOS DE PRESERVAÇÃO (Padrão AMIA) ---
-# Usamos o caminho absoluto para garantir que caia no RAM Drive (tmpfs)
-CAPTURE_PATH = "/home/felipe/miniola_py/captura"
+# Caminho absoluto para o RAM Drive
+BASE_DIR = "/home/felipe/miniola_py"
+CAPTURE_PATH = os.path.join(BASE_DIR, "captura")
 if not os.path.exists(CAPTURE_PATH):
     os.makedirs(CAPTURE_PATH)
 
 picam2 = Picamera2()
-
-# 2. Configuração de Hardware (800x600: O "Sweet Spot" para RPi)
 WIDTH, HEIGHT = 800, 600
 config = picam2.create_video_configuration(main={"size": (WIDTH, HEIGHT), "format": "RGB888"})
 picam2.configure(config)
 
-# Valores iniciais de exposição e ganho (Ajuste fino para emulsão)
-shutter_speed = 1000
-gain = 1.0
-fps = 30
-
+shutter_speed, gain, fps = 1000, 1.0, 30
 picam2.set_controls({"ExposureTime": shutter_speed, "AnalogueGain": gain, "FrameRate": fps})
-
-# --- INICIALIZAÇÃO HEADLESS ---
-# Substituímos picam2.start() por NullPreview para evitar erro de 'pykms'
 picam2.start_preview(NullPreview())
-print("--- MINIOLA v2.8: Câmera em modo Headless (Driver KMS ignorado) ---")
 
-# --- GEOMETRIA DINÂMICA (Adaptada para 800x600) ---
-ROI_X, ROI_Y = 250, 40
-ROI_W, ROI_H = 300, 120  
-LINHA_X, MARGEM = 400, 15
-THRESH_VAL = 110
-
-# Estado Global
-contador_perf = 0
-frame_count = 0
-furo_na_linha = False
-modo_gravacao = False
+# --- GEOMETRIA E ESTADO ---
+ROI_X, ROI_Y, ROI_W, ROI_H = 250, 40, 300, 120  
+LINHA_X, MARGEM, THRESH_VAL = 400, 15, 110
+contador_perf, frame_count = 0, 0
+furo_na_linha, modo_gravacao = False, False
 ultimo_frame_bruto = None
-ultimo_frame_binario = None
-lista_contornos_debug = []
 
-# --- THREAD: PAINEL DE CONTROLE (Comandos Dinâmicos via CLI) ---
+# --- MELHORIA: PAINEL DE CONTROLE VISÍVEL ---
+
+def exibir_menu():
+    print("\n" + "="*45)
+    print("  MINIOLA CONTROL v2.8.4 - ACTIVE")
+    print("="*45)
+    print("  ROI:  [w,a,s,d] | GATILHO: [< , >]")
+    print("  IMG:  [e] Exp  | [g] Gain | [t] Thresh")
+    print("  OP:   [S] START | [P] PAUSE | [R] RESET")
+    print("="*45)
 
 def painel_controle():
-    global contador_perf, frame_count, modo_gravacao, THRESH_VAL, ultimo_frame_bruto
+    global contador_perf, frame_count, modo_gravacao, THRESH_VAL
     global ROI_X, ROI_Y, LINHA_X, shutter_speed, gain
     
-    print("\n" + "="*45)
-    print("  MINIOLA CONTROL v2.8 - ESTABILIZADO")
-    print("="*45)
-    print("  MOVER ROI:   w/s (C/B) | a/d (E/D)")
-    print("  GATILHO:     < / >  (Linha vermelha)")
-    print("  IMAGEM:      e/g (Exp/Gain) | t (Thresh) | o (Otsu)")
-    print("  CAPTURA:     S (Start) | P (Pause) | R (Reset)")
-    print("="*45)
+    exibir_menu()
 
     while True:
         try:
-            entrada = input(">> ").split()
+            # .strip() remove espaços extras que podem vir do terminal
+            entrada = input(">> ").strip().split()
             if not entrada: continue
-            cmd = entrada[0].lower()
             
+            cmd_original = entrada[0]
+            cmd = cmd_original.lower()
+            
+            # Movimentação do ROI (Apenas minúsculos)
             if cmd == 'w': ROI_Y = max(0, ROI_Y - 5)
-            elif cmd == 's': ROI_Y = min(HEIGHT - ROI_H, ROI_Y + 5)
+            elif cmd == 's' and cmd_original == 's': ROI_Y = min(HEIGHT - ROI_H, ROI_Y + 5)
             elif cmd == 'a': ROI_X = max(0, ROI_X - 5)
             elif cmd == 'd': ROI_X = min(WIDTH - ROI_W, ROI_X + 5)
-            elif cmd == '>': LINHA_X = min(ROI_X + ROI_W, LINHA_X + 5)
-            elif cmd == '<': LINHA_X = max(ROI_X, LINHA_X - 5)
-            elif cmd == 'o':
-                if ultimo_frame_bruto is not None:
-                    gray = cv2.cvtColor(ultimo_frame_bruto, cv2.COLOR_RGB2GRAY)
-                    roi_a = gray[ROI_Y:ROI_Y+ROI_H, ROI_X:ROI_X+ROI_W]
-                    val, _ = cv2.threshold(roi_a, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-                    THRESH_VAL = int(val * 1.71)
-                    print(f"[AUTO] Threshold: {THRESH_VAL}")
+            
+            # Comandos de GATILHO (Sensíveis a maiúsculas para evitar erro)
+            elif cmd_original == 'S': 
+                modo_gravacao = True
+                print("\n[!] STATUS: GRAVAÇÃO INICIADA")
+            elif cmd_original == 'P': 
+                modo_gravacao = False
+                print("\n[!] STATUS: GRAVAÇÃO PAUSADA")
+            elif cmd_original == 'R': 
+                contador_perf = frame_count = 0
+                print("\n[!] STATUS: CONTADORES ZERADOS")
+                
+            # Ajustes de Imagem
+            elif cmd == '>' : LINHA_X = min(ROI_X + ROI_W, LINHA_X + 5)
+            elif cmd == '<' : LINHA_X = max(ROI_X, LINHA_X - 5)
+            elif cmd == 't' and len(entrada) > 1:
+                THRESH_VAL = int(entrada[1])
+                print(f"Threshold ajustado: {THRESH_VAL}")
             elif cmd == 'e' and len(entrada) > 1:
                 shutter_speed = int(entrada[1])
                 picam2.set_controls({"ExposureTime": shutter_speed})
             elif cmd == 'g' and len(entrada) > 1:
                 gain = float(entrada[1])
                 picam2.set_controls({"AnalogueGain": gain})
-            elif cmd == 't' and len(entrada) > 1:
-                THRESH_VAL = int(entrada[1])
-            elif cmd == 's' and entrada[0] == 'S': 
-                modo_gravacao = True; print("GRAVANDO NO RAM DRIVE...")
-            elif cmd == 'p' and entrada[0] == 'P': modo_gravacao = False; print("PAUSADO.")
-            elif cmd == 'r' and entrada[0] == 'R': contador_perf = frame_count = 0; print("RESETADO.")
-        except Exception as e: print(f"Erro no console: {e}")
+                
+        except Exception as e: 
+            print(f"Erro no comando: {e}")
 
-# --- THREAD: LÓGICA DO SCANNER (Processamento Otimizado) ---
+# --- LÓGICA DO SCANNER COM FEEDBACK DE ESCRITA ---
 
 def logica_scanner():
-    global contador_perf, frame_count, furo_na_linha, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
+    global contador_perf, frame_count, furo_na_linha, ultimo_frame_bruto
     while True:
         frame_raw = picam2.capture_array()
         if frame_raw is None: 
@@ -114,19 +107,15 @@ def logica_scanner():
             
         gray = cv2.cvtColor(frame_raw, cv2.COLOR_RGB2GRAY)
         roi = gray[ROI_Y:ROI_Y+ROI_H, ROI_X:ROI_X+ROI_W]
-        
         _, binary = cv2.threshold(roi, THRESH_VAL, 255, cv2.THRESH_BINARY)
         contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         furo_agora = False
-        temp_contornos = []
-        
         for cnt in contours:
             area = cv2.contourArea(cnt)
-            x, y, w, h = cv2.boundingRect(cnt)
             if 50 < area < 5000:
+                x, y, w, h = cv2.boundingRect(cnt)
                 cx_global = x + ROI_X + (w // 2)
-                temp_contornos.append({'rect': (x, y, w, h), 'color': (0, 255, 0)})
                 if abs(cx_global - LINHA_X) < MARGEM:
                     furo_agora = True
                     if not furo_na_linha:
@@ -135,53 +124,38 @@ def logica_scanner():
                         if contador_perf % 4 == 0:
                             frame_count += 1
                             if modo_gravacao:
+                                # Feedback de preservação AMIA
+                                filename = f"frame_{frame_count:06d}.jpg"
+                                full_path = os.path.join(CAPTURE_PATH, filename)
                                 fbgr = cv2.cvtColor(frame_raw, cv2.COLOR_RGB2BGR)
-                                # Salvamento direto no RAM Drive (/captura)
-                                cv2.imwrite(f"{CAPTURE_PATH}/frame_{frame_count:06d}.jpg", fbgr)
-            else:
-                temp_contornos.append({'rect': (x, y, w, h), 'color': (0, 0, 255)})
+                                cv2.imwrite(full_path, fbgr)
+                                # Este print confirma no terminal a gravação real
+                                sys.stdout.write(f"\rCapturando: {filename} | Perf: {contador_perf}")
+                                sys.stdout.flush()
 
         if not furo_agora: furo_na_linha = False
-        ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug = frame_raw, binary, temp_contornos
+        ultimo_frame_bruto = frame_raw
         time.sleep(0.005) 
 
-# --- FLASK: VISIONAMENTO COM TELEMETRIA ---
-
-def generate_frames():
-    while True:
-        if ultimo_frame_bruto is None:
-            time.sleep(0.1); continue
-        
-        vis_base = cv2.cvtColor(ultimo_frame_bruto, cv2.COLOR_RGB2BGR)
-        cor_gat = (0, 255, 0) if furo_na_linha else (0, 0, 255)
-        cv2.rectangle(vis_base, (ROI_X, ROI_Y), (ROI_X + ROI_W, ROI_Y + ROI_H), (150, 150, 150), 2)
-        cv2.line(vis_base, (LINHA_X, ROI_Y), (LINHA_X, ROI_Y + ROI_H), cor_gat, 3)
-        
-        for item in lista_contornos_debug:
-            x, y, w, h = item['rect']
-            cv2.rectangle(vis_base, (x + ROI_X, y + ROI_Y), (x + w + ROI_X, y + h + ROI_Y), item['color'], 2)
-        
-        vis = cv2.rotate(vis_base, cv2.ROTATE_90_COUNTERCLOCKWISE)
-        
-        cor_m = (0, 255, 0) if modo_gravacao else (0, 255, 255)
-        cv2.putText(vis, f"MODO: {'GRAVANDO' if modo_gravacao else 'VISIONAMENTO'}", (20, 35), 1, 1.2, cor_m, 2)
-        cv2.putText(vis, f"PERF: {contador_perf} | FR: {frame_count}", (20, 70), 1, 1.2, (255,255,255), 2)
-
-        ret, buffer = cv2.imencode('.jpg', vis, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
-        yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-        time.sleep(0.01)
-
+# --- FLASK E EXECUÇÃO ---
 @app.route('/video_feed')
-def video_feed(): return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+def video_feed():
+    def generate():
+        while True:
+            if ultimo_frame_bruto is not None:
+                vis = cv2.cvtColor(ultimo_frame_bruto, cv2.COLOR_RGB2BGR)
+                vis = cv2.rotate(vis, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                ret, buffer = cv2.imencode('.jpg', vis, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
+                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+            time.sleep(0.03)
+    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/')
 def index():
-    return """<html><body style='background:#000; color:#0f0; text-align:center; font-family:monospace;'>
-              <h3>MINIOLA v2.8</h3><img src="/video_feed" style="height:88vh; border:1px solid #333;">
-              <p>Controles via SSH Console Ativo</p>
-              </body></html>"""
+    return "<html><body style='background:#000;color:#0f0;'><img src='/video_feed' style='height:90vh;'></body></html>"
 
 if __name__ == '__main__':
+    # Usamos sys.stdout.write para garantir que o menu apareça antes do input
     threading.Thread(target=painel_controle, daemon=True).start()
     threading.Thread(target=logica_scanner, daemon=True).start()
     app.run(host='0.0.0.0', port=5000, threaded=True, use_reloader=False)
