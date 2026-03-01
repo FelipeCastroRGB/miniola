@@ -29,7 +29,7 @@ picam2.configure(config)
 # Valores iniciais 
 shutter_speed = 1800
 gain = 1.0
-fps = 45
+fps = 60
 
 picam2.set_controls({"ExposureTime": shutter_speed, "AnalogueGain": gain, "FrameRate": fps})
 picam2.start()
@@ -38,7 +38,7 @@ picam2.start()
 ROI_X, ROI_Y = 5, 5  # Posição inicial do ROI (ajustada para o novo tamanho)
 ROI_W, ROI_H = 300, 40  # Tamanho do ROI (ajustado para o novo tamanho)  
 LINHA_X, MARGEM = 150, 15
-THRESH_VAL = 110
+THRESH_VAL = 230
 CROP_Y1, CROP_Y2 = 110, 580  # Ajuste o corte vertical
 CROP_X1, CROP_X2 = 250, 550  # Ajuste o corte horizontal (elimina bordas pretas)
 
@@ -201,7 +201,7 @@ def generate_frames():
         
         # 2. Otimização de Wi-Fi: Redimensiona o streaming e baixa qualidade 
         vis_light = cv2.resize(vis, (largura_final, altura_alvo), interpolation=cv2.INTER_AREA)
-        ret, buffer = cv2.imencode('.jpg', vis_light, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+        ret, buffer = cv2.imencode('.jpg', vis_light, [int(cv2.IMWRITE_JPEG_QUALITY), 40])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
         time.sleep(0.04) # Limita streaming a ~25fps para poupar CPU 
 
@@ -228,7 +228,7 @@ def preview_feed():
                     img = cv2.imread(path)
                     # ROTAÇÃO 90 GRAUS À ESQUERDA
                     img_rot = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
-                    ret, buffer = cv2.imencode('.jpg', img_rot, [int(cv2.IMWRITE_JPEG_QUALITY), 40])
+                    ret, buffer = cv2.imencode('.jpg', img_rot, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
                     yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
                     time.sleep(1/24)
                 except: continue
