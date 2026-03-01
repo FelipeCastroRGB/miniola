@@ -179,8 +179,17 @@ def generate_frames():
         if ultimo_frame_bruto is None:
             time.sleep(0.1); continue
         
-        # 1. Redução de processamento para o streaming 
+        # Cria a base de visualização a partir do frame já cortado [cite: 2026-02-28]
         vis_base = cv2.cvtColor(ultimo_frame_bruto, cv2.COLOR_RGB2BGR)
+        
+        # --- RECOLOQUE ESTE BLOCO DE TEXTOS AQUI ---
+        txt_modo = "MODO: GRAVANDO" if modo_gravacao else "MODO: VISIONAMENTO"
+        cor_modo = (0, 0, 255) if modo_gravacao else (0, 255, 0)
+        
+        # Desenha as informações de status no topo [cite: 2026-02-28]
+        cv2.putText(vis_base, txt_modo, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, cor_modo, 2)
+        cv2.putText(vis_base, f"PERF: {contador_perf} | FR: {frame_count}", (10, 55), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         
         # Desenha telemetria
         cor_gat = (0, 255, 0) if furo_na_linha else (0, 0, 255)
