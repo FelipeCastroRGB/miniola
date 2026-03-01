@@ -37,7 +37,7 @@ picam2.start()
 # --- GEOMETRIA DINÂMICA (Adaptada para 800x600) ---
 ROI_X, ROI_Y = 5, 5  # Posição inicial do ROI (ajustada para o novo tamanho)
 ROI_W, ROI_H = 300, 40  # Tamanho do ROI (ajustado para o novo tamanho)  
-LINHA_X, MARGEM = 100, 15
+LINHA_X, MARGEM = 150, 15
 THRESH_VAL = 110
 CROP_Y1, CROP_Y2 = 110, 580  # Ajuste o corte vertical
 CROP_X1, CROP_X2 = 250, 550  # Ajuste o corte horizontal (elimina bordas pretas)
@@ -83,7 +83,7 @@ def painel_controle():
                     gray = cv2.cvtColor(ultimo_frame_bruto, cv2.COLOR_RGB2GRAY)
                     roi_a = gray[ROI_Y:ROI_Y+ROI_H, ROI_X:ROI_X+ROI_W]
                     val, _ = cv2.threshold(roi_a, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-                    THRESH_VAL = int(val * 1.5)
+                    THRESH_VAL = int(val * 1.55) # Ajuste fino para compensar o corte e iluminação
                     print(f"[AUTO] Threshold: {THRESH_VAL}")
             elif cmd == 'e' and len(entrada) > 1:
                 shutter_speed = int(entrada[1])
@@ -259,14 +259,14 @@ def index():
             <div style="display:flex; gap:20px; justify-content:center; width:100%;">
                 <div style="text-align:center;">
                     <p>AO VIVO (AJUSTE)</p>
-                    <div style="background:#000; width:550px; height:650px; border:2px solid #333; display:flex; align-items:center; justify-content:center;">
+                    <div style="background:#000; width:650px; height:750px; border:2px solid #333; display:flex; align-items:center; justify-content:center;">
                         <img src="/video_feed" style="max-width:100%; max-height:100%; object-fit:contain;">
                     </div>
                 </div>
                 
                 <div style="text-align:center;">
                     <p>PREVIEW (ESTABILIDADE)</p>
-                    <div style="background:#000; width:550px; height:650px; border:2px solid #0f0; display:flex; align-items:center; justify-content:center;">
+                    <div style="background:#000; width:650px; height:750px; border:2px solid #0f0; display:flex; align-items:center; justify-content:center;">
                         <img src="/preview_feed" style="max-width:100%; max-height:100%; object-fit:contain;">
                     </div>
                 </div>
