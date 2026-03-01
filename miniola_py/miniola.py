@@ -194,7 +194,7 @@ def generate_frames():
         vis = cv2.rotate(vis_base, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
         # --- REDIMENSIONAMENTO PROPORCIONAL (v3.1d) ---
-        altura_alvo = 400 # Você define a altura; a largura se ajusta sozinha [cite: 2026-02-28]
+        altura_alvo = 500 # Você define a altura; a largura se ajusta sozinha [cite: 2026-02-28]
         h_orig, w_orig = vis.shape[:2]
         proporcao = w_orig / h_orig
         largura_final = int(altura_alvo * proporcao)
@@ -259,11 +259,11 @@ def index():
             <div style="display:flex; gap:20px;">
                 <div style="text-align:center;">
                     <p>AO VIVO (AJUSTE)</p>
-                    <img src="/video_feed" style="border:2px solid #333; max-height:70vh;">
+                    <img src="/video_feed" style="border:2px solid #333; height:550px; object-fit:contain;">
                 </div>
                 <div style="text-align:center;">
                     <p>PREVIEW (ESTABILIDADE)</p>
-                    <img src="/preview_feed" style="border:2px solid #0f0; max-height:70vh;">
+                    <img src="/preview_feed" style="border:2px solid #0f0; height:550px; object-fit:contain;">
                 </div>
             </div>
 
