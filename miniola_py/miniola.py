@@ -83,7 +83,7 @@ def painel_controle():
                     gray = cv2.cvtColor(ultimo_frame_bruto, cv2.COLOR_RGB2GRAY)
                     roi_a = gray[ROI_Y:ROI_Y+ROI_H, ROI_X:ROI_X+ROI_W]
                     val, _ = cv2.threshold(roi_a, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-                    THRESH_VAL = int(val * 1.61)
+                    THRESH_VAL = int(val * 1.5)
                     print(f"[AUTO] Threshold: {THRESH_VAL}")
             elif cmd == 'e' and len(entrada) > 1:
                 shutter_speed = int(entrada[1])
@@ -194,7 +194,7 @@ def generate_frames():
         vis = cv2.rotate(vis_base, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
         # --- REDIMENSIONAMENTO PROPORCIONAL (v3.1d) ---
-        altura_alvo = 500 # Você define a altura; a largura se ajusta sozinha [cite: 2026-02-28]
+        altura_alvo = 400 # Você define a altura; a largura se ajusta sozinha [cite: 2026-02-28]
         h_orig, w_orig = vis.shape[:2]
         proporcao = w_orig / h_orig
         largura_final = int(altura_alvo * proporcao)
@@ -228,7 +228,7 @@ def preview_feed():
                     img = cv2.imread(path)
                     # ROTAÇÃO 90 GRAUS À ESQUERDA
                     img_rot = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
-                    ret, buffer = cv2.imencode('.jpg', img_rot, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                    ret, buffer = cv2.imencode('.jpg', img_rot, [int(cv2.IMWRITE_JPEG_QUALITY), 40])
                     yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
                     time.sleep(1/24)
                 except: continue
@@ -276,7 +276,7 @@ def index():
                         document.getElementById('perf').innerText = data.perf;
                         document.getElementById('fr').innerText = data.frames;
                     });
-                }, 500); // Atualiza a telemetria 2x por segundo [cite: 2026-02-28]
+                }, 500); 
             </script>
         </body>
     </html>
