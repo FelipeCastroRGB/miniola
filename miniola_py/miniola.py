@@ -210,7 +210,7 @@ def generate_frames():
         
         # 2. Otimização de Wi-Fi: Redimensiona o streaming e baixa qualidade 
         vis_light = cv2.resize(vis, (largura_final, altura_alvo), interpolation=cv2.INTER_AREA)
-        ret, buffer = cv2.imencode('.jpg', vis_light, [int(cv2.IMWRITE_JPEG_QUALITY), 20])
+        ret, buffer = cv2.imencode('.jpg', vis_light, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
         time.sleep(0.04) # Limita streaming a ~25fps para poupar CPU 
 
