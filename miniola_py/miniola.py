@@ -14,7 +14,7 @@ log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR) 
 
 # --- CONFIGURAÇÃO DE CAMINHO (RAM DRIVE) ---
-# Usamos o caminho absoluto para garantir a gravação no tmpfs (RAM) [cite: 2026-02-28]
+# Usamos o caminho absoluto para garantir a gravação no tmpfs (RAM) 
 CAPTURE_PATH = "/home/felipe/miniola_py/captura"
 if not os.path.exists(CAPTURE_PATH):
     os.makedirs(CAPTURE_PATH)
@@ -26,7 +26,7 @@ WIDTH, HEIGHT = 800, 600
 config = picam2.create_video_configuration(main={"size": (WIDTH, HEIGHT), "format": "RGB888"})
 picam2.configure(config)
 
-# Valores iniciais (Recuperados da v2.7 funcional)
+# Valores iniciais otimizados para detecção rápida e estável
 shutter_speed = 10000  # 10ms
 gain = 1.0
 fps = 45
@@ -169,7 +169,7 @@ def generate_frames():
         cv2.putText(vis, f"MODO: {'GRAVANDO' if modo_gravacao else 'VISIONAMENTO'}", (20, 35), 1, 1.2, cor_m, 2)
         cv2.putText(vis, f"PERF: {contador_perf} | FR: {frame_count}", (20, 70), 1, 1.2, (255,255,255), 2)
 
-        ret, buffer = cv2.imencode('.jpg', vis, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
+        ret, buffer = cv2.imencode('.jpg', vis, [int(cv2.IMWRITE_JPEG_QUALITY), 30])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
         time.sleep(0.01)
 
