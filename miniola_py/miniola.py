@@ -182,15 +182,6 @@ def generate_frames():
         # Cria a base de visualização a partir do frame já cortado [cite: 2026-02-28]
         vis_base = cv2.cvtColor(ultimo_frame_bruto, cv2.COLOR_RGB2BGR)
         
-        # --- RECOLOQUE ESTE BLOCO DE TEXTOS AQUI ---
-        txt_modo = "MODO: GRAVANDO" if modo_gravacao else "MODO: VISIONAMENTO"
-        cor_modo = (0, 0, 255) if modo_gravacao else (0, 255, 0)
-        
-        # Desenha as informações de status no topo [cite: 2026-02-28]
-        cv2.putText(vis_base, txt_modo, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, cor_modo, 2)
-        cv2.putText(vis_base, f"PERF: {contador_perf} | FR: {frame_count}", (10, 55), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        
         # Desenha telemetria
         cor_gat = (0, 255, 0) if furo_na_linha else (0, 0, 255)
         cv2.rectangle(vis_base, (ROI_X, ROI_Y), (ROI_X + ROI_W, ROI_Y + ROI_H), (150, 150, 150), 2)
@@ -243,26 +234,53 @@ def preview_feed():
                 except: continue
     return Response(generate_preview(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
+@app.route('/status')
+def get_status():
+    return {
+        "modo": "GRAVANDO" if modo_gravacao else "VISIONAMENTO",
+        "cor": "#ff0000" if modo_gravacao else "#00ff00",
+        "perf": contador_perf,
+        "frames": frame_count
+    }
+
 # --- INTERFACE ATUALIZADA (Painel Duplo) ---
 
 @app.route('/')
 def index():
-    return """<html>
-    <head><title>MINIOLA v3.0</title></head>
-    <body style='background:#111; color:#0f0; text-align:center; font-family:monospace; margin:0; padding:10px;'>
-        <div style="display: flex; justify-content: space-around; align-items: flex-start;">
-            <div>
-                <h3>AO VIVO (AJUSTE)</h3>
-                <img src="/video_feed" style="height:75vh; border:2px solid #333;">
+    return """
+    <html>
+        <body style='background:#111; color:#eee; font-family:monospace; display:flex; flex-direction:column; align-items:center;'>
+            <div style="background:#222; padding:10px; border-radius:5px; margin:10px; width:80%; display:flex; justify-content:space-around; border:1px solid #444;">
+                <span id="modo" style="font-weight:bold;">MODO: ---</span>
+                <span>PERFURAÇÕES: <b id="perf">0</b></span>
+                <span>FRAMES SALVOS: <b id="fr">0</b></span>
             </div>
-            <div>
-                <h3>PREVIEW (24 FPS)</h3>
-                <img src="/preview_feed" style="height:75vh; border:2px solid #0f0;">
-                <p style="color:#aaa;">Visualização do material no RAM Drive</p>
+            
+            <div style="display:flex; gap:20px;">
+                <div style="text-align:center;">
+                    <p>AO VIVO (AJUSTE)</p>
+                    <img src="/video_feed" style="border:2px solid #333; max-height:70vh;">
+                </div>
+                <div style="text-align:center;">
+                    <p>PREVIEW (ESTABILIDADE)</p>
+                    <img src="/preview_feed" style="border:2px solid #0f0; max-height:70vh;">
+                </div>
             </div>
-        </div>
-        <p>Controles via Console: 'f' Gravar | 'p' Pausar | 'r' Reset</p>
-    </body></html>"""
+
+            <script>
+                setInterval(() => {
+                    fetch('/status').then(r => r.json()).then(data => {
+                        const m = document.getElementById('modo');
+                        m.innerText = "MODO: " + data.modo;
+                        m.style.color = data.cor;
+                        document.getElementById('perf').innerText = data.perf;
+                        document.getElementById('fr').innerText = data.frames;
+                    });
+                }, 500); // Atualiza a telemetria 2x por segundo [cite: 2026-02-28]
+            </script>
+        </body>
+    </html>
+    """
 
 if __name__ == '__main__':
     threading.Thread(target=painel_controle, daemon=True).start()
