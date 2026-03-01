@@ -138,7 +138,7 @@ def logica_scanner():
             # 2. FILTRO DE RUÍDO APRIMORADO (v3.1)
             # Aumentamos o limite para 300px e adicionamos filtro de proporção (aspect ratio)
             # Isso elimina poeira e pequenos artefatos vermelhos no ROI 
-            if 300 < area < 8000 and 0.4 < (w/h) < 2.5:
+            if 500 < area < 8000 and 0.6 < (w/h) < 1.6:
                 cx_global = x + ROI_X + (w // 2)
                 temp_contornos.append({'rect': (x, y, w, h), 'color': (0, 255, 0)}) # Verde: Perfuração válida
                 
@@ -159,7 +159,7 @@ def logica_scanner():
             else:
                 # Desenha em vermelho apenas objetos médios que não são furos
                 # Ignora ruídos minúsculos (< 100px) para manter a tela limpa
-                if area > 100:
+                if area > 150:
                     temp_contornos.append({'rect': (x, y, w, h), 'color': (0, 0, 255)})
 
         if not furo_agora: 
