@@ -201,10 +201,16 @@ def generate_frames():
             cv2.rectangle(vis_base, (x + ROI_X, y + ROI_Y), (x + w + ROI_X, y + h + ROI_Y), item['color'], 2)
         
         vis = cv2.rotate(vis_base, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
+        # --- REDIMENSIONAMENTO PROPORCIONAL (v3.1d) ---
+        altura_alvo = 500 # Você define a altura; a largura se ajusta sozinha [cite: 2026-02-28]
+        h_orig, w_orig = vis.shape[:2]
+        proporcao = w_orig / h_orig
+        largura_final = int(altura_alvo * proporcao)
         
         # 2. Otimização de Wi-Fi: Redimensiona o streaming e baixa qualidade 
-        vis_light = cv2.resize(vis, (400, 533)) # Mantém proporção mas reduz pixels 
-        ret, buffer = cv2.imencode('.jpg', vis_light, [int(cv2.IMWRITE_JPEG_QUALITY), 10])
+        vis_light = cv2.resize(vis, (largura_final, altura_alvo), interpolation=cv2.INTER_AREA)
+        ret, buffer = cv2.imencode('.jpg', vis_light, [int(cv2.IMWRITE_JPEG_QUALITY), 20])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
         time.sleep(0.04) # Limita streaming a ~25fps para poupar CPU 
 
