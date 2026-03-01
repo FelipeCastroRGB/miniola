@@ -83,7 +83,7 @@ def painel_controle():
                     gray = cv2.cvtColor(ultimo_frame_bruto, cv2.COLOR_RGB2GRAY)
                     roi_a = gray[ROI_Y:ROI_Y+ROI_H, ROI_X:ROI_X+ROI_W]
                     val, _ = cv2.threshold(roi_a, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-                    THRESH_VAL = int(val * 1.8)
+                    THRESH_VAL = int(val * 1.71)
                     print(f"[AUTO] Threshold: {THRESH_VAL}")
             elif cmd == 'e' and len(entrada) > 1:
                 shutter_speed = int(entrada[1])
