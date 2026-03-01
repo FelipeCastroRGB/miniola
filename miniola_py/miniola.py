@@ -39,7 +39,7 @@ ROI_X, ROI_Y = 175, 70
 ROI_W, ROI_H = 300, 45  
 LINHA_X, MARGEM = 400, 15
 THRESH_VAL = 110
-CROP_Y1, CROP_Y2 = 100, 500  # Ajuste o corte vertical
+CROP_Y1, CROP_Y2 = 200, 300  # Ajuste o corte vertical
 CROP_X1, CROP_X2 = 60, 740  # Ajuste o corte horizontal (elimina bordas pretas)
 
 # Estado Global
