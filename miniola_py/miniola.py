@@ -40,7 +40,7 @@ ROI_W, ROI_H = 300, 45
 LINHA_X, MARGEM = 400, 15
 THRESH_VAL = 110
 CROP_Y1, CROP_Y2 = 100, 500  # Ajuste o corte vertical
-CROP_X1, CROP_X2 = 100, 500  # Ajuste o corte horizontal (elimina bordas pretas)
+CROP_X1, CROP_X2 = 100, 700  # Ajuste o corte horizontal (elimina bordas pretas)
 
 # Estado Global
 contador_perf = 0
