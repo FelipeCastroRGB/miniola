@@ -21,13 +21,13 @@ if not os.path.exists(CAPTURE_PATH):
 
 picam2 = Picamera2()
 
-# 2. Configuração de Hardware (800x600: O "Sweet Spot" para RPi)
+# 2. Configuração de Hardware (800x600)
 WIDTH, HEIGHT = 800, 600
 config = picam2.create_video_configuration(main={"size": (WIDTH, HEIGHT), "format": "RGB888"})
 picam2.configure(config)
 
 # Valores iniciais 
-shutter_speed = 10000  # 10ms
+shutter_speed = 1800
 gain = 1.0
 fps = 45
 
@@ -39,6 +39,8 @@ ROI_X, ROI_Y = 250, 40
 ROI_W, ROI_H = 300, 90  
 LINHA_X, MARGEM = 400, 15
 THRESH_VAL = 110
+CROP_Y1, CROP_Y2 = 40, 560  # Ajuste o corte vertical
+CROP_X1, CROP_X2 = 80, 720  # Ajuste o corte horizontal (elimina bordas pretas)
 
 # Estado Global
 contador_perf = 0
@@ -68,7 +70,7 @@ def painel_controle():
         try:
             entrada = input(">> ").split()
             if not entrada: continue
-            cmd = entrada[0].lower() # Aceita tanto maiúsculo quanto minúsculo [cite: 2026-02-28]
+            cmd = entrada[0].lower() # Aceita tanto maiúsculo quanto minúsculo
             
             if cmd == 'w': ROI_Y = max(0, ROI_Y - 5)
             elif cmd == 's': ROI_Y = min(HEIGHT - ROI_H, ROI_Y + 5)
@@ -107,12 +109,19 @@ def painel_controle():
 
 def logica_scanner():
     global contador_perf, frame_count, furo_na_linha, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
+    
     while True:
-        frame_raw = picam2.capture_array()
-        if frame_raw is None: 
+        frame_raw_completo = picam2.capture_array()
+        if frame_raw_completo is None: 
             time.sleep(0.01)
             continue
             
+        # 1. APLICAÇÃO DO CROP (v3.1)
+        # Corta a imagem bruta para processar apenas a área do filme e perfurações [cite: 2025-12-23]
+        # Isso economiza CPU e remove bordas pretas desnecessárias [cite: 2026-02-28]
+        frame_raw = frame_raw_completo[CROP_Y1:CROP_Y2, CROP_X1:CROP_X2]
+        
+        # Converte para cinza e extrai o ROI dentro da imagem já cortada
         gray = cv2.cvtColor(frame_raw, cv2.COLOR_RGB2GRAY)
         roi = gray[ROI_Y:ROI_Y+ROI_H, ROI_X:ROI_X+ROI_W]
         
@@ -125,27 +134,43 @@ def logica_scanner():
         for cnt in contours:
             area = cv2.contourArea(cnt)
             x, y, w, h = cv2.boundingRect(cnt)
-            if 50 < area < 5000:
+            
+            # 2. FILTRO DE RUÍDO APRIMORADO (v3.1)
+            # Aumentamos o limite para 300px e adicionamos filtro de proporção (aspect ratio)
+            # Isso elimina poeira e pequenos artefatos vermelhos no ROI 
+            if 300 < area < 8000 and 0.4 < (w/h) < 2.5:
                 cx_global = x + ROI_X + (w // 2)
-                temp_contornos.append({'rect': (x, y, w, h), 'color': (0, 255, 0)})
+                temp_contornos.append({'rect': (x, y, w, h), 'color': (0, 255, 0)}) # Verde: Perfuração válida
+                
+                # Lógica de Gatilho (Trigger)
                 if abs(cx_global - LINHA_X) < MARGEM:
                     furo_agora = True
                     if not furo_na_linha:
                         contador_perf += 1
                         furo_na_linha = True
+                        
+                        # A cada 4 perfurações (Padrão 35mm), salvamos 1 frame
                         if contador_perf % 4 == 0:
                             frame_count += 1
                             if modo_gravacao:
+                                # Salva a imagem CORTADA para o Master de Preservação
                                 fbgr = cv2.cvtColor(frame_raw, cv2.COLOR_RGB2BGR)
-                                # Salvamento direto no caminho absoluto do RAM Drive [cite: 2026-02-28]
                                 cv2.imwrite(f"{CAPTURE_PATH}/frame_{frame_count:06d}.jpg", fbgr)
             else:
-                temp_contornos.append({'rect': (x, y, w, h), 'color': (0, 0, 255)})
+                # Desenha em vermelho apenas objetos médios que não são furos
+                # Ignora ruídos minúsculos (< 100px) para manter a tela limpa
+                if area > 100:
+                    temp_contornos.append({'rect': (x, y, w, h), 'color': (0, 0, 255)})
 
-        if not furo_agora: furo_na_linha = False
-        ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug = frame_raw, binary, temp_contornos
+        if not furo_agora: 
+            furo_na_linha = False
+            
+        # Atualiza globais para o streaming (v3.1 usa frame_raw já com crop)
+        ultimo_frame_bruto = frame_raw
+        ultimo_frame_binario = binary
+        lista_contornos_debug = temp_contornos
         
-        time.sleep(0.005) 
+        time.sleep(0.005)
 
 # --- FLASK: VISIONAMENTO COM TELEMETRIA ---
 
@@ -154,9 +179,10 @@ def generate_frames():
         if ultimo_frame_bruto is None:
             time.sleep(0.1); continue
         
-        # Cria uma cópia para evitar que o desenho ocorra enquanto a lógica do scanner atualiza [cite: 2025-12-23]
+        # 1. Redução de processamento para o streaming 
         vis_base = cv2.cvtColor(ultimo_frame_bruto, cv2.COLOR_RGB2BGR)
         
+        # Desenha telemetria
         cor_gat = (0, 255, 0) if furo_na_linha else (0, 0, 255)
         cv2.rectangle(vis_base, (ROI_X, ROI_Y), (ROI_X + ROI_W, ROI_Y + ROI_H), (150, 150, 150), 2)
         cv2.line(vis_base, (LINHA_X, ROI_Y), (LINHA_X, ROI_Y + ROI_H), cor_gat, 3)
@@ -167,13 +193,11 @@ def generate_frames():
         
         vis = cv2.rotate(vis_base, cv2.ROTATE_90_COUNTERCLOCKWISE)
         
-        cor_m = (0, 255, 0) if modo_gravacao else (0, 255, 255)
-        cv2.putText(vis, f"MODO: {'GRAVANDO' if modo_gravacao else 'VISIONAMENTO'}", (20, 35), 1, 1.2, cor_m, 2)
-        cv2.putText(vis, f"PERF: {contador_perf} | FR: {frame_count}", (20, 70), 1, 1.2, (255,255,255), 2)
-
-        ret, buffer = cv2.imencode('.jpg', vis, [int(cv2.IMWRITE_JPEG_QUALITY), 10])
+        # 2. Otimização de Wi-Fi: Redimensiona o streaming e baixa qualidade 
+        vis_light = cv2.resize(vis, (400, 533)) # Mantém proporção mas reduz pixels 
+        ret, buffer = cv2.imencode('.jpg', vis_light, [int(cv2.IMWRITE_JPEG_QUALITY), 10])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-        time.sleep(0.01)
+        time.sleep(0.04) # Limita streaming a ~25fps para poupar CPU 
 
 # --- ROTA: AO VIVO ROLO ---
 
@@ -186,9 +210,8 @@ def video_feed(): return Response(generate_frames(), mimetype='multipart/x-mixed
 def preview_feed():
     def generate_preview():
         while True:
-            # Lista os últimos 48 frames (2 segundos a 24fps) para o loop de preview 
             files = sorted([f for f in os.listdir(CAPTURE_PATH) if f.endswith('.jpg')])
-            last_frames = files[-48:] if len(files) > 0 else []
+            last_frames = files[-96:] if len(files) > 0 else [] # 4 segundos 
             
             if not last_frames:
                 time.sleep(0.5); continue
@@ -196,12 +219,13 @@ def preview_feed():
             for frame_file in last_frames:
                 path = os.path.join(CAPTURE_PATH, frame_file)
                 try:
-                    with open(path, "rb") as f:
-                        frame_data = f.read()
-                    yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame_data + b'\r\n')
-                    time.sleep(1/24) # Simula a cadência de 24fps 
-                except:
-                    continue
+                    img = cv2.imread(path)
+                    # ROTAÇÃO 90 GRAUS À ESQUERDA
+                    img_rot = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                    ret, buffer = cv2.imencode('.jpg', img_rot, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                    yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+                    time.sleep(1/24)
+                except: continue
     return Response(generate_preview(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 # --- INTERFACE ATUALIZADA (Painel Duplo) ---
