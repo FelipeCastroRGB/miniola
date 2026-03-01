@@ -256,14 +256,19 @@ def index():
                 <span>FRAMES SALVOS: <b id="fr">0</b></span>
             </div>
             
-            <div style="display:flex; gap:20px;">
+            <div style="display:flex; gap:20px; justify-content:center; width:100%;">
                 <div style="text-align:center;">
                     <p>AO VIVO (AJUSTE)</p>
-                    <img src="/video_feed" style="border:2px solid #333; height:550px; object-fit:contain;">
+                    <div style="background:#000; width:450px; height:550px; border:2px solid #333; display:flex; align-items:center; justify-content:center;">
+                        <img src="/video_feed" style="max-width:100%; max-height:100%; object-fit:contain;">
+                    </div>
                 </div>
+                
                 <div style="text-align:center;">
                     <p>PREVIEW (ESTABILIDADE)</p>
-                    <img src="/preview_feed" style="border:2px solid #0f0; height:550px; object-fit:contain;">
+                    <div style="background:#000; width:450px; height:550px; border:2px solid #0f0; display:flex; align-items:center; justify-content:center;">
+                        <img src="/preview_feed" style="max-width:100%; max-height:100%; object-fit:contain;">
+                    </div>
                 </div>
             </div>
 
