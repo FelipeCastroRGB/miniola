@@ -26,7 +26,7 @@ WIDTH, HEIGHT = 800, 600
 config = picam2.create_video_configuration(main={"size": (WIDTH, HEIGHT), "format": "RGB888"})
 picam2.configure(config)
 
-# Valores iniciais otimizados para detecção rápida e estável
+# Valores iniciais 
 shutter_speed = 10000  # 10ms
 gain = 1.0
 fps = 45
@@ -36,7 +36,7 @@ picam2.start()
 
 # --- GEOMETRIA DINÂMICA (Adaptada para 800x600) ---
 ROI_X, ROI_Y = 250, 40
-ROI_W, ROI_H = 300, 120  
+ROI_W, ROI_H = 300, 90  
 LINHA_X, MARGEM = 400, 15
 THRESH_VAL = 110
 
@@ -81,7 +81,7 @@ def painel_controle():
                     gray = cv2.cvtColor(ultimo_frame_bruto, cv2.COLOR_RGB2GRAY)
                     roi_a = gray[ROI_Y:ROI_Y+ROI_H, ROI_X:ROI_X+ROI_W]
                     val, _ = cv2.threshold(roi_a, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-                    THRESH_VAL = int(val * 1.71)
+                    THRESH_VAL = int(val * 1.8)
                     print(f"[AUTO] Threshold: {THRESH_VAL}")
             elif cmd == 'e' and len(entrada) > 1:
                 shutter_speed = int(entrada[1])
@@ -98,7 +98,9 @@ def painel_controle():
             elif cmd == 'p': 
                 modo_gravacao = False; print("PAUSADO.")
             elif cmd == 'r': 
-                contador_perf = frame_count = 0; print("ESTATÍSTICAS RESETADAS.")
+                contador_perf = frame_count = 0
+                os.system(f"rm -rf {CAPTURE_PATH}/*.jpg")
+                print("ESTATÍSTICAS E RAM DRIVE LIMPOS.")
         except Exception as e: print(f"Erro: {e}")
 
 # --- THREAD: LÓGICA DO SCANNER (Processamento Otimizado) ---
@@ -169,7 +171,7 @@ def generate_frames():
         cv2.putText(vis, f"MODO: {'GRAVANDO' if modo_gravacao else 'VISIONAMENTO'}", (20, 35), 1, 1.2, cor_m, 2)
         cv2.putText(vis, f"PERF: {contador_perf} | FR: {frame_count}", (20, 70), 1, 1.2, (255,255,255), 2)
 
-        ret, buffer = cv2.imencode('.jpg', vis, [int(cv2.IMWRITE_JPEG_QUALITY), 30])
+        ret, buffer = cv2.imencode('.jpg', vis, [int(cv2.IMWRITE_JPEG_QUALITY), 10])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
         time.sleep(0.01)
 
