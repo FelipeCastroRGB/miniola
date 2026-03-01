@@ -27,9 +27,9 @@ config = picam2.create_video_configuration(main={"size": (WIDTH, HEIGHT), "forma
 picam2.configure(config)
 
 # Valores iniciais (Recuperados da v2.7 funcional)
-shutter_speed = 20000
+shutter_speed = 10000  # 10ms
 gain = 1.0
-fps = 30
+fps = 45
 
 picam2.set_controls({"ExposureTime": shutter_speed, "AnalogueGain": gain, "FrameRate": fps})
 picam2.start()
@@ -173,15 +173,55 @@ def generate_frames():
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
         time.sleep(0.01)
 
+# --- ROTA: AO VIVO ROLO ---
+
 @app.route('/video_feed')
 def video_feed(): return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
+# --- NOVA ROTA: PREVIEW DO ROLO (Últimos frames gravados) ---
+
+@app.route('/preview_feed')
+def preview_feed():
+    def generate_preview():
+        while True:
+            # Lista os últimos 48 frames (2 segundos a 24fps) para o loop de preview 
+            files = sorted([f for f in os.listdir(CAPTURE_PATH) if f.endswith('.jpg')])
+            last_frames = files[-48:] if len(files) > 0 else []
+            
+            if not last_frames:
+                time.sleep(0.5); continue
+
+            for frame_file in last_frames:
+                path = os.path.join(CAPTURE_PATH, frame_file)
+                try:
+                    with open(path, "rb") as f:
+                        frame_data = f.read()
+                    yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame_data + b'\r\n')
+                    time.sleep(1/24) # Simula a cadência de 24fps 
+                except:
+                    continue
+    return Response(generate_preview(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+# --- INTERFACE ATUALIZADA (Painel Duplo) ---
+
 @app.route('/')
 def index():
-    return """<html><body style='background:#000; color:#0f0; text-align:center; font-family:monospace;'>
-              <h3>MINIOLA v2.9</h3><img src="/video_feed" style="height:88vh; border:1px solid #333;">
-              <p>Controles: 'f' p/ Gravar | 'p' p/ Pausar</p>
-              </body></html>"""
+    return """<html>
+    <head><title>MINIOLA v3.0</title></head>
+    <body style='background:#111; color:#0f0; text-align:center; font-family:monospace; margin:0; padding:10px;'>
+        <div style="display: flex; justify-content: space-around; align-items: flex-start;">
+            <div>
+                <h3>AO VIVO (AJUSTE)</h3>
+                <img src="/video_feed" style="height:75vh; border:2px solid #333;">
+            </div>
+            <div>
+                <h3>PREVIEW (24 FPS)</h3>
+                <img src="/preview_feed" style="height:75vh; border:2px solid #0f0;">
+                <p style="color:#aaa;">Visualização do material no RAM Drive</p>
+            </div>
+        </div>
+        <p>Controles via Console: 'f' Gravar | 'p' Pausar | 'r' Reset</p>
+    </body></html>"""
 
 if __name__ == '__main__':
     threading.Thread(target=painel_controle, daemon=True).start()
