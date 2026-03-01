@@ -36,7 +36,7 @@ picam2.start()
 
 # --- GEOMETRIA DINÂMICA (Adaptada para 800x600) ---
 ROI_X, ROI_Y = 250, 40
-ROI_W, ROI_H = 100, 120  
+ROI_W, ROI_H = 300, 50  
 LINHA_X, MARGEM = 400, 15
 THRESH_VAL = 110
 CROP_Y1, CROP_Y2 = 40, 560  # Ajuste o corte vertical
