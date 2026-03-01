@@ -35,8 +35,8 @@ picam2.set_controls({"ExposureTime": shutter_speed, "AnalogueGain": gain, "Frame
 picam2.start()
 
 # --- GEOMETRIA DINÂMICA (Adaptada para 800x600) ---
-ROI_X, ROI_Y = 180, 70
-ROI_W, ROI_H = 300, 50  
+ROI_X, ROI_Y = 175, 70
+ROI_W, ROI_H = 300, 45  
 LINHA_X, MARGEM = 400, 15
 THRESH_VAL = 110
 CROP_Y1, CROP_Y2 = 40, 560  # Ajuste o corte vertical
