@@ -26,9 +26,11 @@ config = picam2.create_video_configuration(main={"size": (WIDTH, HEIGHT), "forma
 picam2.configure(config)
 
 # Valores iniciais 
-shutter_speed = 1800
+shutter_speed = 220 
 gain = 1.0
 fps = 60
+foco_atual = 0.0  # Valor inicial de foco [cite: 2026-02-28]
+passo_foco = 0.1  # Gradação do ajuste [cite: 2026-02-28]
 
 picam2.set_controls({"ExposureTime": shutter_speed, "AnalogueGain": gain, "FrameRate": fps})
 picam2.start()
@@ -56,6 +58,7 @@ lista_contornos_debug = []
 def painel_controle():
     global contador_perf, frame_count, modo_gravacao, THRESH_VAL, ultimo_frame_bruto
     global ROI_X, ROI_Y, LINHA_Y, shutter_speed, gain
+    global foco_atual, passo_foco
     
     print("\n" + "="*45)
     print("  MINIOLA CONTROL v3.0 - CÂMERA ORIENTADA")
@@ -64,6 +67,7 @@ def painel_controle():
     print("  GATILHO:     < / >  (Linha Gatilho)")
     print("  IMAGEM:       e/g (Exp/Gain) | t (Thresh) | o (Otsu)")
     print("  CAPTURA:      f (Gravar) | p (Pausar) | r (Reset)")
+    print("  FOCO:         k (Longe) | l (Perto) | j (Passo)")
     print("="*45)
 
     while True:
@@ -71,6 +75,21 @@ def painel_controle():
             entrada = input(">> ").split()
             if not entrada: continue
             cmd = entrada[0].lower()
+            
+            # Ajuste de Foco por Gradações [cite: 2026-02-28]
+            if cmd == 'l':
+                foco_atual = round(foco_atual + passo_foco, 2)
+                picam2.set_controls({"LensPosition": foco_atual})
+                print(f"[FOCO] Posição: {foco_atual}")
+            
+            elif cmd == 'k':
+                foco_atual = max(0.0, round(foco_atual - passo_foco, 2))
+                picam2.set_controls({"LensPosition": foco_atual})
+                print(f"[FOCO] Posição: {foco_atual}")
+
+            elif cmd == 'j' and len(entrada) > 1:
+                passo_foco = float(entrada[1])
+                print(f"[CONFIG] Passo de foco ajustado para: {passo_foco}")
             
             if cmd == 'w': ROI_Y = max(0, ROI_Y - 5)
             elif cmd == 's': ROI_Y = min(HEIGHT - ROI_H, ROI_Y + 5)
