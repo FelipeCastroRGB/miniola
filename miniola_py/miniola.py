@@ -14,7 +14,6 @@ log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR) 
 
 # --- CONFIGURAÇÃO DE CAMINHO (RAM DRIVE) ---
-# Usamos o caminho absoluto para garantir a gravação no tmpfs (RAM) 
 CAPTURE_PATH = "/home/felipe/miniola_py/captura"
 if not os.path.exists(CAPTURE_PATH):
     os.makedirs(CAPTURE_PATH)
@@ -34,13 +33,14 @@ fps = 60
 picam2.set_controls({"ExposureTime": shutter_speed, "AnalogueGain": gain, "FrameRate": fps})
 picam2.start()
 
-# --- GEOMETRIA DINÂMICA (Adaptada para 800x600) ---
-ROI_X, ROI_Y = 5, 5  # Posição inicial do ROI (ajustada para o novo tamanho)
-ROI_W, ROI_H = 300, 40  # Tamanho do ROI (ajustado para o novo tamanho)  
-LINHA_X, MARGEM = 150, 15
+# --- GEOMETRIA DINÂMICA (NATIVA: CÂMERA VERTICAL) ---
+# Ajustado para buscar perfurações na lateral agora que a câmera está orientada [cite: 2026-02-28]
+ROI_X, ROI_Y = 5, 5  
+ROI_W, ROI_H = 100, 580 # ROI agora é uma faixa vertical na lateral [cite: 2026-02-28]
+LINHA_Y, MARGEM = 300, 15 # Gatilho agora monitora a passagem vertical (Y) [cite: 2026-02-28]
 THRESH_VAL = 230
-CROP_Y1, CROP_Y2 = 110, 580  # Ajuste o corte vertical
-CROP_X1, CROP_X2 = 250, 550  # Ajuste o corte horizontal (elimina bordas pretas)
+CROP_Y1, CROP_Y2 = 0, 600  
+CROP_X1, CROP_X2 = 0, 800  
 
 # Estado Global
 contador_perf = 0
@@ -51,39 +51,39 @@ ultimo_frame_bruto = None
 ultimo_frame_binario = None
 lista_contornos_debug = []
 
-# --- THREAD: PAINEL DE CONTROLE (Comandos Dinâmicos) ---
+# --- THREAD: PAINEL DE CONTROLE ---
 
 def painel_controle():
     global contador_perf, frame_count, modo_gravacao, THRESH_VAL, ultimo_frame_bruto
-    global ROI_X, ROI_Y, LINHA_X, shutter_speed, gain
+    global ROI_X, ROI_Y, LINHA_Y, shutter_speed, gain
     
     print("\n" + "="*45)
-    print("  MINIOLA CONTROL v2.9 - ESTABILIZADA")
+    print("  MINIOLA CONTROL v3.0 - CÂMERA ORIENTADA")
     print("="*45)
-    print("  MOVER ROI:   w/s (C/B) | a/d (E/D)")
-    print("  GATILHO:     < / >  (Linha vermelha)")
-    print("  IMAGEM:      e/g (Exp/Gain) | t (Thresh) | o (Otsu)")
-    print("  CAPTURA:     f (Gravar) | p (Pausar) | r (Reset)")
+    print("  MOVER ROI:    w/s (C/B) | a/d (E/D)")
+    print("  GATILHO:     < / >  (Linha Gatilho)")
+    print("  IMAGEM:       e/g (Exp/Gain) | t (Thresh) | o (Otsu)")
+    print("  CAPTURA:      f (Gravar) | p (Pausar) | r (Reset)")
     print("="*45)
 
     while True:
         try:
             entrada = input(">> ").split()
             if not entrada: continue
-            cmd = entrada[0].lower() # Aceita tanto maiúsculo quanto minúsculo
+            cmd = entrada[0].lower()
             
             if cmd == 'w': ROI_Y = max(0, ROI_Y - 5)
             elif cmd == 's': ROI_Y = min(HEIGHT - ROI_H, ROI_Y + 5)
             elif cmd == 'a': ROI_X = max(0, ROI_X - 5)
             elif cmd == 'd': ROI_X = min(WIDTH - ROI_W, ROI_X + 5)
-            elif cmd == '>': LINHA_X = min(ROI_X + ROI_W, LINHA_X + 5)
-            elif cmd == '<': LINHA_X = max(ROI_X, LINHA_X - 5)
+            elif cmd == '>': LINHA_Y = min(ROI_Y + ROI_H, LINHA_Y + 5)
+            elif cmd == '<': LINHA_Y = max(ROI_Y, LINHA_Y - 5)
             elif cmd == 'o':
                 if ultimo_frame_bruto is not None:
                     gray = cv2.cvtColor(ultimo_frame_bruto, cv2.COLOR_RGB2GRAY)
                     roi_a = gray[ROI_Y:ROI_Y+ROI_H, ROI_X:ROI_X+ROI_W]
                     val, _ = cv2.threshold(roi_a, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-                    THRESH_VAL = int(val * 1.55) # Ajuste fino para compensar o corte e iluminação
+                    THRESH_VAL = int(val * 1.55)
                     print(f"[AUTO] Threshold: {THRESH_VAL}")
             elif cmd == 'e' and len(entrada) > 1:
                 shutter_speed = int(entrada[1])
@@ -93,8 +93,6 @@ def painel_controle():
                 picam2.set_controls({"AnalogueGain": gain})
             elif cmd == 't' and len(entrada) > 1:
                 THRESH_VAL = int(entrada[1])
-            
-            # COMANDOS DE GRAVAÇÃO ATUALIZADOS
             elif cmd == 'f': 
                 modo_gravacao = True; print("GRAVANDO NO RAM DRIVE...")
             elif cmd == 'p': 
@@ -105,7 +103,7 @@ def painel_controle():
                 print("ESTATÍSTICAS E RAM DRIVE LIMPOS.")
         except Exception as e: print(f"Erro: {e}")
 
-# --- THREAD: LÓGICA DO SCANNER (Processamento Otimizado) ---
+# --- THREAD: LÓGICA DO SCANNER ---
 
 def logica_scanner():
     global contador_perf, frame_count, furo_na_linha, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
@@ -113,15 +111,9 @@ def logica_scanner():
     while True:
         frame_raw_completo = picam2.capture_array()
         if frame_raw_completo is None: 
-            time.sleep(0.01)
-            continue
+            time.sleep(0.01); continue
             
-        # 1. APLICAÇÃO DO CROP (v3.1)
-        # Corta a imagem bruta para processar apenas a área do filme e perfurações [cite: 2025-12-23]
-        # Isso economiza CPU e remove bordas pretas desnecessárias [cite: 2026-02-28]
         frame_raw = frame_raw_completo[CROP_Y1:CROP_Y2, CROP_X1:CROP_X2]
-        
-        # Converte para cinza e extrai o ROI dentro da imagem já cortada
         gray = cv2.cvtColor(frame_raw, cv2.COLOR_RGB2GRAY)
         roi = gray[ROI_Y:ROI_Y+ROI_H, ROI_X:ROI_X+ROI_W]
         
@@ -135,89 +127,69 @@ def logica_scanner():
             area = cv2.contourArea(cnt)
             x, y, w, h = cv2.boundingRect(cnt)
             
-            # 2. FILTRO DE RUÍDO APRIMORADO (v3.1)
-            # Aumentamos o limite para 300px e adicionamos filtro de proporção (aspect ratio)
-            # Isso elimina poeira e pequenos artefatos vermelhos no ROI 
             if 500 < area < 8000 and 0.6 < (w/h) < 1.6:
-                cx_global = x + ROI_X + (w // 2)
-                temp_contornos.append({'rect': (x, y, w, h), 'color': (0, 255, 0)}) # Verde: Perfuração válida
+                cy_global = y + ROI_Y + (h // 2) # Monitorando o centro Y [cite: 2026-02-28]
+                temp_contornos.append({'rect': (x, y, w, h), 'color': (0, 255, 0)}) 
                 
-                # Lógica de Gatilho (Trigger)
-                if abs(cx_global - LINHA_X) < MARGEM:
+                if abs(cy_global - LINHA_Y) < MARGEM:
                     furo_agora = True
                     if not furo_na_linha:
                         contador_perf += 1
                         furo_na_linha = True
-                        
-                        # A cada 4 perfurações (Padrão 35mm), salvamos 1 frame
                         if contador_perf % 4 == 0:
                             frame_count += 1
                             if modo_gravacao:
-                                # Salva a imagem CORTADA para o Master de Preservação
                                 fbgr = cv2.cvtColor(frame_raw, cv2.COLOR_RGB2BGR)
                                 cv2.imwrite(f"{CAPTURE_PATH}/frame_{frame_count:06d}.jpg", fbgr)
             else:
-                # Desenha em vermelho apenas objetos médios que não são furos
-                # Ignora ruídos minúsculos (< 100px) para manter a tela limpa
                 if area > 150:
                     temp_contornos.append({'rect': (x, y, w, h), 'color': (0, 0, 255)})
 
-        if not furo_agora: 
-            furo_na_linha = False
+        if not furo_agora: furo_na_linha = False
             
-        # Atualiza globais para o streaming (v3.1 usa frame_raw já com crop)
         ultimo_frame_bruto = frame_raw
         ultimo_frame_binario = binary
         lista_contornos_debug = temp_contornos
-        
         time.sleep(0.005)
 
-# --- FLASK: VISIONAMENTO COM TELEMETRIA ---
+# --- FLASK: VISIONAMENTO ---
 
 def generate_frames():
     while True:
         if ultimo_frame_bruto is None:
             time.sleep(0.1); continue
         
-        # Cria a base de visualização a partir do frame já cortado [cite: 2026-02-28]
         vis_base = cv2.cvtColor(ultimo_frame_bruto, cv2.COLOR_RGB2BGR)
         
-        # Desenha telemetria
+        # Telemetria (sem rotação) [cite: 2026-02-28]
         cor_gat = (0, 255, 0) if furo_na_linha else (0, 0, 255)
         cv2.rectangle(vis_base, (ROI_X, ROI_Y), (ROI_X + ROI_W, ROI_Y + ROI_H), (150, 150, 150), 2)
-        cv2.line(vis_base, (LINHA_X, ROI_Y), (LINHA_X, ROI_Y + ROI_H), cor_gat, 3)
+        cv2.line(vis_base, (ROI_X, LINHA_Y), (ROI_X + ROI_W, LINHA_Y), cor_gat, 3)
         
         for item in lista_contornos_debug:
             x, y, w, h = item['rect']
             cv2.rectangle(vis_base, (x + ROI_X, y + ROI_Y), (x + w + ROI_X, y + h + ROI_Y), item['color'], 2)
         
-        vis = cv2.rotate(vis_base, cv2.ROTATE_90_COUNTERCLOCKWISE)
-
-        # --- REDIMENSIONAMENTO PROPORCIONAL (v3.1d) ---
-        altura_alvo = 500 # Você define a altura; a largura se ajusta sozinha [cite: 2026-02-28]
-        h_orig, w_orig = vis.shape[:2]
+        # Redimensionamento para o navegador
+        altura_alvo = 600 
+        h_orig, w_orig = vis_base.shape[:2]
         proporcao = w_orig / h_orig
         largura_final = int(altura_alvo * proporcao)
         
-        # 2. Otimização de Wi-Fi: Redimensiona o streaming e baixa qualidade 
-        vis_light = cv2.resize(vis, (largura_final, altura_alvo), interpolation=cv2.INTER_AREA)
+        vis_light = cv2.resize(vis_base, (largura_final, altura_alvo), interpolation=cv2.INTER_AREA)
         ret, buffer = cv2.imencode('.jpg', vis_light, [int(cv2.IMWRITE_JPEG_QUALITY), 40])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-        time.sleep(0.04) # Limita streaming a ~25fps para poupar CPU 
-
-# --- ROTA: AO VIVO ROLO ---
+        time.sleep(0.04) 
 
 @app.route('/video_feed')
 def video_feed(): return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
-# --- NOVA ROTA: PREVIEW DO ROLO (Últimos frames gravados) ---
 
 @app.route('/preview_feed')
 def preview_feed():
     def generate_preview():
         while True:
             files = sorted([f for f in os.listdir(CAPTURE_PATH) if f.endswith('.jpg')])
-            last_frames = files[-96:] if len(files) > 0 else [] # 4 segundos 
+            last_frames = files[-96:] if len(files) > 0 else [] 
             
             if not last_frames:
                 time.sleep(0.5); continue
@@ -225,10 +197,8 @@ def preview_feed():
             for frame_file in last_frames:
                 path = os.path.join(CAPTURE_PATH, frame_file)
                 try:
-                    img = cv2.imread(path)
-                    # ROTAÇÃO 90 GRAUS À ESQUERDA
-                    img_rot = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
-                    ret, buffer = cv2.imencode('.jpg', img_rot, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                    img = cv2.imread(path) # Sem rotação [cite: 2026-02-28]
+                    ret, buffer = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
                     yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
                     time.sleep(1/24)
                 except: continue
@@ -243,8 +213,6 @@ def get_status():
         "frames": frame_count
     }
 
-# --- INTERFACE ATUALIZADA (Painel Duplo) ---
-
 @app.route('/')
 def index():
     return """
@@ -258,15 +226,15 @@ def index():
             
             <div style="display:flex; gap:20px; justify-content:center; width:100%;">
                 <div style="text-align:center;">
-                    <p>AO VIVO (AJUSTE)</p>
-                    <div style="background:#000; width:650px; height:750px; border:2px solid #333; display:flex; align-items:center; justify-content:center;">
+                    <p>AO VIVO (NATIVO)</p>
+                    <div style="background:#000; width:450px; height:600px; border:2px solid #333; display:flex; align-items:center; justify-content:center;">
                         <img src="/video_feed" style="max-width:100%; max-height:100%; object-fit:contain;">
                     </div>
                 </div>
                 
                 <div style="text-align:center;">
-                    <p>PREVIEW (ESTABILIDADE)</p>
-                    <div style="background:#000; width:650px; height:750px; border:2px solid #0f0; display:flex; align-items:center; justify-content:center;">
+                    <p>PREVIEW (GRAVADO)</p>
+                    <div style="background:#000; width:450px; height:600px; border:2px solid #0f0; display:flex; align-items:center; justify-content:center;">
                         <img src="/preview_feed" style="max-width:100%; max-height:100%; object-fit:contain;">
                     </div>
                 </div>
