@@ -1,12 +1,16 @@
+import sys
+from unittest.mock import MagicMock
+
+# Escuco
+sys.modules["pykms"] = MagicMock()
+sys.modules["kms"] = MagicMock()
+
+
 from flask import Flask, Response
 from picamera2 import Picamera2
 import cv2
 import numpy as np
 import threading
-import sys
-from unittest.mock import MagicMock
-sys.modules["pykms"] = MagicMock()
-sys.modules["kms"] = MagicMock()
 import time
 import logging
 import os
