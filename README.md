@@ -23,7 +23,15 @@ sudo apt update
 sudo apt install libcap-dev libgnutls28-dev python3-libcamera git -y
 ```
 
-### 2. Configuração do Escudo de Hardware (RAM Drive)
+### 2. Clonagem e Preparação do Repositório
+Para descarregar o código diretamente na branch de desenvolvimento e aceder à pasta do projeto:
+```bash
+cd ~
+git clone -b desenvolvimento https://github.com/FelipeCastroRGB/miniola.git
+cd ~/miniola/miniola_py
+```
+
+### 3. Configuração do Escudo de Hardware (RAM Drive)
 Crie o ponto de montagem para o armazenamento temporário:
 ```bash
 mkdir -p ~/miniola/miniola_py/captura
@@ -37,14 +45,6 @@ tmpfs /home/felipe/miniola/miniola_py/captura tmpfs defaults,noatime,size=1024M 
 Ative a montagem imediata:
 ```bash
 sudo systemctl daemon-reload && sudo mount -a
-```
-
-### 3. Clonagem e Preparação do Repositório
-Para descarregar o código diretamente na branch de desenvolvimento e aceder à pasta do projeto:
-```bash
-cd ~
-git clone -b desenvolvimento [https://github.com/FelipeCastroRGB/miniola.git](https://github.com/FelipeCastroRGB/miniola.git)
-cd ~/miniola/miniola_py
 ```
 
 ### 4. Ambiente Python (3.13+)
