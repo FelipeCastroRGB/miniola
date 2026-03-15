@@ -2,17 +2,17 @@
 
 O **Miniola** é uma estação de trabalho de baixo custo e alta precisão para a digitalização e inspeção de películas cinematográficas de 35mm. Desenvolvido para operar em mesas de revisão manuais, o sistema utiliza uma **Raspberry Pi 5/4** e a **Camera Module 3** para capturar quadros sincronizados através da detecção de perfurações.
 
-## Arquitetura e Decisões Técnicas
+## 🛠️ Arquitetura e Decisões Técnicas
 
 O projeto foi reconstruído para ser resiliente a falhas de hardware e atualizações de sistema operacional, alinhado aos padrões de preservação (FIAF/AMIA):
 
 * **Proteção de Dados (RAM Drive):** O sistema utiliza uma repartição em memória volátil (`tmpfs`) para o diretório de captura. Isso evita o desgaste do cartão SD e garante a velocidade necessária para gravar frames em 60fps sem latência de escrita.
-* **Decoupled Preview (Headless):** Para evitar erros de dependência de monitores físicos (`kms`/`pykms`), o software utiliza um *mock* de sistema no topo do código. O visionamento é feito via rede (Flask), tornando o scanner independente de periféricos HDMI.
+* **Decoupled Preview (Headless):** Através de um *mock* de sistema no topo do código, o visionamento é feito via rede (Flask), tornando o scanner independente de monitores físicos ou drivers de vídeo complexos.
 * **Foco Motorizado por Gradação:** Controle fino sobre a lente da Camera Module 3, permitindo ajustes milimétricos na emulsão da película via comandos de terminal.
 
 ---
 
-## Guia de Instalação (SOP)
+## 🚀 Guia de Instalação (SOP)
 
 Este protocolo deve ser seguido em caso de formatação ou nova unidade no laboratório.
 
@@ -20,7 +20,7 @@ Este protocolo deve ser seguido em caso de formatação ou nova unidade no labor
 Execute no terminal para instalar os headers nativos e bibliotecas de câmera:
 ```bash
 sudo apt update
-sudo apt install libcap-dev libgnutls28-dev python3-libcamera -y
+sudo apt install libcap-dev libgnutls28-dev python3-libcamera git -y
 ```
 
 ### 2. Configuração do Escudo de Hardware (RAM Drive)
@@ -39,17 +39,23 @@ Ative a montagem imediata:
 sudo systemctl daemon-reload && sudo mount -a
 ```
 
-### 3. Ambiente Python (3.13+)
-Configure o ambiente virtual permitindo o uso dos pacotes de sistema:
+### 3. Clonagem e Preparação do Repositório
+Para descarregar o código diretamente na branch de desenvolvimento e aceder à pasta do projeto:
 ```bash
+cd ~
+git clone -b desenvolvimento [https://github.com/FelipeCastroRGB/miniola.git](https://github.com/FelipeCastroRGB/miniola.git)
 cd ~/miniola/miniola_py
-python3 -m venv --system-site-packages venv
-source venv/bin/activate
+```
+
+### 4. Ambiente Python (3.13+)
+Configure o ambiente virtual permitindo o uso dos pacotes de sistema (necessário para o funcionamento da `libcamera`):
+```bash
+source venv/bin/activate  # Caso já exista, ou crie com: python3 -m venv --system-site-packages venv
 pip install -r requirements.txt
 ```
 
-### 4. Configuração do Atalho (Alias)
-Para que o comando `miniola` funcione em qualquer diretório:
+### 5. Configuração do Atalho (Alias)
+Para que o comando `miniola` funcione em qualquer diretório do terminal:
 ```bash
 echo "alias miniola='~/miniola/miniola_py/start.sh'" >> ~/.bashrc
 source ~/.bashrc
@@ -57,9 +63,9 @@ source ~/.bashrc
 
 ---
 
-## Operação e Atalhos
+## ⚙️ Operação e Atalhos
 
-Ao digitar `miniola`, o script `start.sh` fará o `git pull` automático da branch de desenvolvimento e iniciará os serviços.
+Ao digitar `miniola`, o script `start.sh` fará o `git pull` automático e iniciará os serviços.
 
 ### Comandos do Painel de Controle (Terminal):
 ```text
@@ -77,10 +83,11 @@ a / d   : Mover área de leitura (ROI) para Esquerda / Direita
 
 ---
 
-## Estrutura do Repositório
-* `miniola.py`: Núcleo do sistema (Câmera, Flask e Lógica de Detecção).
-* `start.sh`: Script de boot, atualização e ativação do venv.
-* `/captura`: Ponto de montagem RAM (Mapeado como `CAPTURE_PATH`).
+## 📂 Estrutura do Repositório (Branch: desenvolvimento)
+* `miniola_py/miniola.py`: Núcleo do sistema (Câmera, Flask e Lógica).
+* `miniola_py/start.sh`: Script de boot, atualização e ativação.
+* `miniola_py/requirements.txt`: Dependências Python.
+* `miniola_py/captura`: Ponto de montagem RAM (Mapeado como `CAPTURE_PATH`).
 
 ---
 
