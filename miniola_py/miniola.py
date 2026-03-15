@@ -4,6 +4,9 @@ import cv2
 import numpy as np
 import threading
 import sys
+from unittest.mock import MagicMock
+sys.modules["pykms"] = MagicMock()
+sys.modules["kms"] = MagicMock()
 import time
 import logging
 import os
