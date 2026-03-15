@@ -21,7 +21,7 @@ log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR) 
 
 # --- CONFIGURAÇÃO DE CAMINHO (RAM DRIVE) ---
-CAPTURE_PATH = "/home/felipe/miniola_py/captura"
+CAPTURE_PATH = "/home/felipe/miniola/miniola_py/captura"
 if not os.path.exists(CAPTURE_PATH):
     os.makedirs(CAPTURE_PATH)
 
