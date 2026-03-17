@@ -20,7 +20,7 @@ Este protocolo deve ser seguido em caso de formatação ou nova unidade no labor
 Execute no terminal para instalar os headers nativos e bibliotecas de câmera:
 ```bash
 sudo apt update
-sudo apt install libcap-dev libgnutls28-dev python3-libcamera git -y
+sudo apt install libcap-dev libgnutls28-dev python3-libcamera git python3-dev build-essential -y
 ```
 
 ### 2. Clonagem e Preparação do Repositório
