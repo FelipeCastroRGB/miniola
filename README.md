@@ -50,7 +50,9 @@ sudo systemctl daemon-reload && sudo mount -a
 ### 4. Ambiente Python (3.13+)
 Configure o ambiente virtual permitindo o uso dos pacotes de sistema (necessário para o funcionamento da `libcamera`):
 ```bash
-source venv/bin/activate  # Caso já exista, ou crie com: python3 -m venv --system-site-packages venv
+python3 -m venv --system-site-packages venv
+source venv/bin/activate
+pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
 ```
 
