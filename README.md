@@ -1,8 +1,8 @@
 # Miniola - Scanner de Preservação Audiovisual (35mm)
 
-O **Miniola** é uma estação de trabalho de baixo custo e alta precisão para a digitalização e inspeção de películas cinematográficas de 35mm. Desenvolvido para operar em mesas de revisão manuais, o sistema utiliza uma **Raspberry Pi 5/4** e a **Camera Module 3** para capturar quadros sincronizados através da detecção de perfurações.
+O **Miniola** é uma estação de trabalho de baixo custo para a digitalização e inspeção de películas cinematográficas. Desenvolvido para operar em mesas de revisão manuais, o sistema utiliza uma **Raspberry Pi Zero 2 W** e a **Camera Module 3** para capturar quadros sincronizados através da detecção de perfurações.
 
-## 🛠️ Arquitetura e Decisões Técnicas
+## Arquitetura e Decisões Técnicas
 
 O projeto foi reconstruído para ser resiliente a falhas de hardware e atualizações de sistema operacional, alinhado aos padrões de preservação (FIAF/AMIA):
 
