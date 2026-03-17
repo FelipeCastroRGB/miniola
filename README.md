@@ -26,7 +26,6 @@ sudo apt install libcap-dev libgnutls28-dev python3-libcamera git python3-dev bu
 ### 2. Clonagem e Preparação do Repositório
 Para descarregar o código diretamente na branch de desenvolvimento e aceder à pasta do projeto:
 ```bash
-cd ~
 git clone -b desenvolvimento https://github.com/FelipeCastroRGB/miniola.git
 cd ~/miniola/miniola_py
 ```
