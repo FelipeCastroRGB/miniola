@@ -58,6 +58,7 @@ pip install -r requirements.txt
 ### 5. Configuração do Atalho (Alias)
 Para que o comando `miniola` funcione em qualquer diretório do terminal:
 ```bash
+chmod +x ~/miniola/miniola_py/start.sh
 echo "alias miniola='~/miniola/miniola_py/start.sh'" >> ~/.bashrc
 source ~/.bashrc
 ```
