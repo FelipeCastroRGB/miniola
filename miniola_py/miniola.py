@@ -35,7 +35,7 @@ picam2.configure(config)
 # Valores iniciais 
 shutter_speed = 220 
 gain = 1.0
-fps = 60
+fps = 90
 foco_atual = 0.0  # Valor inicial de foco [cite: 2026-02-28]
 passo_foco = 0.1  # Gradação do ajuste [cite: 2026-02-28]
 
