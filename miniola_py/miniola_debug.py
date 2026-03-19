@@ -34,8 +34,8 @@ picam2.set_controls({
 picam2.start()
 
 # --- GEOMETRIA E VARIÁVEIS DE ESTADO ---
-ROI_Y, ROI_H = 100, 60
-ROI_X, ROI_W = 200, 240  
+ROI_Y, ROI_H = 100, 300
+ROI_X, ROI_W = 200, 50  
 LINHA_X, MARGEM = 320, 10
 THRESH_VAL = 110
 
