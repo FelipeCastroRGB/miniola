@@ -34,7 +34,7 @@ picam2.set_controls({
 picam2.start()
 
 # --- GEOMETRIA E VARIÁVEIS DE ESTADO ---
-ROI_Y, ROI_H = 100, 300
+ROI_Y, ROI_H = 50, 400
 ROI_X, ROI_W = 215, 60  
 LINHA_X, MARGEM = 245, 12
 THRESH_VAL = 110
@@ -51,20 +51,20 @@ lista_contornos_debug = []
 # --- THREAD: PAINEL DE CONTROLE (Terminal) ---
 def painel_controle():
     global contador_perf, frame_count, THRESH_VAL, ultimo_frame_bruto
-    global ROI_X, ROI_Y, LINHA_X
+    global ROI_X, ROI_Y, LINHA_Y
     time.sleep(2)
     
     print("\n" + "="*45)
-    print("  MINIOLA DEBUG CENTER v2.2 (Mock Active)")
+    print("   MINIOLA DEBUG CENTER v2.3 (Vertical Mode)")
     print("="*45)
-    print("  r         : Reseta contadores")
-    print("  a         : Auto-ajuste Threshold")
-    print("  t [val]   : Threshold (0-255)")
-    print("  v [val]   : Foco/LensPosition (ex: v 5.5)")
-    print("  x [val]   : Mover ROI Horizontal")
-    print("  y [val]   : Mover ROI Vertical")
-    print("  lx [val]  : Linha de Gatilho X")
-    print("  e/g/f     : Exposure/Gain/FrameRate")
+    print("   r           : Reseta contadores")
+    print("   a           : Auto-ajuste Threshold")
+    print("   t [val]     : Threshold (0-255)")
+    print("   v [val]     : Foco/LensPosition (ex: v 15.0)")
+    print("   x [val]     : Mover ROI Horizontal")
+    print("   y [val]     : Mover ROI Vertical")
+    print("   ly [val]    : Linha de Gatilho Y (Cima/Baixo)")
+    print("   e/g/f       : Exposure/Gain/FrameRate")
     print("="*45)
 
     while True:
@@ -77,12 +77,9 @@ def painel_controle():
                 contador_perf = 0
                 frame_count = 0
                 print(">> [OK] Zerado.")
-            elif cmd == 'a' and ultimo_frame_bruto is not None:
-                gray = cv2.cvtColor(ultimo_frame_bruto, cv2.COLOR_RGB2GRAY)
-                roi_analise = gray[ROI_Y:ROI_Y+ROI_H, ROI_X:ROI_X+ROI_W]
-                val_otsu, _ = cv2.threshold(roi_analise, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-                THRESH_VAL = int(val_otsu * 1.6)
-                print(f">> [AUTO] Threshold: {THRESH_VAL}")
+            elif cmd == 'ly' and len(entrada) > 1:
+                LINHA_Y = int(entrada[1])
+                print(f">> [OK] Linha de Gatilho Y ajustada para: {LINHA_Y}")
             elif cmd == 't' and len(entrada) > 1:
                 THRESH_VAL = int(entrada[1])
             elif cmd == 'v' and len(entrada) > 1:
@@ -91,8 +88,6 @@ def painel_controle():
                 ROI_X = int(entrada[1])
             elif cmd == 'y' and len(entrada) > 1:
                 ROI_Y = int(entrada[1])
-            elif cmd == 'lx' and len(entrada) > 1:
-                LINHA_X = int(entrada[1])
             elif cmd == 'e' and len(entrada) > 1:
                 picam2.set_controls({"ExposureTime": int(entrada[1])})
             elif cmd == 'g' and len(entrada) > 1:
@@ -105,14 +100,14 @@ def painel_controle():
 # --- THREAD: LÓGICA DO SCANNER ---
 def logica_scanner():
     global contador_perf, frame_count, furo_na_linha, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
-    global ultimo_pitch_estimado, THRESH_VAL, ROI_X, ROI_Y, LINHA_X
+    global ultimo_pitch_estimado, THRESH_VAL, ROI_X, ROI_Y, LINHA_Y
 
     while True:
         frame_raw = picam2.capture_array()
         if frame_raw is None: continue
         
         gray = cv2.cvtColor(frame_raw, cv2.COLOR_RGB2GRAY)
-        ry, rx = max(0, min(ROI_Y, 420)), max(0, min(ROI_X, 400))
+        ry, rx = max(0, min(ROI_Y, 420)), max(0, min(ROI_X, 580))
         roi = gray[ry:ry+ROI_H, rx:rx+ROI_W]
         
         _, binary = cv2.threshold(roi, THRESH_VAL, 255, cv2.THRESH_BINARY)
@@ -122,55 +117,68 @@ def logica_scanner():
         for cnt in contours:
             area = cv2.contourArea(cnt)
             x, y, w, h = cv2.boundingRect(cnt)
-            if 400 < area < 8500 and 0.5 < (w/h) < 2.0:
-                perfs_reais.append({'cx': x + (w//2), 'rect': (x, y, w, h)})
+            # Filtro de área e proporção (ajustado para perfuração 35mm vertical)
+            if 400 < area < 9000 and 0.5 < (w/h) < 2.0:
+                perfs_reais.append({'cy': y + (h//2), 'rect': (x, y, w, h)})
                 temp_contornos.append({'rect': (x, y, w, h), 'color': (0, 255, 0)})
             elif area > 100:
                 temp_contornos.append({'rect': (x, y, w, h), 'color': (0, 0, 255)})
 
-        perfs_reais.sort(key=lambda x: x['cx'])
-        perfs_finais_cx = []
+        # Ordena as perfurações verticalmente
+        perfs_reais.sort(key=lambda x: x['cy'])
+        perfs_finais_cy = []
+        
         if len(perfs_reais) >= 2:
-            # Calculamos a média e garantimos que o mínimo seja 1 para evitar ZeroDivisionError
-            distancia_media = np.mean([perfs_reais[i+1]['cx'] - perfs_reais[i]['cx'] for i in range(len(perfs_reais)-1)])
+            distancia_media = np.mean([perfs_reais[i+1]['cy'] - perfs_reais[i]['cy'] for i in range(len(perfs_reais)-1)])
             ultimo_pitch_estimado = max(1, int(distancia_media)) 
             
             for i in range(len(perfs_reais)):
-                perfs_finais_cx.append(perfs_reais[i]['cx'])
+                perfs_finais_cy.append(perfs_reais[i]['cy'])
                 if i < len(perfs_reais) - 1:
-                    gap = perfs_reais[i+1]['cx'] - perfs_reais[i]['cx']
-                    # O gap agora só divide por um número >= 1
+                    gap = perfs_reais[i+1]['cy'] - perfs_reais[i]['cy']
                     if gap > (ultimo_pitch_estimado * 1.6):
                         for f in range(1, round(gap / ultimo_pitch_estimado)):
-                            cx_v = perfs_reais[i]['cx'] + (f * ultimo_pitch_estimado)
-                            perfs_finais_cx.append(cx_v)
+                            cy_v = perfs_reais[i]['cy'] + (f * ultimo_pitch_estimado)
+                            perfs_finais_cy.append(cy_v)
                             x_v, y_v, w_v, h_v = perfs_reais[i]['rect']
-                            temp_contornos.append({'rect': (cx_v-(w_v//2), y_v, w_v, h_v), 'color': (0, 255, 255)})
+                            temp_contornos.append({'rect': (x_v, cy_v-(h_v//2), w_v, h_v), 'color': (0, 255, 255)})
         else:
-            perfs_finais_cx = [p['cx'] for p in perfs_reais]
+            perfs_finais_cy = [p['cy'] for p in perfs_reais]
 
+        # Lógica de Gatilho Vertical
         furo_agora = False
-        for cx in perfs_finais_cx:
-            if abs((cx + rx) - LINHA_X) < MARGEM:
+        for cy in perfs_finais_cy:
+            # Verifica se o centro Y da perfuração (global) cruza a LINHA_Y
+            if abs((cy + ry) - LINHA_Y) < MARGEM:
                 furo_agora = True
                 if not furo_na_linha:
                     contador_perf += 1
                     furo_na_linha = True
-                    if contador_perf % 4 == 0: frame_count += 1
+                    # 4 perfurações por frame no 35mm standard
+                    if contador_perf % 4 == 0: 
+                        frame_count += 1
         
-        if not furo_agora: furo_na_linha = False
+        if not furo_agora: 
+            furo_na_linha = False
+            
         ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug = frame_raw, binary, temp_contornos
         time.sleep(0.005)
 
 # --- FLASK: VISUALIZAÇÃO ---
 def generate_frames():
     while True:
-        if ultimo_frame_bruto is None:
+        if ultimo_frame_bruto is None or ultimo_frame_binario is None:
             time.sleep(0.01); continue
+        
         vis = ultimo_frame_bruto.copy()
         ry, rx = max(0, min(ROI_Y, 420)), max(0, min(ROI_X, 400))
+        
+        # Desenha o Retângulo do ROI
         cv2.rectangle(vis, (rx, ry), (rx + ROI_W, ry + ROI_H), (100, 100, 100), 1)
-        cv2.line(vis, (LINHA_X, ry), (LINHA_X, ry + ROI_H), (0, 255, 0) if furo_na_linha else (200, 200, 200), 2)
+        
+        # DESENHA A LINHA DE GATILHO (Horizontal cruzando o caminho do filme)
+        cor_gatilho = (0, 255, 0) if furo_na_linha else (200, 200, 200)
+        cv2.line(vis, (rx, LINHA_Y), (rx + ROI_W, LINHA_Y), cor_gatilho, 2)
         for item in lista_contornos_debug:
             x, y, w, h = item['rect']
             cv2.rectangle(vis, (x + rx, y + ry), (x + w + rx, y + h + ry), item['color'], 2)
