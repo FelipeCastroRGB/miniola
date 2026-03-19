@@ -26,16 +26,16 @@ config = picam2.create_video_configuration(main={"size": (640, 480), "format": "
 picam2.configure(config)
 
 picam2.set_controls({
-    "ExposureTime": 1000,
+    "ExposureTime": 400,
     "AnalogueGain": 1.0,
     "FrameRate": 60,
-    "LensPosition": 0.0 
+    "LensPosition": 15.0 
 })
 picam2.start()
 
 # --- GEOMETRIA E VARIÁVEIS DE ESTADO ---
 ROI_Y, ROI_H = 100, 300
-ROI_X, ROI_W = 200, 50  
+ROI_X, ROI_W = 215, 50  
 LINHA_X, MARGEM = 320, 10
 THRESH_VAL = 110
 
@@ -81,7 +81,7 @@ def painel_controle():
                 gray = cv2.cvtColor(ultimo_frame_bruto, cv2.COLOR_RGB2GRAY)
                 roi_analise = gray[ROI_Y:ROI_Y+ROI_H, ROI_X:ROI_X+ROI_W]
                 val_otsu, _ = cv2.threshold(roi_analise, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-                THRESH_VAL = int(val_otsu * 1.5)
+                THRESH_VAL = int(val_otsu * 1.6)
                 print(f">> [AUTO] Threshold: {THRESH_VAL}")
             elif cmd == 't' and len(entrada) > 1:
                 THRESH_VAL = int(entrada[1])
@@ -131,11 +131,15 @@ def logica_scanner():
         perfs_reais.sort(key=lambda x: x['cx'])
         perfs_finais_cx = []
         if len(perfs_reais) >= 2:
-            ultimo_pitch_estimado = int(np.mean([perfs_reais[i+1]['cx'] - perfs_reais[i]['cx'] for i in range(len(perfs_reais)-1)]))
+            # Calculamos a média e garantimos que o mínimo seja 1 para evitar ZeroDivisionError
+            distancia_media = np.mean([perfs_reais[i+1]['cx'] - perfs_reais[i]['cx'] for i in range(len(perfs_reais)-1)])
+            ultimo_pitch_estimado = max(1, int(distancia_media)) 
+            
             for i in range(len(perfs_reais)):
                 perfs_finais_cx.append(perfs_reais[i]['cx'])
                 if i < len(perfs_reais) - 1:
                     gap = perfs_reais[i+1]['cx'] - perfs_reais[i]['cx']
+                    # O gap agora só divide por um número >= 1
                     if gap > (ultimo_pitch_estimado * 1.6):
                         for f in range(1, round(gap / ultimo_pitch_estimado)):
                             cx_v = perfs_reais[i]['cx'] + (f * ultimo_pitch_estimado)
