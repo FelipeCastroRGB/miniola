@@ -36,7 +36,7 @@ picam2.start()
 # --- GEOMETRIA E VARIÁVEIS DE ESTADO ---
 ROI_Y, ROI_H = 50, 400
 ROI_X, ROI_W = 215, 60  
-LINHA_X, MARGEM = 245, 12
+LINHA_Y, MARGEM = 240, 12
 THRESH_VAL = 110
 
 contador_perf = 0
