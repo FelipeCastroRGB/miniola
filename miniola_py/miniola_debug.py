@@ -22,7 +22,7 @@ log.setLevel(logging.ERROR)
 picam2 = Picamera2()
 
 # 2. Configuração de Hardware
-config = picam2.create_video_configuration(main={"size": (640, 480), "format": "RGB888"})
+config = picam2.create_video_configuration(main={"size": (1080, 720), "format": "RGB888"})
 picam2.configure(config)
 
 picam2.set_controls({
