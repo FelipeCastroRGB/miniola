@@ -26,7 +26,7 @@ config = picam2.create_video_configuration(main={"size": (640, 480), "format": "
 picam2.configure(config)
 
 picam2.set_controls({
-    "ExposureTime": 400,
+    "ExposureTime": 415,
     "AnalogueGain": 1.0,
     "FrameRate": 60,
     "LensPosition": 15.0 
