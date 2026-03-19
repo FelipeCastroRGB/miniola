@@ -16,4 +16,4 @@ source venv/bin/activate
 
 # Executa o software de digitalização
 echo "[SISTEMA] Ligando Camera Module 3 e Motor de Captura..."
-python3 miniola.py
+python3 miniola_debug.py
