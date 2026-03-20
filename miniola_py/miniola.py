@@ -27,8 +27,8 @@ if not os.path.exists(CAPTURE_PATH):
 
 picam2 = Picamera2()
 
-# 2. Configuração de Hardware (800x600)
-WIDTH, HEIGHT = 800, 600
+# 2. Configuração de Hardware (1920x600)
+WIDTH, HEIGHT = 1920, 1080
 config = picam2.create_video_configuration(main={"size": (WIDTH, HEIGHT), "format": "RGB888"})
 picam2.configure(config)
 
@@ -36,8 +36,8 @@ picam2.configure(config)
 shutter_speed = 220 
 gain = 1.0
 fps = 90
-foco_atual = 0.0  # Valor inicial de foco [cite: 2026-02-28]
-passo_foco = 0.1  # Gradação do ajuste [cite: 2026-02-28]
+foco_atual = 16  # Valor inicial de foco [cite: 2026-02-28]
+passo_foco = 1  # Gradação do ajuste [cite: 2026-02-28]
 
 picam2.set_controls({"ExposureTime": shutter_speed, "AnalogueGain": gain, "FrameRate": fps})
 picam2.start()
@@ -49,7 +49,7 @@ ROI_W, ROI_H = 100, 580 # ROI agora é uma faixa vertical na lateral [cite: 2026
 LINHA_Y, MARGEM = 300, 15 # Gatilho agora monitora a passagem vertical (Y) [cite: 2026-02-28]
 THRESH_VAL = 230
 CROP_Y1, CROP_Y2 = 0, 600  
-CROP_X1, CROP_X2 = 0, 800  
+CROP_X1, CROP_X2 = 100, 800  
 
 # Estado Global
 contador_perf = 0
@@ -197,7 +197,7 @@ def generate_frames():
             cv2.rectangle(vis_base, (x + ROI_X, y + ROI_Y), (x + w + ROI_X, y + h + ROI_Y), item['color'], 2)
         
         # Redimensionamento para o navegador
-        altura_alvo = 600 
+        altura_alvo = 1080
         h_orig, w_orig = vis_base.shape[:2]
         proporcao = w_orig / h_orig
         largura_final = int(altura_alvo * proporcao)
