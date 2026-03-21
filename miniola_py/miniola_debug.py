@@ -28,26 +28,21 @@ picam2.start()
 
 # --- GEOMETRIA E CONTROLE ---
 GRAVANDO = False
+ESTADO_ATUAL = "BUSCAR_QUADRO"
 ROI_X, ROI_Y = 215, 50
 ROI_W, ROI_H = 80, 600
-LINHA_RESET_Y = 300  
+LINHA_RESET_Y = 150  # Ideal manter na metade superior do ROI
 THRESH_VAL = 110
 OFFSET_X = 260
 CROP_W, CROP_H = 440, 330 
 
-# Variáveis do Odômetro Estável
-perfs_contadas = 0 # Mantido para o dashboard, mas a lógica de contagem será diferente
-ultimo_id_contado = -1
 frame_count = 0
+alvo_rastreio_y = -1 # Guarda a posição Y da perfuração que estamos seguindo
 ultimo_frame_bruto = None
 ultimo_frame_binario = None
 ultimo_crop_preview = np.zeros((CROP_H, CROP_W, 3), dtype=np.uint8)
 lista_contornos_debug = []
 pos_ancora_debug = None
-
-# --- NOVAS VARIÁVEIS PARA A LÓGICA DE ESTADO ---
-SCANNER_STATE = "WAITING_FOR_GROUP" # Estados: "WAITING_FOR_GROUP", "WAITING_FOR_PASSAGE"
-CAPTURED_GROUP_LAST_PERF_Y = -1 # Armazena a coordenada Y da última perfuração do grupo capturado
 
 def processar_captura(frame, cx, cy, n_frame):
     global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
@@ -63,14 +58,14 @@ def processar_captura(frame, cx, cy, n_frame):
     return (x1, y1, x2, y2)
 
 def painel_controle():
-    global frame_count, GRAVANDO, LINHA_RESET_Y, ROI_X, ROI_Y, ROI_W, ROI_H, OFFSET_X, CROP_W, CROP_H, perfs_contadas, THRESH_VAL
+    global frame_count, GRAVANDO, LINHA_RESET_Y, ROI_X, ROI_Y, ROI_W, ROI_H, OFFSET_X, CROP_W, CROP_H, THRESH_VAL, ESTADO_ATUAL
     time.sleep(2)
     print("\n" + "═"*45)
-    print("   MINIOLA v4.3 - ODÔMETRO ESTÁVEL")
+    print("   MINIOLA v5.0 - RASTREADOR DE QUADRO (PULL-DOWN)")
     print("═"*45)
-    print("   ly [v] : Linha de Contagem")
-    print("   t [v]  : Threshold (Comando restaurado)")
-    print("   p 0    : Resetar contagem manual")
+    print("   ly [v] : Linha de Gatilho (Recomendo valor baixo, ex: 100)")
+    print("   t [v]  : Threshold (Contraste)")
+    print("   ox [v] : Offset X (Horizontal)")
     print("   rec    : Toggle Gravação")
     print("═"*45)
 
@@ -88,7 +83,6 @@ def painel_controle():
             elif cmd == 'rx': ROI_X = val
             elif cmd == 'ry': ROI_Y = val
             elif cmd == 'rec': GRAVANDO = not GRAVANDO
-            elif cmd == 'p': perfs_contadas = val
             elif cmd == 'r': frame_count = 0
             elif cmd == 'clean':
                 for f in os.listdir('capturas'): os.remove(os.path.join('capturas', f))
@@ -96,8 +90,7 @@ def painel_controle():
 
 def logica_scanner():
     global frame_count, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
-    global perfs_contadas, ultimo_id_contado, pos_ancora_debug
-    global SCANNER_STATE, CAPTURED_GROUP_LAST_PERF_Y
+    global ESTADO_ATUAL, alvo_rastreio_y, pos_ancora_debug
 
     while True:
         frame_raw = picam2.capture_array()
@@ -114,39 +107,44 @@ def logica_scanner():
             x, y, w, h = cv2.boundingRect(cnt)
             if 150 < area < 9000 and 0.4 < (w/h) < 2.5:
                 cx, cy = x + (w//2) + ROI_X, y + (h//2) + ROI_Y
-                perfs_neste_frame.append({'cx': cx, 'cy': cy, 'h': h})
+                perfs_neste_frame.append({'cx': cx, 'cy': cy})
                 debug_visual.append({'rect': (x+ROI_X, y+ROI_Y, w, h), 'color': (0, 255, 0)})
 
-        perfs_neste_frame.sort(key=lambda p: p['cy']) # Ordena por Y, do menor (mais acima) para o maior (mais abaixo)
+        perfs_neste_frame.sort(key=lambda p: p['cy'])
 
-        # --- NOVA LÓGICA DE ESTADO ---
-        if SCANNER_STATE == "WAITING_FOR_GROUP":
+        # Atualiza a cruz magenta constantemente para referência visual
+        if len(perfs_neste_frame) >= 4:
+            grupo = perfs_neste_frame[0:4]
+            cx_a, cy_a = int(np.mean([p['cx'] for p in grupo])), int(np.mean([p['cy'] for p in grupo]))
+            pos_ancora_debug = (cx_a, cy_a)
+
+        # --- LÓGICA DE ESTADOS BASEADA NA SUA IDEIA ---
+        if ESTADO_ATUAL == "BUSCAR_QUADRO":
             if len(perfs_neste_frame) >= 4:
-                # Encontrou um grupo de 4 perfurações
-                current_group = perfs_neste_frame[0:4]
-                cx_a = int(np.mean([p['cx'] for p in current_group]))
-                cy_a = int(np.mean([p['cy'] for p in current_group]))
-                pos_ancora_debug = (cx_a, cy_a)
-
-                # Realiza a captura imediatamente
-                processar_captura(frame_raw, cx_a, cy_a, frame_count)
+                # 1. Tira a foto usando as 4 perfurações atuais
+                processar_captura(frame_raw, pos_ancora_debug[0], pos_ancora_debug[1], frame_count)
                 frame_count += 1
-                perfs_contadas = 4 # Para o dashboard indicar que um grupo foi processado
+                
+                # 2. "Trava" na 4ª perfuração (a mais baixa desse quadro)
+                alvo_rastreio_y = perfs_neste_frame[3]['cy']
+                ESTADO_ATUAL = "RASTREAR"
 
-                # Define o limite para esperar o grupo passar
-                # A última perfuração do grupo é a que tem o maior Y (mais abaixo)
-                CAPTURED_GROUP_LAST_PERF_Y = current_group[-1]['cy']
-                SCANNER_STATE = "WAITING_FOR_PASSAGE"
-                print(f"[SCANNER] Grupo de 4 capturado. Esperando passagem. Última perfuração em Y: {CAPTURED_GROUP_LAST_PERF_Y}")
-
-        elif SCANNER_STATE == "WAITING_FOR_PASSAGE":
-            # Verifica se o grupo capturado já passou do limite superior
-            # Consideramos que passou se a perfuração mais alta visível (menor Y) já está acima do Y da última perfuração do grupo capturado + margem
-            # Ou se não há perfurações visíveis (o que significa que o filme avançou)
-            if not perfs_neste_frame or perfs_neste_frame[0]['cy'] < (CAPTURED_GROUP_LAST_PERF_Y - LINHA_RESET_Y): # Ajuste para o filme subindo
-                SCANNER_STATE = "WAITING_FOR_GROUP"
-                perfs_contadas = 0 # Reseta para o dashboard
-                print("[SCANNER] Grupo passou. Procurando novo grupo.")
+        elif ESTADO_ATUAL == "RASTREAR":
+            if perfs_neste_frame:
+                # Encontra qual perfuração atual é a que estamos seguindo
+                alvo_atual = min(perfs_neste_frame, key=lambda p: abs(p['cy'] - alvo_rastreio_y))
+                
+                # Se ela não pulou absurdamente (margem de erro para movimento rápido)
+                if abs(alvo_atual['cy'] - alvo_rastreio_y) < 150:
+                    alvo_rastreio_y = alvo_atual['cy']
+                
+                # 3. CONDIÇÃO DE SAÍDA: A 4ª perfuração cruzou a linha de gatilho?
+                if alvo_rastreio_y < (ROI_Y + LINHA_RESET_Y):
+                    ESTADO_ATUAL = "BUSCAR_QUADRO"  # Libera para o próximo quadro!
+                    alvo_rastreio_y = -1
+            else:
+                # Se não houver perfurações no ROI (filme correu muito rápido), reseta
+                ESTADO_ATUAL = "BUSCAR_QUADRO"
 
         ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug = frame_raw, binary, debug_visual
         time.sleep(0.002)
@@ -157,8 +155,8 @@ def generate_dashboard():
         p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
         sx, sy = 640/1080, 420/720
         
-        # Estética v3.9.1
-        cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_X+ROI_H)*sy)), (150, 150, 150), 1)
+        # UI Base v3.9.1
+        cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
         y_gl = ROI_Y + LINHA_RESET_Y
         cv2.line(p_live, (int(ROI_X*sx), int(y_gl*sy)), (int((ROI_X+ROI_W)*sx), int(y_gl*sy)), (0, 0, 255), 2)
         
@@ -173,6 +171,11 @@ def generate_dashboard():
             cx2, cy2 = int((fx_c + CROP_W//2)*sx), int((fy_c + CROP_H//2)*sy)
             cv2.rectangle(p_live, (cx1, cy1), (cx2, cy2), (255, 255, 0), 1)
 
+        # NOVO: Bolinha amarela indicando a perfuração que está sendo rastreada
+        if ESTADO_ATUAL == "RASTREAR" and alvo_rastreio_y > 0:
+            cx_alvo = ROI_X + (ROI_W // 2)
+            cv2.circle(p_live, (int(cx_alvo*sx), int(alvo_rastreio_y*sy)), 10, (0, 255, 255), -1)
+
         p_bin = np.zeros((420, 640, 3), dtype=np.uint8)
         bin_z = cv2.resize(cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB), (240, 420))
         p_bin[0:420, 200:440] = bin_z
@@ -184,7 +187,7 @@ def generate_dashboard():
             p_prev[10:470, (1280-nw)//2 : (1280-nw)//2 + nw] = cv2.resize(ultimo_crop_preview, (nw, 460))
         
         cor_rec = (0, 0, 255) if GRAVANDO else (0, 255, 0)
-        txt_rec = f"REC: {frame_count:05d} | ODOM: {perfs_contadas}/4 | T: {THRESH_VAL}"
+        txt_rec = f"REC: {frame_count:05d} | ESTADO: {ESTADO_ATUAL}"
         cv2.putText(p_prev, txt_rec, (30, 55), cv2.FONT_HERSHEY_SIMPLEX, 1.2, cor_rec, 3)
 
         dashboard = np.vstack((np.hstack((p_live, p_bin)), p_prev))
@@ -195,7 +198,7 @@ def generate_dashboard():
 def video_feed(): return Response(generate_dashboard(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/status')
-def get_status(): return f"PERFS: {perfs_contadas}/4 | THRESHOLD: {THRESH_VAL}"
+def get_status(): return f"ESTADO: {ESTADO_ATUAL} | FRAMES: {frame_count}"
 
 @app.route('/')
 def index():
