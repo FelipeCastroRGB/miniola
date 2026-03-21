@@ -26,14 +26,12 @@ picam2.configure(config)
 picam2.set_controls({"ExposureTime": 450, "AnalogueGain": 1.0, "FrameRate": 60, "LensPosition": 15.0})
 picam2.start()
 
-# --- VARIÁVEIS DE CONTROLE E GEOMETRIA ---
+# --- GEOMETRIA DINÂMICA ---
 GRAVANDO = False
 ESTADO_ATUAL = "BUSCAR_QUADRO"
-
-# Geometria Dinâmica (Editável via Terminal)
 ROI_X, ROI_Y = 215, 50
 ROI_W, ROI_H = 80, 600
-LINHA_RESET_Y = 120  # Relativo ao topo do ROI
+LINHA_RESET_Y = 120  
 THRESH_VAL = 110
 OFFSET_X = 260
 CROP_W, CROP_H = 440, 330
@@ -47,7 +45,7 @@ lista_contornos_debug = []
 pos_ancora_debug = None
 box_crop_debug = None
 
-# --- FUNÇÃO DE PROCESSAMENTO ---
+# --- PROCESSAMENTO ---
 def processar_captura(frame, cx, cy, n_frame):
     global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
     fx, fy = cx + OFFSET_X, cy
@@ -60,27 +58,28 @@ def processar_captura(frame, cx, cy, n_frame):
             cv2.imwrite(f"capturas/miniola_{n_frame:06d}.jpg", crop, [int(cv2.IMWRITE_JPEG_QUALITY), 98])
     return (x1, y1, x2, y2)
 
-# --- PAINEL DE CONTROLE (AGORA COM MOVIMENTAÇÃO DE ROI) ---
+# --- TERMINAL DE COMANDO ---
 def painel_controle():
-    global frame_count, THRESH_VAL, OFFSET_X, GRAVANDO, LINHA_RESET_Y
-    global ROI_X, ROI_Y, ROI_W, ROI_H
+    global frame_count, THRESH_VAL, OFFSET_X, GRAVANDO, LINHA_RESET_Y, ROI_X, ROI_Y, ROI_W, ROI_H
     time.sleep(2)
     print("\n" + "═"*45)
-    print("   MINIOLA PRO-SCANNER v3.8 - CALIBRAÇÃO")
-    print("" + "═"*45)
-    print("   rx/ry [val] : Posição X ou Y do ROI")
-    print("   rw/rh [val] : Largura ou Altura do ROI")
-    print("   ly [val]    : Linha de Reset Y (Gatilho)")
-    print("   ox [val]    : Offset X (Centro do Filme)")
-    print("   rec         : Toggle Gravação")
-    print("   clean       : Limpar Pasta Capturas")
-    print("   " + "═"*45)
+    print("   MINIOLA v3.9 - COMANDOS DE CALIBRAÇÃO")
+    print("═"*45)
+    print("   rx/ry [v] : Posicao X ou Y do ROI")
+    print("   rw/rh [v] : Largura ou Altura do ROI")
+    print("   ly [v]    : Linha de Reset (Gatilho)")
+    print("   ox [v]    : Offset X (Centro do Filme)")
+    print("   rec       : Iniciar/Parar Gravação")
+    print("   clean     : Limpar pasta 'capturas'")
+    print("   r         : Zerar contador de frames")
+    print("═"*45)
 
     while True:
         try:
             entrada = input("\nComando >> ").split()
             if not entrada: continue
-            cmd, val = entrada[0].lower(), int(entrada[1]) if len(entrada) > 1 else 0
+            cmd = entrada[0].lower()
+            val = int(entrada[1]) if len(entrada) > 1 else 0
             
             if cmd == 'rx': ROI_X = val
             elif cmd == 'ry': ROI_Y = val
@@ -90,11 +89,11 @@ def painel_controle():
             elif cmd == 'ox': OFFSET_X = val
             elif cmd == 't': THRESH_VAL = val
             elif cmd == 'rec': GRAVANDO = not GRAVANDO
+            elif cmd == 'r': frame_count = 0
             elif cmd == 'clean':
                 for f in os.listdir('capturas'): os.remove(os.path.join('capturas', f))
                 print(">> Pasta limpa.")
-            elif cmd == 'r': frame_count = 0
-        except Exception as e: print(f"Erro: {e}")
+        except Exception as e: print(f"Erro no comando: {e}")
 
 # --- LÓGICA DO SCANNER ---
 def logica_scanner():
@@ -116,14 +115,15 @@ def logica_scanner():
             area = cv2.contourArea(cnt)
             x, y, w, h = cv2.boundingRect(cnt)
             if 150 < area < 9000 and 0.4 < (w/h) < 2.5:
-                perfs_reais.append({'cx': x + (w//2) + rx, 'cy': y + (h//2) + ry, 'h': h})
+                perfs_reais.append({'cx': x + (w//2) + rx, 'cy': y + (h//2) + ry})
                 debug_visual.append({'rect': (x+rx, y+ry, w, h), 'color': (0, 255, 0)})
 
         perfs_reais.sort(key=lambda p: p['cy'])
         
         perfs_finais = []
         if len(perfs_reais) >= 2:
-            ultimo_pitch_estimado = int(np.median([perfs_reais[i+1]['cy'] - perfs_reais[i]['cy'] for i in range(len(perfs_reais)-1)]))
+            dist = [perfs_reais[i+1]['cy'] - perfs_reais[i]['cy'] for i in range(len(perfs_reais)-1)]
+            ultimo_pitch_estimado = int(np.median(dist))
             for i in range(len(perfs_reais)):
                 perfs_finais.append(perfs_reais[i])
                 if i < len(perfs_reais) - 1:
@@ -145,29 +145,25 @@ def logica_scanner():
                 ESTADO_ATUAL = "ESPERAR_SAIDA"
         elif ESTADO_ATUAL == "ESPERAR_SAIDA":
             if len(perfs_reais) > 0:
-                perf_base_y = perfs_reais[-1]['cy']
-                if perf_base_y < (ry + LINHA_RESET_Y):
+                if perfs_reais[-1]['cy'] < (ry + LINHA_RESET_Y):
                     ESTADO_ATUAL = "BUSCAR_QUADRO"
                     pos_ancora_debug = None
 
         ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug = frame_raw, binary, debug_visual
         time.sleep(0.002)
 
-# --- DASHBOARD COM DESENHO DE ROI E GATILHO ---
+# --- DASHBOARD (CORREÇÃO DE FONTES) ---
 def generate_dashboard():
     while True:
         if ultimo_frame_bruto is None: time.sleep(0.1); continue
         
-        # 1. Painel Live (Resized)
         p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
         sx, sy = 640/1080, 420/720
         
-        # Desenhar ROI
-        cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (200, 200, 200), 1)
-        
-        # Desenhar Linha de Reset (Gatilho)
-        y_reset_global = ROI_Y + LINHA_RESET_Y
-        cv2.line(p_live, (int(ROI_X*sx), int(y_reset_global*sy)), (int((ROI_X+ROI_W)*sx), int(y_reset_global*sy)), (0, 0, 255), 2)
+        # Desenho ROI e Gatilho
+        cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
+        y_gl = ROI_Y + LINHA_RESET_Y
+        cv2.line(p_live, (int(ROI_X*sx), int(y_gl*sy)), (int((ROI_X+ROI_W)*sx), int(y_gl*sy)), (0, 0, 255), 2)
         
         for item in lista_contornos_debug:
             x, y, w, h = item['rect']
@@ -176,46 +172,40 @@ def generate_dashboard():
         if pos_ancora_debug:
             cv2.drawMarker(p_live, (int(pos_ancora_debug[0]*sx), int(pos_ancora_debug[1]*sy)), (255, 0, 255), cv2.MARKER_CROSS, 20, 2)
 
-        # 2. Painel Binário
+        # Painel Binário
         p_bin = np.zeros((420, 640, 3), dtype=np.uint8)
-        bin_zoom = cv2.resize(cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB), (240, 420))
-        p_bin[0:420, 200:440] = bin_zoom
+        bin_z = cv2.resize(cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB), (240, 420))
+        p_bin[0:420, 200:440] = bin_z
 
-        # 3. Painel Preview Gigante
+        # Preview Gigante
         p_prev = np.zeros((480, 1280, 3), dtype=np.uint8)
         hc, wc = ultimo_crop_preview.shape[:2]
         nw = int(460 * (wc/hc))
         p_prev[10:470, (1280-nw)//2 : (1280-nw)//2 + nw] = cv2.resize(ultimo_crop_preview, (nw, 460))
         
-        # Status Overlay
+        # UI Fix: Substituindo FONT_HERSHEY_BOLD por SIMPLEX + thickness
         cor_rec = (0, 0, 255) if GRAVANDO else (0, 255, 0)
         txt_rec = f"REC: {frame_count:05d}" if GRAVANDO else "STANDBY"
-        cv2.putText(p_prev, txt_rec, (30, 55), cv2.FONT_HERSHEY_BOLD, 1.2, cor_rec, 3)
+        cv2.putText(p_prev, txt_rec, (30, 55), cv2.FONT_HERSHEY_SIMPLEX, 1.2, cor_rec, 3) # thickness=3 faz o "bold"
 
         dashboard = np.vstack((np.hstack((p_live, p_bin)), p_prev))
-        _, buffer = cv2.imencode('.jpg', dashboard, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+        _, buffer = cv2.imencode('.jpg', dashboard, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
 @app.route('/video_feed')
 def video_feed(): return Response(generate_dashboard(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/status')
-def get_status(): return f"ESTADO: {ESTADO_ATUAL} | ROI: {ROI_X},{ROI_Y} | RESET: {LINHA_RESET_Y}"
+def get_status(): return f"{ESTADO_ATUAL} | ROI: {ROI_X},{ROI_Y} | RESET: {LINHA_RESET_Y}"
 
 @app.route('/')
 def index():
     return """
-    <html>
-        <body style='background:#000; color:#0f0; text-align:center; font-family:monospace; margin:0;'>
-            <div style='background:#111; padding:10px; border-bottom:1px solid #333;'>
-                <span id='st' style='font-size:22px;'>Aguardando...</span>
-            </div>
-            <img src="/video_feed" style="height:92vh; border:1px solid #333;">
-            <script>
-                setInterval(() => { fetch('/status').then(r => r.text()).then(t => { document.getElementById('st').innerText = t; }); }, 150);
-            </script>
-        </body>
-    </html>
+    <html><body style='background:#000; color:#0f0; text-align:center; font-family:monospace; margin:0;'>
+    <div style='background:#111; padding:10px; border-bottom:1px solid #333;'><span id='st' style='font-size:20px;'>...</span></div>
+    <img src="/video_feed" style="height:92vh; border:1px solid #333;">
+    <script>setInterval(() => { fetch('/status').then(r => r.text()).then(t => { document.getElementById('st').innerText = t; }); }, 150);</script>
+    </body></html>
     """
 
 if __name__ == '__main__':
