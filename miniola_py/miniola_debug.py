@@ -34,7 +34,7 @@ ROI_W, ROI_H = 80, 600
 LINHA_RESET_Y = 120  
 THRESH_VAL = 110
 OFFSET_X = 260
-CROP_W, CROP_H = 440, 330
+CROP_W, CROP_H = 440, 330 # <--- Ajustável agora
 
 frame_count = 0
 ultimo_pitch_estimado = 95 
@@ -45,7 +45,6 @@ lista_contornos_debug = []
 pos_ancora_debug = None
 box_crop_debug = None
 
-# --- PROCESSAMENTO ---
 def processar_captura(frame, cx, cy, n_frame):
     global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
     fx, fy = cx + OFFSET_X, cy
@@ -58,44 +57,38 @@ def processar_captura(frame, cx, cy, n_frame):
             cv2.imwrite(f"capturas/miniola_{n_frame:06d}.jpg", crop, [int(cv2.IMWRITE_JPEG_QUALITY), 98])
     return (x1, y1, x2, y2)
 
-# --- TERMINAL DE COMANDO ---
 def painel_controle():
-    global frame_count, THRESH_VAL, OFFSET_X, GRAVANDO, LINHA_RESET_Y, ROI_X, ROI_Y, ROI_W, ROI_H
+    global frame_count, THRESH_VAL, OFFSET_X, GRAVANDO, LINHA_RESET_Y, ROI_X, ROI_Y, ROI_W, ROI_H, CROP_W, CROP_H
     time.sleep(2)
     print("\n" + "═"*45)
-    print("   MINIOLA v3.9 - COMANDOS DE CALIBRAÇÃO")
+    print("   MINIOLA v3.9.1 - DEBUG ATIVO")
     print("═"*45)
-    print("   rx/ry [v] : Posicao X ou Y do ROI")
-    print("   rw/rh [v] : Largura ou Altura do ROI")
-    print("   ly [v]    : Linha de Reset (Gatilho)")
+    print("   cw/ch [v] : Largura/Altura do Crop (Azul)")
+    print("   rx/ry [v] : Posicao do ROI (Cinza)")
+    print("   ly [v]    : Gatilho de Reset (Vermelho)")
     print("   ox [v]    : Offset X (Centro do Filme)")
-    print("   rec       : Iniciar/Parar Gravação")
-    print("   clean     : Limpar pasta 'capturas'")
-    print("   r         : Zerar contador de frames")
+    print("   rec       : Toggle Gravação")
     print("═"*45)
 
     while True:
         try:
             entrada = input("\nComando >> ").split()
             if not entrada: continue
-            cmd = entrada[0].lower()
-            val = int(entrada[1]) if len(entrada) > 1 else 0
+            cmd, val = entrada[0].lower(), int(entrada[1]) if len(entrada) > 1 else 0
             
-            if cmd == 'rx': ROI_X = val
+            if cmd == 'cw': CROP_W = val
+            elif cmd == 'ch': CROP_H = val
+            elif cmd == 'rx': ROI_X = val
             elif cmd == 'ry': ROI_Y = val
-            elif cmd == 'rw': ROI_W = val
-            elif cmd == 'rh': ROI_H = val
             elif cmd == 'ly': LINHA_RESET_Y = val
             elif cmd == 'ox': OFFSET_X = val
             elif cmd == 't': THRESH_VAL = val
             elif cmd == 'rec': GRAVANDO = not GRAVANDO
-            elif cmd == 'r': frame_count = 0
             elif cmd == 'clean':
                 for f in os.listdir('capturas'): os.remove(os.path.join('capturas', f))
-                print(">> Pasta limpa.")
-        except Exception as e: print(f"Erro no comando: {e}")
+            elif cmd == 'r': frame_count = 0
+        except: pass
 
-# --- LÓGICA DO SCANNER ---
 def logica_scanner():
     global frame_count, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
     global ultimo_pitch_estimado, ESTADO_ATUAL, pos_ancora_debug, box_crop_debug
@@ -122,8 +115,7 @@ def logica_scanner():
         
         perfs_finais = []
         if len(perfs_reais) >= 2:
-            dist = [perfs_reais[i+1]['cy'] - perfs_reais[i]['cy'] for i in range(len(perfs_reais)-1)]
-            ultimo_pitch_estimado = int(np.median(dist))
+            ultimo_pitch_estimado = int(np.median([perfs_reais[i+1]['cy'] - perfs_reais[i]['cy'] for i in range(len(perfs_reais)-1)]))
             for i in range(len(perfs_reais)):
                 perfs_finais.append(perfs_reais[i])
                 if i < len(perfs_reais) - 1:
@@ -135,58 +127,63 @@ def logica_scanner():
                             debug_visual.append({'rect': (perfs_reais[i]['cx']-10, cy_v-10, 20, 20), 'color': (0, 255, 255)})
         else: perfs_finais = perfs_reais
 
-        if ESTADO_ATUAL == "BUSCAR_QUADRO":
-            if len(perfs_finais) >= 4:
-                grupo = perfs_finais[0:4]
-                cx_a, cy_a = int(np.mean([p['cx'] for p in grupo])), int(np.mean([p['cy'] for p in grupo]))
+        # --- ATUALIZAÇÃO DA CRUZ (CENTROIDE) EM TEMPO REAL ---
+        if len(perfs_finais) >= 4:
+            grupo = perfs_finais[0:4]
+            cx_a, cy_a = int(np.mean([p['cx'] for p in grupo])), int(np.mean([p['cy'] for p in grupo]))
+            pos_ancora_debug = (cx_a, cy_a) # Agora atualiza sempre
+            
+            # Lógica de Captura
+            if ESTADO_ATUAL == "BUSCAR_QUADRO":
                 box_crop_debug = processar_captura(frame_raw, cx_a, cy_a, frame_count)
-                pos_ancora_debug = (cx_a, cy_a)
                 frame_count += 1
                 ESTADO_ATUAL = "ESPERAR_SAIDA"
-        elif ESTADO_ATUAL == "ESPERAR_SAIDA":
-            if len(perfs_reais) > 0:
-                if perfs_reais[-1]['cy'] < (ry + LINHA_RESET_Y):
-                    ESTADO_ATUAL = "BUSCAR_QUADRO"
-                    pos_ancora_debug = None
+        
+        if ESTADO_ATUAL == "ESPERAR_SAIDA":
+            if len(perfs_reais) > 0 and perfs_reais[-1]['cy'] < (ry + LINHA_RESET_Y):
+                ESTADO_ATUAL = "BUSCAR_QUADRO"
 
         ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug = frame_raw, binary, debug_visual
         time.sleep(0.002)
 
-# --- DASHBOARD (CORREÇÃO DE FONTES) ---
 def generate_dashboard():
     while True:
         if ultimo_frame_bruto is None: time.sleep(0.1); continue
-        
         p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
         sx, sy = 640/1080, 420/720
         
-        # Desenho ROI e Gatilho
+        # Desenho ROI e Reset
         cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
         y_gl = ROI_Y + LINHA_RESET_Y
         cv2.line(p_live, (int(ROI_X*sx), int(y_gl*sy)), (int((ROI_X+ROI_W)*sx), int(y_gl*sy)), (0, 0, 255), 2)
         
+        # Desenho Perfurações
         for item in lista_contornos_debug:
             x, y, w, h = item['rect']
             cv2.rectangle(p_live, (int(x*sx), int(y*sy)), (int((x+w)*sx), int((y+h)*sy)), item['color'], 2)
         
+        # Desenho Cruz Magenta (Sempre visível se houver detecção)
         if pos_ancora_debug:
             cv2.drawMarker(p_live, (int(pos_ancora_debug[0]*sx), int(pos_ancora_debug[1]*sy)), (255, 0, 255), cv2.MARKER_CROSS, 20, 2)
+            
+            # --- NOVO: Desenho da caixa de CROP prevista (AZUL) ---
+            fx_c, fy_c = pos_ancora_debug[0] + OFFSET_X, pos_ancora_debug[1]
+            cx1, cy1 = int((fx_c - CROP_W//2)*sx), int((fy_c - CROP_H//2)*sy)
+            cx2, cy2 = int((fx_c + CROP_W//2)*sx), int((fy_c + CROP_H//2)*sy)
+            cv2.rectangle(p_live, (cx1, cy1), (cx2, cy2), (255, 255, 0), 1)
 
-        # Painel Binário
         p_bin = np.zeros((420, 640, 3), dtype=np.uint8)
         bin_z = cv2.resize(cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB), (240, 420))
         p_bin[0:420, 200:440] = bin_z
 
-        # Preview Gigante
         p_prev = np.zeros((480, 1280, 3), dtype=np.uint8)
         hc, wc = ultimo_crop_preview.shape[:2]
         nw = int(460 * (wc/hc))
         p_prev[10:470, (1280-nw)//2 : (1280-nw)//2 + nw] = cv2.resize(ultimo_crop_preview, (nw, 460))
         
-        # UI Fix: Substituindo FONT_HERSHEY_BOLD por SIMPLEX + thickness
         cor_rec = (0, 0, 255) if GRAVANDO else (0, 255, 0)
         txt_rec = f"REC: {frame_count:05d}" if GRAVANDO else "STANDBY"
-        cv2.putText(p_prev, txt_rec, (30, 55), cv2.FONT_HERSHEY_SIMPLEX, 1.2, cor_rec, 3) # thickness=3 faz o "bold"
+        cv2.putText(p_prev, txt_rec, (30, 55), cv2.FONT_HERSHEY_SIMPLEX, 1.2, cor_rec, 3)
 
         dashboard = np.vstack((np.hstack((p_live, p_bin)), p_prev))
         _, buffer = cv2.imencode('.jpg', dashboard, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
@@ -196,7 +193,7 @@ def generate_dashboard():
 def video_feed(): return Response(generate_dashboard(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/status')
-def get_status(): return f"{ESTADO_ATUAL} | ROI: {ROI_X},{ROI_Y} | RESET: {LINHA_RESET_Y}"
+def get_status(): return f"{ESTADO_ATUAL} | ROI: {ROI_X},{ROI_Y} | CROP: {CROP_W}x{CROP_H}"
 
 @app.route('/')
 def index():
