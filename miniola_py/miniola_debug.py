@@ -31,13 +31,14 @@ GRAVANDO = False
 ESTADO_ATUAL = "BUSCAR_QUADRO"
 ROI_X, ROI_Y = 215, 50
 ROI_W, ROI_H = 80, 600
-LINHA_RESET_Y = 150  # Ideal manter na metade superior do ROI
+LINHA_RESET_Y = 150  
 THRESH_VAL = 110
 OFFSET_X = 260
 CROP_W, CROP_H = 440, 330 
 
 frame_count = 0
-alvo_rastreio_y = -1 # Guarda a posição Y da perfuração que estamos seguindo
+alvo_rastreio_y = -1 
+ultimo_pitch = 120 # Valor inicial seguro para o tracking
 ultimo_frame_bruto = None
 ultimo_frame_binario = None
 ultimo_crop_preview = np.zeros((CROP_H, CROP_W, 3), dtype=np.uint8)
@@ -61,9 +62,9 @@ def painel_controle():
     global frame_count, GRAVANDO, LINHA_RESET_Y, ROI_X, ROI_Y, ROI_W, ROI_H, OFFSET_X, CROP_W, CROP_H, THRESH_VAL, ESTADO_ATUAL
     time.sleep(2)
     print("\n" + "═"*45)
-    print("   MINIOLA v5.0 - RASTREADOR DE QUADRO (PULL-DOWN)")
+    print("   MINIOLA v5.1 - SMART TRACKER DE 4 PITCHES")
     print("═"*45)
-    print("   ly [v] : Linha de Gatilho (Recomendo valor baixo, ex: 100)")
+    print("   ly [v] : Linha de Gatilho (Recomendo 100 ou 150)")
     print("   t [v]  : Threshold (Contraste)")
     print("   ox [v] : Offset X (Horizontal)")
     print("   rec    : Toggle Gravação")
@@ -90,7 +91,7 @@ def painel_controle():
 
 def logica_scanner():
     global frame_count, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
-    global ESTADO_ATUAL, alvo_rastreio_y, pos_ancora_debug
+    global ESTADO_ATUAL, alvo_rastreio_y, ultimo_pitch, pos_ancora_debug
 
     while True:
         frame_raw = picam2.capture_array()
@@ -112,38 +113,44 @@ def logica_scanner():
 
         perfs_neste_frame.sort(key=lambda p: p['cy'])
 
-        # Atualiza a cruz magenta constantemente para referência visual
         if len(perfs_neste_frame) >= 4:
-            grupo = perfs_neste_frame[0:4]
-            cx_a, cy_a = int(np.mean([p['cx'] for p in grupo])), int(np.mean([p['cy'] for p in grupo]))
+            grupo_centro = perfs_neste_frame[0:4]
+            cx_a, cy_a = int(np.mean([p['cx'] for p in grupo_centro])), int(np.mean([p['cy'] for p in grupo_centro]))
             pos_ancora_debug = (cx_a, cy_a)
 
-        # --- LÓGICA DE ESTADOS BASEADA NA SUA IDEIA ---
+        # --- LÓGICA DE ESTADOS ---
         if ESTADO_ATUAL == "BUSCAR_QUADRO":
             if len(perfs_neste_frame) >= 4:
-                # 1. Tira a foto usando as 4 perfurações atuais
+                # 1. Tira a foto
                 processar_captura(frame_raw, pos_ancora_debug[0], pos_ancora_debug[1], frame_count)
                 frame_count += 1
                 
-                # 2. "Trava" na 4ª perfuração (a mais baixa desse quadro)
-                alvo_rastreio_y = perfs_neste_frame[3]['cy']
+                # 2. Calcula a distância (pitch) e projeta onde está a 5ª perfuração
+                grupo = perfs_neste_frame[0:4]
+                ultimo_pitch = (grupo[3]['cy'] - grupo[0]['cy']) / 3
+                
+                # A perfuração que define exatamente 1 quadro de avanço está 4 pitches abaixo do topo
+                y_ideal_proximo_quadro = grupo[0]['cy'] + (4 * ultimo_pitch)
+                
+                # 3. Procura essa 5ª perfuração na tela e gruda nela
+                alvo_candidato = min(perfs_neste_frame, key=lambda p: abs(p['cy'] - y_ideal_proximo_quadro))
+                alvo_rastreio_y = alvo_candidato['cy']
                 ESTADO_ATUAL = "RASTREAR"
 
         elif ESTADO_ATUAL == "RASTREAR":
             if perfs_neste_frame:
-                # Encontra qual perfuração atual é a que estamos seguindo
+                # Procura a perfuração mais próxima da bolinha amarela
                 alvo_atual = min(perfs_neste_frame, key=lambda p: abs(p['cy'] - alvo_rastreio_y))
                 
-                # Se ela não pulou absurdamente (margem de erro para movimento rápido)
-                if abs(alvo_atual['cy'] - alvo_rastreio_y) < 150:
+                # Margem de segurança de 80% do pitch evita que a bolinha pule de furo
+                if abs(alvo_atual['cy'] - alvo_rastreio_y) < (ultimo_pitch * 0.8):
                     alvo_rastreio_y = alvo_atual['cy']
                 
-                # 3. CONDIÇÃO DE SAÍDA: A 4ª perfuração cruzou a linha de gatilho?
+                # CONDIÇÃO DE SAÍDA: A bolinha cruzou a linha vermelha?
                 if alvo_rastreio_y < (ROI_Y + LINHA_RESET_Y):
-                    ESTADO_ATUAL = "BUSCAR_QUADRO"  # Libera para o próximo quadro!
+                    ESTADO_ATUAL = "BUSCAR_QUADRO"
                     alvo_rastreio_y = -1
             else:
-                # Se não houver perfurações no ROI (filme correu muito rápido), reseta
                 ESTADO_ATUAL = "BUSCAR_QUADRO"
 
         ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug = frame_raw, binary, debug_visual
@@ -155,7 +162,6 @@ def generate_dashboard():
         p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
         sx, sy = 640/1080, 420/720
         
-        # UI Base v3.9.1
         cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
         y_gl = ROI_Y + LINHA_RESET_Y
         cv2.line(p_live, (int(ROI_X*sx), int(y_gl*sy)), (int((ROI_X+ROI_W)*sx), int(y_gl*sy)), (0, 0, 255), 2)
@@ -171,7 +177,7 @@ def generate_dashboard():
             cx2, cy2 = int((fx_c + CROP_W//2)*sx), int((fy_c + CROP_H//2)*sy)
             cv2.rectangle(p_live, (cx1, cy1), (cx2, cy2), (255, 255, 0), 1)
 
-        # NOVO: Bolinha amarela indicando a perfuração que está sendo rastreada
+        # Bolinha amarela rastreadora
         if ESTADO_ATUAL == "RASTREAR" and alvo_rastreio_y > 0:
             cx_alvo = ROI_X + (ROI_W // 2)
             cv2.circle(p_live, (int(cx_alvo*sx), int(alvo_rastreio_y*sy)), 10, (0, 255, 255), -1)
