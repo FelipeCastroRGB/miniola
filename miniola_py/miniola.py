@@ -215,7 +215,7 @@ def preview_feed():
     def generate_preview():
         while True:
             files = sorted([f for f in os.listdir(CAPTURE_PATH) if f.endswith('.jpg')])
-            last_frames = files[-96:] if len(files) > 0 else [] 
+            last_frames = files[-110:] if len(files) > 0 else [] 
             
             if not last_frames:
                 time.sleep(0.5); continue
