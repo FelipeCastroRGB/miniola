@@ -31,12 +31,13 @@ GRAVANDO = False
 ROI_X, ROI_Y = 215, 50
 ROI_W, ROI_H = 80, 600
 LINHA_RESET_Y = 300  
-THRESH_VAL = 110 # <--- Ajustável via comando 't'
+THRESH_VAL = 110
 OFFSET_X = 260
 CROP_W, CROP_H = 440, 330 
 
+# Variáveis do Odômetro Estável
 perfs_contadas = 0
-ids_vistos = set() 
+ultimo_id_contado = -1
 frame_count = 0
 ultimo_frame_bruto = None
 ultimo_frame_binario = None
@@ -61,13 +62,12 @@ def painel_controle():
     global frame_count, GRAVANDO, LINHA_RESET_Y, ROI_X, ROI_Y, ROI_W, ROI_H, OFFSET_X, CROP_W, CROP_H, perfs_contadas, THRESH_VAL
     time.sleep(2)
     print("\n" + "═"*45)
-    print("   MINIOLA v4.2 - THRESHOLD ATIVO")
+    print("   MINIOLA v4.3 - ODÔMETRO ESTÁVEL")
     print("═"*45)
-    print("   t [v]  : Ajustar Threshold (Contraste)")
-    print("   ly [v] : Linha de Contagem (Vermelha)")
-    print("   ox [v] : Offset X (Horizontal)")
+    print("   ly [v] : Linha de Contagem")
+    print("   t [v]  : Threshold (Comando restaurado)")
+    print("   p 0    : Resetar contagem manual")
     print("   rec    : Toggle Gravação")
-    print("   clean  : Limpar Pasta")
     print("═"*45)
 
     while True:
@@ -76,7 +76,7 @@ def painel_controle():
             if not entrada: continue
             cmd, val = entrada[0].lower(), int(entrada[1]) if len(entrada) > 1 else 0
             
-            if cmd == 't': THRESH_VAL = val # <--- Comando T mantido
+            if cmd == 't': THRESH_VAL = val
             elif cmd == 'ly': LINHA_RESET_Y = val
             elif cmd == 'ox': OFFSET_X = val
             elif cmd == 'cw': CROP_W = val
@@ -85,14 +85,14 @@ def painel_controle():
             elif cmd == 'ry': ROI_Y = val
             elif cmd == 'rec': GRAVANDO = not GRAVANDO
             elif cmd == 'p': perfs_contadas = val
+            elif cmd == 'r': frame_count = 0
             elif cmd == 'clean':
                 for f in os.listdir('capturas'): os.remove(os.path.join('capturas', f))
-            elif cmd == 'r': frame_count = 0
         except: pass
 
 def logica_scanner():
     global frame_count, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
-    global perfs_contadas, ids_vistos, pos_ancora_debug, THRESH_VAL
+    global perfs_contadas, ultimo_id_contado, pos_ancora_debug
 
     while True:
         frame_raw = picam2.capture_array()
@@ -109,21 +109,30 @@ def logica_scanner():
             x, y, w, h = cv2.boundingRect(cnt)
             if 150 < area < 9000 and 0.4 < (w/h) < 2.5:
                 cx, cy = x + (w//2) + ROI_X, y + (h//2) + ROI_Y
-                perfs_neste_frame.append({'cx': cx, 'cy': cy, 'id': cy // 6}) 
+                # ID único persistente baseado na posição Y mas com folga de rastreio
+                perfs_neste_frame.append({'cx': cx, 'cy': cy, 'id': cy, 'h': h})
                 debug_visual.append({'rect': (x+ROI_X, y+ROI_Y, w, h), 'color': (0, 255, 0)})
 
         perfs_neste_frame.sort(key=lambda p: p['cy'])
 
-        # --- ODÔMETRO ---
-        gatilho_y_absoluto = ROI_Y + LINHA_RESET_Y
-        for p in perfs_neste_frame:
-            if p['cy'] < gatilho_y_absoluto and p['id'] not in ids_vistos:
-                perfs_contadas += 1
-                ids_vistos.add(p['id'])
+        # --- NOVA LÓGICA DE CONTAGEM ESTÁVEL ---
+        gatilho_y = ROI_Y + LINHA_RESET_Y
+        MARGEM_SEGURANCA = 15 # Pixels de folga para não contar a mesma perfuração
 
-        ids_vistos = {pid for pid in ids_vistos if any(abs(p['id'] - pid) < 10 for p in perfs_neste_frame)}
+        if perfs_neste_frame:
+            # Procuramos a perfuração que está cruzando a linha AGORA
+            # O filme sobe no frame (Y diminui)
+            for p in perfs_neste_frame:
+                # Se o centro da perfuração passou para cima da linha
+                if p['cy'] < gatilho_y:
+                    # E se ela for "nova" (estiver longe da última que contamos)
+                    if abs(p['cy'] - ultimo_id_contado) > (p['h'] + MARGEM_SEGURANCA):
+                        perfs_contadas += 1
+                        ultimo_id_contado = p['cy']
+                        # print(f"CONTOU! {perfs_contadas}/4")
+                        break # Só conta uma por frame
 
-        # --- DISPARO E CRUZ ---
+        # --- DISPARO E ANCORAGEM ---
         if len(perfs_neste_frame) >= 4:
             grupo = perfs_neste_frame[0:4]
             cx_a, cy_a = int(np.mean([p['cx'] for p in grupo])), int(np.mean([p['cy'] for p in grupo]))
@@ -133,7 +142,7 @@ def logica_scanner():
                 processar_captura(frame_raw, cx_a, cy_a, frame_count)
                 frame_count += 1
                 perfs_contadas = 0
-                ids_vistos.clear()
+                ultimo_id_contado = -1 # Reseta o rastreio para o próximo ciclo
 
         ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug = frame_raw, binary, debug_visual
         time.sleep(0.002)
@@ -144,7 +153,7 @@ def generate_dashboard():
         p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
         sx, sy = 640/1080, 420/720
         
-        # UI v3.9.1
+        # Estética v3.9.1
         cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
         y_gl = ROI_Y + LINHA_RESET_Y
         cv2.line(p_live, (int(ROI_X*sx), int(y_gl*sy)), (int((ROI_X+ROI_W)*sx), int(y_gl*sy)), (0, 0, 255), 2)
