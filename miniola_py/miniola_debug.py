@@ -143,7 +143,7 @@ def logica_scanner():
                 alvo_atual = min(perfs_neste_frame, key=lambda p: abs(p['cy'] - alvo_rastreio_y))
                 
                 # Margem de segurança de 80% do pitch evita que a bolinha pule de furo
-                if abs(alvo_atual['cy'] - alvo_rastreio_y) < (ultimo_pitch * 0.8):
+                if abs(alvo_atual['cy'] - alvo_rastreio_y) < (ultimo_pitch * 0.5):
                     alvo_rastreio_y = alvo_atual['cy']
                 
                 # CONDIÇÃO DE SAÍDA: A bolinha cruzou a linha vermelha?
