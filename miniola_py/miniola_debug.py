@@ -26,16 +26,15 @@ picam2.configure(config)
 picam2.set_controls({"ExposureTime": 450, "AnalogueGain": 1.0, "FrameRate": 60, "LensPosition": 15.0})
 picam2.start()
 
-# --- GEOMETRIA E CONTROLE (v3.9.1 Style) ---
+# --- GEOMETRIA E CONTROLE ---
 GRAVANDO = False
 ROI_X, ROI_Y = 215, 50
 ROI_W, ROI_H = 80, 600
 LINHA_RESET_Y = 300  
-THRESH_VAL = 110
+THRESH_VAL = 110 # <--- Ajustável via comando 't'
 OFFSET_X = 260
 CROP_W, CROP_H = 440, 330 
 
-# Variáveis do Odômetro
 perfs_contadas = 0
 ids_vistos = set() 
 frame_count = 0
@@ -59,14 +58,14 @@ def processar_captura(frame, cx, cy, n_frame):
     return (x1, y1, x2, y2)
 
 def painel_controle():
-    global frame_count, GRAVANDO, LINHA_RESET_Y, ROI_X, ROI_Y, ROI_W, ROI_H, OFFSET_X, CROP_W, CROP_H, perfs_contadas
+    global frame_count, GRAVANDO, LINHA_RESET_Y, ROI_X, ROI_Y, ROI_W, ROI_H, OFFSET_X, CROP_W, CROP_H, perfs_contadas, THRESH_VAL
     time.sleep(2)
     print("\n" + "═"*45)
-    print("   MINIOLA v4.1 - ODÔMETRO + UI v3.9.1")
+    print("   MINIOLA v4.2 - THRESHOLD ATIVO")
     print("═"*45)
+    print("   t [v]  : Ajustar Threshold (Contraste)")
     print("   ly [v] : Linha de Contagem (Vermelha)")
     print("   ox [v] : Offset X (Horizontal)")
-    print("   cw/ch  : Tamanho do Crop (Azul)")
     print("   rec    : Toggle Gravação")
     print("   clean  : Limpar Pasta")
     print("═"*45)
@@ -76,7 +75,9 @@ def painel_controle():
             entrada = input("\nComando >> ").split()
             if not entrada: continue
             cmd, val = entrada[0].lower(), int(entrada[1]) if len(entrada) > 1 else 0
-            if cmd == 'ly': LINHA_RESET_Y = val
+            
+            if cmd == 't': THRESH_VAL = val # <--- Comando T mantido
+            elif cmd == 'ly': LINHA_RESET_Y = val
             elif cmd == 'ox': OFFSET_X = val
             elif cmd == 'cw': CROP_W = val
             elif cmd == 'ch': CROP_H = val
@@ -91,7 +92,7 @@ def painel_controle():
 
 def logica_scanner():
     global frame_count, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
-    global perfs_contadas, ids_vistos, pos_ancora_debug
+    global perfs_contadas, ids_vistos, pos_ancora_debug, THRESH_VAL
 
     while True:
         frame_raw = picam2.capture_array()
@@ -108,29 +109,26 @@ def logica_scanner():
             x, y, w, h = cv2.boundingRect(cnt)
             if 150 < area < 9000 and 0.4 < (w/h) < 2.5:
                 cx, cy = x + (w//2) + ROI_X, y + (h//2) + ROI_Y
-                perfs_neste_frame.append({'cx': cx, 'cy': cy, 'id': cy // 6}) # Slot de 6px p/ ID
+                perfs_neste_frame.append({'cx': cx, 'cy': cy, 'id': cy // 6}) 
                 debug_visual.append({'rect': (x+ROI_X, y+ROI_Y, w, h), 'color': (0, 255, 0)})
 
         perfs_neste_frame.sort(key=lambda p: p['cy'])
 
-        # --- LÓGICA DO ODÔMETRO ---
+        # --- ODÔMETRO ---
         gatilho_y_absoluto = ROI_Y + LINHA_RESET_Y
         for p in perfs_neste_frame:
-            # Conta se cruzar a linha (de baixo p/ cima) e não tiver sido contado
             if p['cy'] < gatilho_y_absoluto and p['id'] not in ids_vistos:
                 perfs_contadas += 1
                 ids_vistos.add(p['id'])
 
-        # Limpeza de IDs antigos para evitar saturação do set
         ids_vistos = {pid for pid in ids_vistos if any(abs(p['id'] - pid) < 10 for p in perfs_neste_frame)}
 
-        # Atualização constante da Cruz Magenta
+        # --- DISPARO E CRUZ ---
         if len(perfs_neste_frame) >= 4:
             grupo = perfs_neste_frame[0:4]
             cx_a, cy_a = int(np.mean([p['cx'] for p in grupo])), int(np.mean([p['cy'] for p in grupo]))
             pos_ancora_debug = (cx_a, cy_a)
 
-            # DISPARO: Quando completar 4 perfurações
             if perfs_contadas >= 4:
                 processar_captura(frame_raw, cx_a, cy_a, frame_count)
                 frame_count += 1
@@ -146,17 +144,15 @@ def generate_dashboard():
         p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
         sx, sy = 640/1080, 420/720
         
-        # 1. Desenho ROI (Cinza) e Gatilho (Vermelho)
+        # UI v3.9.1
         cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
         y_gl = ROI_Y + LINHA_RESET_Y
         cv2.line(p_live, (int(ROI_X*sx), int(y_gl*sy)), (int((ROI_X+ROI_W)*sx), int(y_gl*sy)), (0, 0, 255), 2)
         
-        # 2. Desenho Perfurações (Verde)
         for item in lista_contornos_debug:
             x, y, w, h = item['rect']
             cv2.rectangle(p_live, (int(x*sx), int(y*sy)), (int((x+w)*sx), int((y+h)*sy)), item['color'], 2)
         
-        # 3. Desenho Cruz Magenta e Caixa Azul de Crop
         if pos_ancora_debug:
             cv2.drawMarker(p_live, (int(pos_ancora_debug[0]*sx), int(pos_ancora_debug[1]*sy)), (255, 0, 255), cv2.MARKER_CROSS, 20, 2)
             fx_c, fy_c = pos_ancora_debug[0] + OFFSET_X, pos_ancora_debug[1]
@@ -164,7 +160,6 @@ def generate_dashboard():
             cx2, cy2 = int((fx_c + CROP_W//2)*sx), int((fy_c + CROP_H//2)*sy)
             cv2.rectangle(p_live, (cx1, cy1), (cx2, cy2), (255, 255, 0), 1)
 
-        # 4. Binário e Preview (v3.9.1 Style)
         p_bin = np.zeros((420, 640, 3), dtype=np.uint8)
         bin_z = cv2.resize(cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB), (240, 420))
         p_bin[0:420, 200:440] = bin_z
@@ -176,7 +171,7 @@ def generate_dashboard():
             p_prev[10:470, (1280-nw)//2 : (1280-nw)//2 + nw] = cv2.resize(ultimo_crop_preview, (nw, 460))
         
         cor_rec = (0, 0, 255) if GRAVANDO else (0, 255, 0)
-        txt_rec = f"REC: {frame_count:05d} | ODOM: {perfs_contadas}/4"
+        txt_rec = f"REC: {frame_count:05d} | ODOM: {perfs_contadas}/4 | T: {THRESH_VAL}"
         cv2.putText(p_prev, txt_rec, (30, 55), cv2.FONT_HERSHEY_SIMPLEX, 1.2, cor_rec, 3)
 
         dashboard = np.vstack((np.hstack((p_live, p_bin)), p_prev))
@@ -187,7 +182,7 @@ def generate_dashboard():
 def video_feed(): return Response(generate_dashboard(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/status')
-def get_status(): return f"PERFS: {perfs_contadas}/4 | FRAMES: {frame_count}"
+def get_status(): return f"PERFS: {perfs_contadas}/4 | THRESHOLD: {THRESH_VAL}"
 
 @app.route('/')
 def index():
