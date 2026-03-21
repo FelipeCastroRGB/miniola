@@ -36,7 +36,7 @@ OFFSET_X = 260
 CROP_W, CROP_H = 440, 330 
 
 # Variáveis do Odômetro Estável
-perfs_contadas = 0
+perfs_contadas = 0 # Mantido para o dashboard, mas a lógica de contagem será diferente
 ultimo_id_contado = -1
 frame_count = 0
 ultimo_frame_bruto = None
@@ -44,6 +44,10 @@ ultimo_frame_binario = None
 ultimo_crop_preview = np.zeros((CROP_H, CROP_W, 3), dtype=np.uint8)
 lista_contornos_debug = []
 pos_ancora_debug = None
+
+# --- NOVAS VARIÁVEIS PARA A LÓGICA DE ESTADO ---
+SCANNER_STATE = "WAITING_FOR_GROUP" # Estados: "WAITING_FOR_GROUP", "WAITING_FOR_PASSAGE"
+CAPTURED_GROUP_LAST_PERF_Y = -1 # Armazena a coordenada Y da última perfuração do grupo capturado
 
 def processar_captura(frame, cx, cy, n_frame):
     global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
@@ -93,6 +97,7 @@ def painel_controle():
 def logica_scanner():
     global frame_count, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
     global perfs_contadas, ultimo_id_contado, pos_ancora_debug
+    global SCANNER_STATE, CAPTURED_GROUP_LAST_PERF_Y
 
     while True:
         frame_raw = picam2.capture_array()
@@ -109,40 +114,39 @@ def logica_scanner():
             x, y, w, h = cv2.boundingRect(cnt)
             if 150 < area < 9000 and 0.4 < (w/h) < 2.5:
                 cx, cy = x + (w//2) + ROI_X, y + (h//2) + ROI_Y
-                # ID único persistente baseado na posição Y mas com folga de rastreio
-                perfs_neste_frame.append({'cx': cx, 'cy': cy, 'id': cy, 'h': h})
+                perfs_neste_frame.append({'cx': cx, 'cy': cy, 'h': h})
                 debug_visual.append({'rect': (x+ROI_X, y+ROI_Y, w, h), 'color': (0, 255, 0)})
 
-        perfs_neste_frame.sort(key=lambda p: p['cy'])
+        perfs_neste_frame.sort(key=lambda p: p['cy']) # Ordena por Y, do menor (mais acima) para o maior (mais abaixo)
 
-        # --- NOVA LÓGICA DE CONTAGEM ESTÁVEL ---
-        gatilho_y = ROI_Y + LINHA_RESET_Y
-        MARGEM_SEGURANCA = 15 # Pixels de folga para não contar a mesma perfuração
+        # --- NOVA LÓGICA DE ESTADO ---
+        if SCANNER_STATE == "WAITING_FOR_GROUP":
+            if len(perfs_neste_frame) >= 4:
+                # Encontrou um grupo de 4 perfurações
+                current_group = perfs_neste_frame[0:4]
+                cx_a = int(np.mean([p['cx'] for p in current_group]))
+                cy_a = int(np.mean([p['cy'] for p in current_group]))
+                pos_ancora_debug = (cx_a, cy_a)
 
-        if perfs_neste_frame:
-            # Procuramos a perfuração que está cruzando a linha AGORA
-            # O filme sobe no frame (Y diminui)
-            for p in perfs_neste_frame:
-                # Se o centro da perfuração passou para cima da linha
-                if p['cy'] < gatilho_y:
-                    # E se ela for "nova" (estiver longe da última que contamos)
-                    if abs(p['cy'] - ultimo_id_contado) > (p['h'] + MARGEM_SEGURANCA):
-                        perfs_contadas += 1
-                        ultimo_id_contado = p['cy']
-                        # print(f"CONTOU! {perfs_contadas}/4")
-                        break # Só conta uma por frame
-
-        # --- DISPARO E ANCORAGEM ---
-        if len(perfs_neste_frame) >= 4:
-            grupo = perfs_neste_frame[0:4]
-            cx_a, cy_a = int(np.mean([p['cx'] for p in grupo])), int(np.mean([p['cy'] for p in grupo]))
-            pos_ancora_debug = (cx_a, cy_a)
-
-            if perfs_contadas >= 4:
+                # Realiza a captura imediatamente
                 processar_captura(frame_raw, cx_a, cy_a, frame_count)
                 frame_count += 1
-                perfs_contadas = 0
-                ultimo_id_contado = -1 # Reseta o rastreio para o próximo ciclo
+                perfs_contadas = 4 # Para o dashboard indicar que um grupo foi processado
+
+                # Define o limite para esperar o grupo passar
+                # A última perfuração do grupo é a que tem o maior Y (mais abaixo)
+                CAPTURED_GROUP_LAST_PERF_Y = current_group[-1]['cy']
+                SCANNER_STATE = "WAITING_FOR_PASSAGE"
+                print(f"[SCANNER] Grupo de 4 capturado. Esperando passagem. Última perfuração em Y: {CAPTURED_GROUP_LAST_PERF_Y}")
+
+        elif SCANNER_STATE == "WAITING_FOR_PASSAGE":
+            # Verifica se o grupo capturado já passou do limite superior
+            # Consideramos que passou se a perfuração mais alta visível (menor Y) já está acima do Y da última perfuração do grupo capturado + margem
+            # Ou se não há perfurações visíveis (o que significa que o filme avançou)
+            if not perfs_neste_frame or perfs_neste_frame[0]['cy'] < (CAPTURED_GROUP_LAST_PERF_Y - LINHA_RESET_Y): # Ajuste para o filme subindo
+                SCANNER_STATE = "WAITING_FOR_GROUP"
+                perfs_contadas = 0 # Reseta para o dashboard
+                print("[SCANNER] Grupo passou. Procurando novo grupo.")
 
         ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug = frame_raw, binary, debug_visual
         time.sleep(0.002)
@@ -154,7 +158,7 @@ def generate_dashboard():
         sx, sy = 640/1080, 420/720
         
         # Estética v3.9.1
-        cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
+        cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_X+ROI_H)*sy)), (150, 150, 150), 1)
         y_gl = ROI_Y + LINHA_RESET_Y
         cv2.line(p_live, (int(ROI_X*sx), int(y_gl*sy)), (int((ROI_X+ROI_W)*sx), int(y_gl*sy)), (0, 0, 255), 2)
         
