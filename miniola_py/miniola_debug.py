@@ -26,6 +26,8 @@ picam2 = Picamera2()
 # --- CONFIGURAÇÃO DE HARDWARE ---
 shutter_speed, gain, fps_cam = 300, 1.0, 90
 foco_atual, passo_foco = 15.0, 0.5
+fps_real_proc = 0.0
+tempo_ms_ciclo = 0.0
 
 config = picam2.create_video_configuration(main={"size": (1080, 720), "format": "RGB888"})
 picam2.configure(config)
@@ -132,10 +134,17 @@ def painel_controle():
 def logica_scanner():
     global frame_count, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
     global contador_perfs_ciclo, perfuracao_na_linha, pos_ancora_debug
+    global fps_real_proc, tempo_ms_ciclo
 
-    MARGEM_S_VAL = 15  # Definindo a margem simétrica (janela de 30px total)
+    MARGEM_S_VAL = 15  
+    
+    # --- CONFIGURAÇÃO DE OTIMIZAÇÃO DE VISÃO ---
+    ESCALA_CV = 0.5 # Reduz a resolução de busca pela metade (muito mais rápido)
+    FATOR_MULT = int(1 / ESCALA_CV) # Usado para remapear as coordenadas (x2)
 
     while True:
+        t_inicio_ciclo = time.perf_counter() # <--- INÍCIO DO CRONÔMETRO
+
         frame_raw = picam2.capture_array()
         if frame_raw is None: continue
         
@@ -144,16 +153,30 @@ def logica_scanner():
         rh = max(10, min(ROI_H, 720 - ry))
         rw = max(10, min(ROI_W, 1080 - rx))
 
+        # 1. Extrai o ROI em alta resolução
         gray = cv2.cvtColor(frame_raw, cv2.COLOR_RGB2GRAY)
-        roi = gray[ry:ry+rh, rx:rx+rw]
-        _, binary = cv2.threshold(roi, THRESH_VAL, 255, cv2.THRESH_BINARY)
-        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        roi_high_res = gray[ry:ry+rh, rx:rx+rw]
+        
+        # 2. REDUZ A RESOLUÇÃO apenas para o Threshold e Contornos
+        roi_small = cv2.resize(roi_high_res, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV)
+        _, binary_small = cv2.threshold(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(binary_small, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         perfs_neste_frame, debug_visual = [], []
+        
         for cnt in contours:
-            area = cv2.contourArea(cnt)
-            x, y, w, h = cv2.boundingRect(cnt)
-            if 150 < area < 10000 and 0.4 < (w/h) < 2.5:
+            # Multiplicamos a área lida de volta para a escala real para manter o seu filtro atual
+            area_real = cv2.contourArea(cnt) * (FATOR_MULT ** 2) 
+            
+            x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
+            
+            # Remapeia as coordenadas "pequenas" de volta para o frame 1080p
+            x = x_s * FATOR_MULT
+            y = y_s * FATOR_MULT
+            w = w_s * FATOR_MULT
+            h = h_s * FATOR_MULT
+
+            if 150 < area_real < 10000 and 0.4 < (w/h) < 2.5:
                 cx, cy = x + (w//2) + rx, y + (h//2) + ry
                 perfs_neste_frame.append({'cx': cx, 'cy': cy})
                 debug_visual.append({'rect': (x+rx, y+ry, w, h), 'color': (0, 255, 0)})
@@ -161,19 +184,14 @@ def logica_scanner():
         perfs_neste_frame.sort(key=lambda p: p['cy'])
         line_y_abs = ry + LINHA_RESET_Y
         
-        # --- NOVA LÓGICA: MARGEM SIMÉTRICA ---
         furo_detectado_agora = False
         
         if perfs_neste_frame:
-            # Verificamos se alguma perfuração está dentro da margem
-            # (Usamos o topo_mais_alto ou qualquer uma que toque a linha)
             topo_mais_alto = perfs_neste_frame[0]['cy']
             
-            # Se a distância entre a perfuração e a linha for menor que a margem
             if abs(topo_mais_alto - line_y_abs) < MARGEM_S_VAL:
                 furo_detectado_agora = True
                 if not perfuracao_na_linha:
-                    # DISPARO DO GATILHO
                     contador_perfs_ciclo += 1
                     perfuracao_na_linha = True
                     
@@ -183,17 +201,26 @@ def logica_scanner():
                             cx_a = int(np.mean([p['cx'] for p in grupo]))
                             cy_a = int(np.mean([p['cy'] for p in grupo]))
                             pos_ancora_debug = (cx_a, cy_a)
+                            
+                            # A captura recebe o frame_raw em 1080p nativo!
                             processar_captura(frame_raw, cx_a, cy_a, frame_count)
                             frame_count += 1
                         contador_perfs_ciclo = 0
 
-        # RESET DO GATILHO: 
-        # Se nenhuma perfuração estiver na janela, liberamos para o próximo ciclo
         if not furo_detectado_agora:
             perfuracao_na_linha = False
-        # -------------------------------------
 
-        ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug = frame_raw, binary, debug_visual
+        ultimo_frame_bruto = frame_raw
+        # Redimensiona o binário pequeno de volta ao tamanho do ROI para o Dashboard não quebrar
+        ultimo_frame_binario = cv2.resize(binary_small, (rw, rh), interpolation=cv2.INTER_NEAREST) 
+        lista_contornos_debug = debug_visual
+        
+        # --- FIM DO CRONÔMETRO E CÁLCULO DE PERFORMANCE ---
+        t_fim_ciclo = time.perf_counter()
+        tempo_decorrido = t_fim_ciclo - t_inicio_ciclo
+        tempo_ms_ciclo = tempo_decorrido * 1000.0
+        fps_real_proc = 1.0 / tempo_decorrido if tempo_decorrido > 0 else 0
+        
         time.sleep(0.001)
 
 # --- FLASK: DASHBOARD 3 TELAS + PREVIEW ---
@@ -279,15 +306,27 @@ def video_feed(): return Response(generate_dashboard(), mimetype='multipart/x-mi
 
 @app.route('/status')
 def get_status():
-    return {"rec": "GRAVANDO" if GRAVANDO else "PARADO", "cor": "#ff0000" if GRAVANDO else "#00ff00",
-            "ciclo": f"{contador_perfs_ciclo}/4", "total": frame_count}
+    # Declaramos as variáveis globais do profiler criadas na logica_scanner
+    global GRAVANDO, contador_perfs_ciclo, frame_count, fps_real_proc, tempo_ms_ciclo
+    
+    return {
+        "rec": "GRAVANDO" if GRAVANDO else "PARADO", 
+        "cor": "#ff0000" if GRAVANDO else "#00ff00",
+        "ciclo": f"{contador_perfs_ciclo}/4", 
+        "total": frame_count,
+        "fps_proc": f"{fps_real_proc:.1f} FPS",
+        "ms_ciclo": f"{tempo_ms_ciclo:.1f} ms"
+    }
 
 @app.route('/')
 def index():
     return """
     <html><body style='background:#0a0a0a; color:#eee; font-family:monospace; margin:0;'>
         <div style='display:flex; background:#111; padding:10px; border-bottom:1px solid #333; justify-content:space-around;'>
-            <span id='m'>--</span> | CICLO: <b id='c'>0/4</b> | FRAMES: <b id='f'>0</b>
+            <span id='m'>--</span> | 
+            CICLO: <b id='c'>0/4</b> | 
+            FRAMES: <b id='f'>0</b> | 
+            PROC: <b id='fps_proc' style='color:#0ff'>0.0 FPS</b> (<b id='ms_ciclo' style='color:#ff0'>0.0 ms</b>)
         </div>
         <div style='display:flex; height:92vh;'>
             <div style='flex:2; border-right:1px solid #333;'><img src="/video_feed" style="width:100%;"></div>
@@ -296,8 +335,13 @@ def index():
         <script>
             setInterval(() => {
                 fetch('/status').then(r => r.json()).then(d => {
-                    const m = document.getElementById('m'); m.innerText = d.rec; m.style.color = d.cor;
-                    document.getElementById('c').innerText = d.ciclo; document.getElementById('f').innerText = d.total;
+                    const m = document.getElementById('m'); 
+                    m.innerText = d.rec; 
+                    m.style.color = d.cor;
+                    document.getElementById('c').innerText = d.ciclo; 
+                    document.getElementById('f').innerText = d.total;
+                    document.getElementById('fps_proc').innerText = d.fps_proc;
+                    document.getElementById('ms_ciclo').innerText = d.ms_ciclo;
                 });
             }, 250);
         </script>
