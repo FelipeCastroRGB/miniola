@@ -54,49 +54,46 @@ tempo_ms_ciclo = 0.0
 fila_gravacao = Queue(maxsize=100) # Buffer para 100 frames (~1 segundo)
 
 def thread_escrita_disco():
-    """ Assistente que pega imagens da fila e as salva no disco RAM. """
-    print("[SISTEMA] Thread de gravação iniciada.")
+    """ Assistente que assume a conversão de cor e a gravação. """
+    print("[SISTEMA] Thread de gravação otimizada iniciada.")
     while True:
-        # Pega o próximo item da fila (imagem BGR e nome do arquivo)
-        # O bloco 'True' faz a thread esperar até que haja algo na fila.
-        image_bgr, filename = fila_gravacao.get()
+        # Recebe a imagem ainda em RGB e o nome do arquivo
+        item = fila_gravacao.get()
+        if item is None: break
         
-        # Salva a imagem em disco RAM sem bloquear o scanner principal.
-        # JPEG Quality 98 para preservação audiovisual de alta fidelidade.
-        cv2.imwrite(filename, image_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 98])
+        img_rgb, filename = item
         
-        # Indica à fila que a tarefa foi concluída.
+        # Faz a conversão de cor aqui (fora do loop do scanner!)
+        img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+        
+        # Salva no disco RAM
+        cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 98])
+        
         fila_gravacao.task_done()
-
-# Iniciamos a thread de escrita imediatamente
-threading.Thread(target=thread_escrita_disco, daemon=True).start()
-# ---------------------------------------------------------
 
 def processar_captura(frame, cx, cy, n_frame):
     global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
+    
+    # Cálculo rápido de coordenadas
     fx, fy = cx + OFFSET_X, cy
     x1, y1 = max(0, int(fx - (CROP_W // 2))), max(0, int(fy - (CROP_H // 2)))
     x2, y2 = min(frame.shape[1], x1 + CROP_W), min(frame.shape[0], y1 + CROP_H)
     
-    crop_rgb = frame[y1:y2, x1:x2]
-    if crop_rgb.size > 0:
-        # Para o preview do Dashboard (RGB)
-        ultimo_crop_preview = crop_rgb.copy()
+    # Recorte puro (Slicing de array é extremamente rápido em Python)
+    crop = frame[y1:y2, x1:x2]
+    
+    if crop.size > 0:
+        # Atualiza o preview do Dashboard (já está em RGB, sem custo extra)
+        ultimo_crop_preview = crop
         
-        # --- LÓGICA DE GRAVAÇÃO ASSÍNCRONA ---
         if GRAVANDO:
-            # Prepara a imagem BGR para o Queue
-            crop_bgr = cv2.cvtColor(crop_rgb, cv2.COLOR_RGB2BGR)
             filename = f"{CAPTURE_PATH}/miniola_{n_frame:06d}.jpg"
-            
             try:
-                # Tenta colocar na fila. block=False para não travar se a fila encher.
-                fila_gravacao.put((crop_bgr, filename), block=False)
+                # Enviamos a cópia do recorte RGB para a fila.
+                # O .copy() é vital para não corromper a imagem se o frame_raw mudar.
+                fila_gravacao.put((crop.copy(), filename), block=False)
             except:
-                # Se a fila encher, imprimimos um alerta para o operador.
-                # Isso significa que o disco RAM está lento ou o Python não está dando conta.
-                print(f"[ALERTA] Fila de gravação cheia! Frame {n_frame} perdido.")
-        # -------------------------------------
+                print(f"[ALERTA] Fila cheia! Frame {n_frame} ignorado.")
 
 # --- PAINEL DE CONTROLE (MANTIDO) ---
 def painel_controle():
