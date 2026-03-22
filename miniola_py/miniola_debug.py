@@ -1,11 +1,6 @@
 import sys
 from unittest.mock import MagicMock
 import os
-
-# --- MOCKS PARA AMBIENTE SEM HARDWARE ---
-sys.modules["pykms"] = MagicMock()
-sys.modules["kms"] = MagicMock()
-
 from flask import Flask, Response
 from picamera2 import Picamera2
 import cv2
@@ -13,28 +8,25 @@ import numpy as np
 import threading
 import time
 import logging
+from queue import Queue # Importação da Fila
 
+# --- CONFIGURAÇÃO DE AMBIENTE E HARDWARE (MANTIDOS) ---
+sys.modules["pykms"] = MagicMock()
+sys.modules["kms"] = MagicMock()
 app = Flask(__name__)
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR) 
-
 CAPTURE_PATH = "capturas"
 if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
-
 picam2 = Picamera2()
-
-# --- CONFIGURAÇÃO DE HARDWARE ---
 shutter_speed, gain, fps_cam = 300, 1.0, 90
 foco_atual, passo_foco = 15.0, 0.5
-fps_real_proc = 0.0
-tempo_ms_ciclo = 0.0
-
 config = picam2.create_video_configuration(main={"size": (1080, 720), "format": "RGB888"})
 picam2.configure(config)
 picam2.set_controls({"ExposureTime": shutter_speed, "AnalogueGain": gain, "FrameRate": fps_cam, "LensPosition": foco_atual})
 picam2.start()
 
-# --- GEOMETRIA DINÂMICA (ROI & CROP) ---
+# --- GEOMETRIA E ESTADO (MANTIDOS) ---
 GRAVANDO = False
 ROI_X, ROI_Y = 215, 50
 ROI_W, ROI_H = 80, 600
@@ -42,8 +34,6 @@ LINHA_RESET_Y = 150
 THRESH_VAL = 110
 OFFSET_X = 260
 CROP_W, CROP_H = 440, 330 
-
-# Estado de Contagem
 contador_perfs_ciclo = 0
 frame_count = 0
 perfuracao_na_linha = False
@@ -52,27 +42,66 @@ ultimo_frame_binario = None
 ultimo_crop_preview = np.zeros((CROP_H, CROP_W, 3), dtype=np.uint8)
 lista_contornos_debug = []
 pos_ancora_debug = None
+fps_real_proc = 0.0
+tempo_ms_ciclo = 0.0
+
+# ---------------------------------------------------------
+# --- NOVA THREAD: GRAVAÇÃO ASSÍNCRONA DE ARQUIVOS (QUEUE) ---
+# Esta fila armazenará as imagens para gravação em disco RAM.
+fila_gravacao = Queue(maxsize=100) # Buffer para 100 frames (~1 segundo)
+
+def thread_escrita_disco():
+    """ Assistente que pega imagens da fila e as salva no disco RAM. """
+    print("[SISTEMA] Thread de gravação iniciada.")
+    while True:
+        # Pega o próximo item da fila (imagem BGR e nome do arquivo)
+        # O bloco 'True' faz a thread esperar até que haja algo na fila.
+        image_bgr, filename = fila_gravacao.get()
+        
+        # Salva a imagem em disco RAM sem bloquear o scanner principal.
+        # JPEG Quality 98 para preservação audiovisual de alta fidelidade.
+        cv2.imwrite(filename, image_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 98])
+        
+        # Indica à fila que a tarefa foi concluída.
+        fila_gravacao.task_done()
+
+# Iniciamos a thread de escrita imediatamente
+threading.Thread(target=thread_escrita_disco, daemon=True).start()
+# ---------------------------------------------------------
 
 def processar_captura(frame, cx, cy, n_frame):
     global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
     fx, fy = cx + OFFSET_X, cy
     x1, y1 = max(0, int(fx - (CROP_W // 2))), max(0, int(fy - (CROP_H // 2)))
     x2, y2 = min(frame.shape[1], x1 + CROP_W), min(frame.shape[0], y1 + CROP_H)
-    crop = cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_RGB2BGR)
-    if crop.size > 0:
-        ultimo_crop_preview = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+    
+    crop_rgb = frame[y1:y2, x1:x2]
+    if crop_rgb.size > 0:
+        # Para o preview do Dashboard (RGB)
+        ultimo_crop_preview = crop_rgb.copy()
+        
+        # --- LÓGICA DE GRAVAÇÃO ASSÍNCRONA ---
         if GRAVANDO:
-            cv2.imwrite(f"{CAPTURE_PATH}/miniola_{n_frame:06d}.jpg", crop, [int(cv2.IMWRITE_JPEG_QUALITY), 98])
+            # Prepara a imagem BGR para o Queue
+            crop_bgr = cv2.cvtColor(crop_rgb, cv2.COLOR_RGB2BGR)
+            filename = f"{CAPTURE_PATH}/miniola_{n_frame:06d}.jpg"
+            
+            try:
+                # Tenta colocar na fila. block=False para não travar se a fila encher.
+                fila_gravacao.put((crop_bgr, filename), block=False)
+            except:
+                # Se a fila encher, imprimimos um alerta para o operador.
+                # Isso significa que o disco RAM está lento ou o Python não está dando conta.
+                print(f"[ALERTA] Fila de gravação cheia! Frame {n_frame} perdido.")
+        # -------------------------------------
 
-# --- PAINEL DE CONTROLE COM AJUSTE DE ROI ---
-
+# --- PAINEL DE CONTROLE (MANTIDO) ---
 def painel_controle():
     global frame_count, GRAVANDO, LINHA_RESET_Y, ROI_X, ROI_Y, ROI_W, ROI_H, THRESH_VAL
     global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo
-    
     time.sleep(2)
     print("\n" + "═"*45)
-    print("   MINIOLA v8.0 - CONTROLE DE ROI E ÓPTICA")
+    print("   MINIOLA v8.0 - HIGH PERFORMANCE SCANNER")
     print("═"*45)
     print("   ROI POS:   rx [x] | ry [y]  (ou w,a,s,d)")
     print("   ROI SIZE:  rw [w] | rh [h]")
@@ -80,29 +109,22 @@ def painel_controle():
     print("   GATILHO:   ly (Linha)| t (Thresh)| ox (Offset)")
     print("   SISTEMA:   rec (Gravar)| r (Reset)")
     print("═"*45)
-
     while True:
         try:
             entrada = input("\n>> ").split()
             if not entrada: continue
             cmd = entrada[0].lower()
             val = float(entrada[1]) if len(entrada) > 1 else 0
-            
-            # --- ATALHOS RÁPIDOS (ESTILO MINIOLA.PY) ---
             if cmd == 'w': ROI_Y = max(0, ROI_Y - 5)
             elif cmd == 's': ROI_Y = min(720 - ROI_H, ROI_Y + 5)
             elif cmd == 'a': ROI_X = max(0, ROI_X - 5)
             elif cmd == 'd': ROI_X = min(1080 - ROI_W, ROI_X + 5)
-            
-            # --- COMANDOS DE POSICIONAMENTO ---
             elif cmd == 'rx': ROI_X = int(val)
             elif cmd == 'ry': ROI_Y = int(val)
             elif cmd == 'rw': ROI_W = int(val)
             elif cmd == 'rh': ROI_H = int(val)
             elif cmd == 'ly': LINHA_RESET_Y = int(val)
             elif cmd == 'ox': OFFSET_X = int(val)
-            
-            # --- COMANDOS DE IMAGEM ---
             elif cmd == 'l':
                 foco_atual = round(foco_atual + passo_foco, 2)
                 picam2.set_controls({"LensPosition": foco_atual})
@@ -111,18 +133,13 @@ def painel_controle():
                 picam2.set_controls({"LensPosition": foco_atual})
             elif cmd == 'j': passo_foco = val
             elif cmd == 'e': 
-                shutter_speed = int(val)
-                picam2.set_controls({"ExposureTime": shutter_speed})
+                shutter_speed = int(val); picam2.set_controls({"ExposureTime": shutter_speed})
             elif cmd == 'g': 
-                gain = val
-                picam2.set_controls({"AnalogueGain": gain})
+                gain = val; picam2.set_controls({"AnalogueGain": gain})
             elif cmd == 'fps':
-                fps_cam = int(val)
-                picam2.set_controls({"FrameRate": fps_cam})
+                fps_cam = int(val); picam2.set_controls({"FrameRate": fps_cam})
                 print(f"[CAM] Taxa de quadros alterada para: {fps_cam} FPS")
             elif cmd == 't': THRESH_VAL = int(val)
-            
-            # --- SISTEMA ---
             elif cmd == 'rec': GRAVANDO = not GRAVANDO
             elif cmd == 'r': 
                 frame_count = 0
@@ -131,191 +148,97 @@ def painel_controle():
                 print("RAM DRIVE LIMPO.")
         except Exception as e: print(f"Erro: {e}")
 
+# --- LÓGICA DO SCANNER (MANTIDA DA VERSÃO ANTERIOR COM PROFILER) ---
 def logica_scanner():
     global frame_count, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
-    global contador_perfs_ciclo, perfuracao_na_linha, pos_ancora_debug
-    global fps_real_proc, tempo_ms_ciclo
-
+    global contador_perfs_ciclo, perfuracao_na_linha, pos_ancora_debug, fps_real_proc, tempo_ms_ciclo
     MARGEM_S_VAL = 15  
-    
-    # --- CONFIGURAÇÃO DE OTIMIZAÇÃO DE VISÃO ---
-    ESCALA_CV = 0.5 # Reduz a resolução de busca pela metade (muito mais rápido)
-    FATOR_MULT = int(1 / ESCALA_CV) # Usado para remapear as coordenadas (x2)
-
+    ESCALA_CV = 0.5 
+    FATOR_MULT = int(1 / ESCALA_CV)
     while True:
-        t_inicio_ciclo = time.perf_counter() # <--- INÍCIO DO CRONÔMETRO
-
+        t_inicio_ciclo = time.perf_counter()
         frame_raw = picam2.capture_array()
         if frame_raw is None: continue
-        
-        ry = max(0, min(ROI_Y, 720 - 10))
-        rx = max(0, min(ROI_X, 1080 - 10))
-        rh = max(10, min(ROI_H, 720 - ry))
-        rw = max(10, min(ROI_W, 1080 - rx))
-
-        # 1. Extrai o ROI em alta resolução
+        ry, rx = max(0, min(ROI_Y, 710)), max(0, min(ROI_X, 1070))
+        rh, rw = max(10, min(ROI_H, 720 - ry)), max(10, min(ROI_W, 1080 - rx))
         gray = cv2.cvtColor(frame_raw, cv2.COLOR_RGB2GRAY)
         roi_high_res = gray[ry:ry+rh, rx:rx+rw]
-        
-        # 2. REDUZ A RESOLUÇÃO apenas para o Threshold e Contornos
         roi_small = cv2.resize(roi_high_res, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV)
         _, binary_small = cv2.threshold(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY)
         contours, _ = cv2.findContours(binary_small, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
         perfs_neste_frame, debug_visual = [], []
-        
         for cnt in contours:
-            # Multiplicamos a área lida de volta para a escala real para manter o seu filtro atual
             area_real = cv2.contourArea(cnt) * (FATOR_MULT ** 2) 
-            
             x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
-            
-            # Remapeia as coordenadas "pequenas" de volta para o frame 1080p
-            x = x_s * FATOR_MULT
-            y = y_s * FATOR_MULT
-            w = w_s * FATOR_MULT
-            h = h_s * FATOR_MULT
-
+            x, y, w, h = x_s * FATOR_MULT, y_s * FATOR_MULT, w_s * FATOR_MULT, h_s * FATOR_MULT
             if 150 < area_real < 10000 and 0.4 < (w/h) < 2.5:
                 cx, cy = x + (w//2) + rx, y + (h//2) + ry
                 perfs_neste_frame.append({'cx': cx, 'cy': cy})
                 debug_visual.append({'rect': (x+rx, y+ry, w, h), 'color': (0, 255, 0)})
-
         perfs_neste_frame.sort(key=lambda p: p['cy'])
         line_y_abs = ry + LINHA_RESET_Y
-        
         furo_detectado_agora = False
-        
         if perfs_neste_frame:
             topo_mais_alto = perfs_neste_frame[0]['cy']
-            
             if abs(topo_mais_alto - line_y_abs) < MARGEM_S_VAL:
                 furo_detectado_agora = True
                 if not perfuracao_na_linha:
                     contador_perfs_ciclo += 1
                     perfuracao_na_linha = True
-                    
                     if contador_perfs_ciclo >= 4:
                         if len(perfs_neste_frame) >= 4:
                             grupo = perfs_neste_frame[0:4]
                             cx_a = int(np.mean([p['cx'] for p in grupo]))
                             cy_a = int(np.mean([p['cy'] for p in grupo]))
                             pos_ancora_debug = (cx_a, cy_a)
-                            
-                            # A captura recebe o frame_raw em 1080p nativo!
                             processar_captura(frame_raw, cx_a, cy_a, frame_count)
                             frame_count += 1
                         contador_perfs_ciclo = 0
-
         if not furo_detectado_agora:
             perfuracao_na_linha = False
-
         ultimo_frame_bruto = frame_raw
-        # Redimensiona o binário pequeno de volta ao tamanho do ROI para o Dashboard não quebrar
         ultimo_frame_binario = cv2.resize(binary_small, (rw, rh), interpolation=cv2.INTER_NEAREST) 
         lista_contornos_debug = debug_visual
-        
-        # --- FIM DO CRONÔMETRO E CÁLCULO DE PERFORMANCE ---
         t_fim_ciclo = time.perf_counter()
         tempo_decorrido = t_fim_ciclo - t_inicio_ciclo
         tempo_ms_ciclo = tempo_decorrido * 1000.0
         fps_real_proc = 1.0 / tempo_decorrido if tempo_decorrido > 0 else 0
-        
         time.sleep(0.001)
 
-# --- FLASK: DASHBOARD 3 TELAS + PREVIEW ---
-
+# --- FLASK: DASHBOARD ATUALIZADO (MANTIDO) ---
 def generate_dashboard():
-    global perfuracao_na_linha # Garante acesso ao estado do gatilho para a cor
+    global perfuracao_na_linha
     while True:
-        if ultimo_frame_bruto is None: 
-            time.sleep(0.1)
-            continue
-        
-        # Painel Superior (Monitoramento) - 640x420 para o dashboard
+        if ultimo_frame_bruto is None: time.sleep(0.1); continue
         p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
-        sx, sy = 640/1080, 420/720 # Escalas de conversão de coordenadas
-        
-        # 1. Desenha o ROI (Retângulo de busca) em Cinza
-        cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), 
-                      (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
-        
-        # --- NOVA LÓGICA DE FEEDBACK VISUAL DO GATILHO ---
-        # Definindo a cor: VERMELHO se estiver em trava (contando/bloqueado), VERDE se estiver pronto (armado).
+        sx, sy = 640/1080, 420/720
+        cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
         cor_gatilho = (0, 0, 255) if perfuracao_na_linha else (0, 255, 0)
-        
-        # Posição absoluta da linha de gatilho
         y_gl = ROI_Y + LINHA_RESET_Y
-        
-        # Desenha a linha de gatilho com a cor dinâmica e espessura 3 para destaque
-        cv2.line(p_live, 
-                 (int(ROI_X*sx), int(y_gl*sy)), 
-                 (int((ROI_X+ROI_W)*sx), int(y_gl*sy)), 
-                 cor_gatilho, 3)
-        
-        # Pequeno texto indicador de estado sobre a linha
+        cv2.line(p_live, (int(ROI_X*sx), int(y_gl*sy)), (int((ROI_X+ROI_W)*sx), int(y_gl*sy)), cor_gatilho, 3)
         txt_status = "TRAVA" if perfuracao_na_linha else "PRONTO"
-        cv2.putText(p_live, txt_status, (int(ROI_X*sx), int(y_gl*sy) - 10), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, cor_gatilho, 1)
-        # -------------------------------------------------
-
-        # Desenha os contornos das perfurações detectadas
+        cv2.putText(p_live, txt_status, (int(ROI_X*sx), int(y_gl*sy) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, cor_gatilho, 1)
         for item in lista_contornos_debug:
-            x, y, w, h = item['rect']
-            cv2.rectangle(p_live, (int(x*sx), int(y*sy)), 
-                          (int((x+w)*sx), int((y+h)*sy)), item['color'], 2)
-
-        # Painel Binário (Visualização do Threshold)
+            x, y, w, h = item['rect']; cv2.rectangle(p_live, (int(x*sx), int(y*sy)), (int((x+w)*sx), int((y+h)*sy)), item['color'], 2)
         p_bin = np.zeros((420, 640, 3), dtype=np.uint8)
         if ultimo_frame_binario is not None:
             bin_res = cv2.resize(cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB), (240, 420))
             p_bin[0:420, 200:440] = bin_res
-
-        # Painel Inferior (Telemetria e Último Crop)
         p_inf = np.zeros((300, 1280, 3), dtype=np.uint8)
-        if ultimo_crop_preview is not None:
-            p_inf[10:290, 440:840] = cv2.resize(ultimo_crop_preview, (400, 280))
-        
-        info_l1 = f"ROI: {ROI_X},{ROI_Y} | TRIGGER: {LINHA_RESET_Y} | STATUS: {txt_status}"
-        info_l2 = f"EXP: {shutter_speed} | GAIN: {gain} | FOCUS: {foco_atual} | FPS: {fps_cam}"
-        cv2.putText(p_inf, info_l1, (20, 40), 1, 1.2, (200, 200, 200), 1)
-        cv2.putText(p_inf, info_l2, (20, 80), 1, 1.2, (200, 200, 200), 1)
-        
-        # Montagem final do dashboard (Stack vertical e horizontal)
+        if ultimo_crop_preview is not None: p_inf[10:290, 440:840] = cv2.resize(ultimo_crop_preview, (400, 280))
         dashboard = np.vstack((np.hstack((p_live, p_bin)), p_inf))
         _, buffer = cv2.imencode('.jpg', cv2.cvtColor(dashboard, cv2.COLOR_RGB2BGR), [int(cv2.IMWRITE_JPEG_QUALITY), 75])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
-@app.route('/preview_feed')
-def preview_feed():
-    def generate_preview():
-        while True:
-            files = sorted([f for f in os.listdir(CAPTURE_PATH) if f.endswith('.jpg')])
-            last_frames = files[-100:] if len(files) > 0 else []
-            if not last_frames: time.sleep(0.5); continue
-            for frame_file in last_frames:
-                img = cv2.imread(os.path.join(CAPTURE_PATH, frame_file))
-                if img is None: continue
-                _, buffer = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 98])
-                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-                time.sleep(1/24)
-    return Response(generate_preview(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
-@app.route('/video_feed')
-def video_feed(): return Response(generate_dashboard(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
 @app.route('/status')
 def get_status():
-    # Declaramos as variáveis globais do profiler criadas na logica_scanner
     global GRAVANDO, contador_perfs_ciclo, frame_count, fps_real_proc, tempo_ms_ciclo
-    
+    # Adicionamos o tamanho da fila ao status para monitoramento
     return {
-        "rec": "GRAVANDO" if GRAVANDO else "PARADO", 
-        "cor": "#ff0000" if GRAVANDO else "#00ff00",
-        "ciclo": f"{contador_perfs_ciclo}/4", 
-        "total": frame_count,
-        "fps_proc": f"{fps_real_proc:.1f} FPS",
-        "ms_ciclo": f"{tempo_ms_ciclo:.1f} ms"
+        "rec": "GRAVANDO" if GRAVANDO else "PARADO", "cor": "#ff0000" if GRAVANDO else "#00ff00",
+        "ciclo": f"{contador_perfs_ciclo}/4", "total": frame_count,
+        "fps_proc": f"{fps_real_proc:.1f} FPS", "ms_ciclo": f"{tempo_ms_ciclo:.1f} ms",
+        "queue": fila_gravacao.qsize() # <--- Novo campo: Tamanho da Fila
     }
 
 @app.route('/')
@@ -323,10 +246,9 @@ def index():
     return """
     <html><body style='background:#0a0a0a; color:#eee; font-family:monospace; margin:0;'>
         <div style='display:flex; background:#111; padding:10px; border-bottom:1px solid #333; justify-content:space-around;'>
-            <span id='m'>--</span> | 
-            CICLO: <b id='c'>0/4</b> | 
-            FRAMES: <b id='f'>0</b> | 
-            PROC: <b id='fps_proc' style='color:#0ff'>0.0 FPS</b> (<b id='ms_ciclo' style='color:#ff0'>0.0 ms</b>)
+            <span id='m'>--</span> | CICLO: <b id='c'>0/4</b> | FRAMES: <b id='f'>0</b> | 
+            PROC: <b id='fps_proc' style='color:#0ff'>0.0 FPS</b> (<b id='ms_ciclo' style='color:#ff0'>0.0 ms</b>) | 
+            QUEUE: <b id='q' style='color:#f0f'>0</b>/100
         </div>
         <div style='display:flex; height:92vh;'>
             <div style='flex:2; border-right:1px solid #333;'><img src="/video_feed" style="width:100%;"></div>
@@ -335,18 +257,34 @@ def index():
         <script>
             setInterval(() => {
                 fetch('/status').then(r => r.json()).then(d => {
-                    const m = document.getElementById('m'); 
-                    m.innerText = d.rec; 
-                    m.style.color = d.cor;
-                    document.getElementById('c').innerText = d.ciclo; 
-                    document.getElementById('f').innerText = d.total;
-                    document.getElementById('fps_proc').innerText = d.fps_proc;
-                    document.getElementById('ms_ciclo').innerText = d.ms_ciclo;
+                    const m = document.getElementById('m'); m.innerText = d.rec; m.style.color = d.cor;
+                    document.getElementById('c').innerText = d.ciclo; document.getElementById('f').innerText = d.total;
+                    document.getElementById('fps_proc').innerText = d.fps_proc; document.getElementById('ms_ciclo').innerText = d.ms_ciclo;
+                    document.getElementById('q').innerText = d.queue; // Atualiza o tamanho da fila
                 });
             }, 250);
         </script>
     </body></html>
     """
+
+# --- ROTAS RESTANTES E EXECUÇÃO (MANTIDOS) ---
+@app.route('/preview_feed')
+def preview_feed():
+    def generate_preview():
+        while True:
+            files = sorted([f for f in os.listdir(CAPTURE_PATH) if f.endswith('.jpg')])
+            last_frames = files[-48:] if len(files) > 0 else []
+            if not last_frames: time.sleep(0.5); continue
+            for frame_file in last_frames:
+                img = cv2.imread(os.path.join(CAPTURE_PATH, frame_file))
+                if img is None: continue
+                _, buffer = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+                time.sleep(1/24)
+    return Response(generate_preview(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/video_feed')
+def video_feed(): return Response(generate_dashboard(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == '__main__':
     threading.Thread(target=painel_controle, daemon=True).start()
