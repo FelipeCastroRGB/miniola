@@ -133,11 +133,12 @@ def logica_scanner():
     global frame_count, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
     global contador_perfs_ciclo, perfuracao_na_linha, pos_ancora_debug
 
+    MARGEM_S_VAL = 15  # Definindo a margem simétrica (janela de 30px total)
+
     while True:
         frame_raw = picam2.capture_array()
         if frame_raw is None: continue
         
-        # Garante que o ROI não saia dos limites do frame após ajustes manuais
         ry = max(0, min(ROI_Y, 720 - 10))
         rx = max(0, min(ROI_X, 1080 - 10))
         rh = max(10, min(ROI_H, 720 - ry))
@@ -152,7 +153,6 @@ def logica_scanner():
         for cnt in contours:
             area = cv2.contourArea(cnt)
             x, y, w, h = cv2.boundingRect(cnt)
-            # Filtro de preservação audiovisual (proporção de perfuração 35mm)
             if 150 < area < 10000 and 0.4 < (w/h) < 2.5:
                 cx, cy = x + (w//2) + rx, y + (h//2) + ry
                 perfs_neste_frame.append({'cx': cx, 'cy': cy})
@@ -161,22 +161,37 @@ def logica_scanner():
         perfs_neste_frame.sort(key=lambda p: p['cy'])
         line_y_abs = ry + LINHA_RESET_Y
         
+        # --- NOVA LÓGICA: MARGEM SIMÉTRICA ---
+        furo_detectado_agora = False
+        
         if perfs_neste_frame:
+            # Verificamos se alguma perfuração está dentro da margem
+            # (Usamos o topo_mais_alto ou qualquer uma que toque a linha)
             topo_mais_alto = perfs_neste_frame[0]['cy']
-            if topo_mais_alto < line_y_abs and not perfuracao_na_linha:
-                contador_perfs_ciclo += 1
-                perfuracao_na_linha = True
-                if contador_perfs_ciclo >= 4:
-                    if len(perfs_neste_frame) >= 4:
-                        grupo = perfs_neste_frame[0:4]
-                        cx_a = int(np.mean([p['cx'] for p in grupo]))
-                        cy_a = int(np.mean([p['cy'] for p in grupo]))
-                        pos_ancora_debug = (cx_a, cy_a)
-                        processar_captura(frame_raw, cx_a, cy_a, frame_count)
-                        frame_count += 1
-                    contador_perfs_ciclo = 0
-            elif topo_mais_alto > (line_y_abs + 15): 
-                perfuracao_na_linha = False
+            
+            # Se a distância entre a perfuração e a linha for menor que a margem
+            if abs(topo_mais_alto - line_y_abs) < MARGEM_S_VAL:
+                furo_detectado_agora = True
+                if not perfuracao_na_linha:
+                    # DISPARO DO GATILHO
+                    contador_perfs_ciclo += 1
+                    perfuracao_na_linha = True
+                    
+                    if contador_perfs_ciclo >= 4:
+                        if len(perfs_neste_frame) >= 4:
+                            grupo = perfs_neste_frame[0:4]
+                            cx_a = int(np.mean([p['cx'] for p in grupo]))
+                            cy_a = int(np.mean([p['cy'] for p in grupo]))
+                            pos_ancora_debug = (cx_a, cy_a)
+                            processar_captura(frame_raw, cx_a, cy_a, frame_count)
+                            frame_count += 1
+                        contador_perfs_ciclo = 0
+
+        # RESET DO GATILHO: 
+        # Se nenhuma perfuração estiver na janela, liberamos para o próximo ciclo
+        if not furo_detectado_agora:
+            perfuracao_na_linha = False
+        # -------------------------------------
 
         ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug = frame_raw, binary, debug_visual
         time.sleep(0.001)
