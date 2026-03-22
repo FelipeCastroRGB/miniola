@@ -24,7 +24,7 @@ if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
 picam2 = Picamera2()
 
 # --- CONFIGURAÇÃO DE HARDWARE ---
-shutter_speed, gain, fps_cam = 450, 1.0, 90
+shutter_speed, gain, fps_cam = 300, 1.0, 90
 foco_atual, passo_foco = 15.0, 0.5
 
 config = picam2.create_video_configuration(main={"size": (1080, 720), "format": "RGB888"})
@@ -184,37 +184,62 @@ def logica_scanner():
 # --- FLASK: DASHBOARD 3 TELAS + PREVIEW ---
 
 def generate_dashboard():
+    global perfuracao_na_linha # Garante acesso ao estado do gatilho para a cor
     while True:
-        if ultimo_frame_bruto is None: time.sleep(0.1); continue
+        if ultimo_frame_bruto is None: 
+            time.sleep(0.1)
+            continue
         
-        # Painel Superior (Monitoramento)
+        # Painel Superior (Monitoramento) - 640x420 para o dashboard
         p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
-        sx, sy = 640/1080, 420/720
+        sx, sy = 640/1080, 420/720 # Escalas de conversão de coordenadas
         
-        # Desenha ROI e Linha de Gatilho
-        cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
+        # 1. Desenha o ROI (Retângulo de busca) em Cinza
+        cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), 
+                      (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
+        
+        # --- NOVA LÓGICA DE FEEDBACK VISUAL DO GATILHO ---
+        # Definindo a cor: VERMELHO se estiver em trava (contando/bloqueado), VERDE se estiver pronto (armado).
+        cor_gatilho = (0, 0, 255) if perfuracao_na_linha else (0, 255, 0)
+        
+        # Posição absoluta da linha de gatilho
         y_gl = ROI_Y + LINHA_RESET_Y
-        cv2.line(p_live, (int(ROI_X*sx), int(y_gl*sy)), (int((ROI_X+ROI_W)*sx), int(y_gl*sy)), (0, 0, 255), 2)
         
+        # Desenha a linha de gatilho com a cor dinâmica e espessura 3 para destaque
+        cv2.line(p_live, 
+                 (int(ROI_X*sx), int(y_gl*sy)), 
+                 (int((ROI_X+ROI_W)*sx), int(y_gl*sy)), 
+                 cor_gatilho, 3)
+        
+        # Pequeno texto indicador de estado sobre a linha
+        txt_status = "TRAVA" if perfuracao_na_linha else "PRONTO"
+        cv2.putText(p_live, txt_status, (int(ROI_X*sx), int(y_gl*sy) - 10), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, cor_gatilho, 1)
+        # -------------------------------------------------
+
+        # Desenha os contornos das perfurações detectadas
         for item in lista_contornos_debug:
             x, y, w, h = item['rect']
-            cv2.rectangle(p_live, (int(x*sx), int(y*sy)), (int((x+w)*sx), int((y+h)*sy)), item['color'], 2)
+            cv2.rectangle(p_live, (int(x*sx), int(y*sy)), 
+                          (int((x+w)*sx), int((y+h)*sy)), item['color'], 2)
 
+        # Painel Binário (Visualização do Threshold)
         p_bin = np.zeros((420, 640, 3), dtype=np.uint8)
         if ultimo_frame_binario is not None:
             bin_res = cv2.resize(cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB), (240, 420))
             p_bin[0:420, 200:440] = bin_res
 
-        # Painel Inferior (Telemetria e Último Fotograma)
+        # Painel Inferior (Telemetria e Último Crop)
         p_inf = np.zeros((300, 1280, 3), dtype=np.uint8)
         if ultimo_crop_preview is not None:
             p_inf[10:290, 440:840] = cv2.resize(ultimo_crop_preview, (400, 280))
         
-        info_l1 = f"ROI: {ROI_X},{ROI_Y} [{ROI_W}x{ROI_H}] | TRIGGER: {LINHA_RESET_Y}"
+        info_l1 = f"ROI: {ROI_X},{ROI_Y} | TRIGGER: {LINHA_RESET_Y} | STATUS: {txt_status}"
         info_l2 = f"EXP: {shutter_speed} | GAIN: {gain} | FOCUS: {foco_atual} | FPS: {fps_cam}"
         cv2.putText(p_inf, info_l1, (20, 40), 1, 1.2, (200, 200, 200), 1)
         cv2.putText(p_inf, info_l2, (20, 80), 1, 1.2, (200, 200, 200), 1)
         
+        # Montagem final do dashboard (Stack vertical e horizontal)
         dashboard = np.vstack((np.hstack((p_live, p_bin)), p_inf))
         _, buffer = cv2.imencode('.jpg', cv2.cvtColor(dashboard, cv2.COLOR_RGB2BGR), [int(cv2.IMWRITE_JPEG_QUALITY), 75])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
@@ -224,12 +249,12 @@ def preview_feed():
     def generate_preview():
         while True:
             files = sorted([f for f in os.listdir(CAPTURE_PATH) if f.endswith('.jpg')])
-            last_frames = files[-48:] if len(files) > 0 else []
+            last_frames = files[-100:] if len(files) > 0 else []
             if not last_frames: time.sleep(0.5); continue
             for frame_file in last_frames:
                 img = cv2.imread(os.path.join(CAPTURE_PATH, frame_file))
                 if img is None: continue
-                _, buffer = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                _, buffer = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 98])
                 yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
                 time.sleep(1/24)
     return Response(generate_preview(), mimetype='multipart/x-mixed-replace; boundary=frame')
