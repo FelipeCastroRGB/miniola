@@ -1,6 +1,11 @@
 import sys
 from unittest.mock import MagicMock
 import os
+
+# --- CONFIGURAÇÃO DE AMBIENTE E HARDWARE (MANTIDOS) ---
+sys.modules["pykms"] = MagicMock()
+sys.modules["kms"] = MagicMock()
+
 from flask import Flask, Response
 from picamera2 import Picamera2
 import cv2
@@ -10,9 +15,7 @@ import time
 import logging
 from queue import Queue # Importação da Fila
 
-# --- CONFIGURAÇÃO DE AMBIENTE E HARDWARE (MANTIDOS) ---
-sys.modules["pykms"] = MagicMock()
-sys.modules["kms"] = MagicMock()
+
 app = Flask(__name__)
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR) 
