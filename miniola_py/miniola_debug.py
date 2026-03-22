@@ -24,7 +24,7 @@ if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
 picam2 = Picamera2()
 
 # --- CONFIGURAÇÃO DE HARDWARE ---
-shutter_speed, gain, fps_cam = 450, 1.0, 60
+shutter_speed, gain, fps_cam = 450, 1.0, 90
 foco_atual, passo_foco = 15.0, 0.5
 
 config = picam2.create_video_configuration(main={"size": (1080, 720), "format": "RGB888"})
@@ -66,7 +66,7 @@ def processar_captura(frame, cx, cy, n_frame):
 
 def painel_controle():
     global frame_count, GRAVANDO, LINHA_RESET_Y, ROI_X, ROI_Y, ROI_W, ROI_H, THRESH_VAL
-    global foco_atual, passo_foco, shutter_speed, gain, OFFSET_X, contador_perfs_ciclo
+    global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo
     
     time.sleep(2)
     print("\n" + "═"*45)
@@ -74,7 +74,7 @@ def painel_controle():
     print("═"*45)
     print("   ROI POS:   rx [x] | ry [y]  (ou w,a,s,d)")
     print("   ROI SIZE:  rw [w] | rh [h]")
-    print("   ÓPTICA:    k/l (Foco)| e (Exp) | g (Gain)")
+    print("   ÓPTICA:    k/l (Foco)| e (Exp) | g (Gain) | fps [v]")
     print("   GATILHO:   ly (Linha)| t (Thresh)| ox (Offset)")
     print("   SISTEMA:   rec (Gravar)| r (Reset)")
     print("═"*45)
@@ -114,6 +114,10 @@ def painel_controle():
             elif cmd == 'g': 
                 gain = val
                 picam2.set_controls({"AnalogueGain": gain})
+            elif cmd == 'fps':
+                fps_cam = int(val)
+                picam2.set_controls({"FrameRate": fps_cam})
+                print(f"[CAM] Taxa de quadros alterada para: {fps_cam} FPS")
             elif cmd == 't': THRESH_VAL = int(val)
             
             # --- SISTEMA ---
@@ -207,7 +211,7 @@ def generate_dashboard():
             p_inf[10:290, 440:840] = cv2.resize(ultimo_crop_preview, (400, 280))
         
         info_l1 = f"ROI: {ROI_X},{ROI_Y} [{ROI_W}x{ROI_H}] | TRIGGER: {LINHA_RESET_Y}"
-        info_l2 = f"EXP: {shutter_speed} | GAIN: {gain} | FOCUS: {foco_atual}"
+        info_l2 = f"EXP: {shutter_speed} | GAIN: {gain} | FOCUS: {foco_atual} | FPS: {fps_cam}"
         cv2.putText(p_inf, info_l1, (20, 40), 1, 1.2, (200, 200, 200), 1)
         cv2.putText(p_inf, info_l2, (20, 80), 1, 1.2, (200, 200, 200), 1)
         
