@@ -175,7 +175,7 @@ def logica_scanner():
                         processar_captura(frame_raw, cx_a, cy_a, frame_count)
                         frame_count += 1
                     contador_perfs_ciclo = 0
-            elif topo_mais_alto > (line_y_abs + 25): 
+            elif topo_mais_alto > (line_y_abs + 15): 
                 perfuracao_na_linha = False
 
         ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug = frame_raw, binary, debug_visual
