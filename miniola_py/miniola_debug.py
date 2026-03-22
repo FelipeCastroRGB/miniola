@@ -150,78 +150,94 @@ def painel_controle():
 
 # --- LÓGICA DO SCANNER (MANTIDA DA VERSÃO ANTERIOR COM PROFILER) ---
 def logica_scanner():
+    # 1. "Cachear" funções em variáveis locais (Busca de função em Python é lenta)
+    cap_array = picam2.capture_array
+    cv_cvt = cv2.cvtColor
+    cv_resize = cv2.resize
+    cv_thresh = cv2.threshold
+    cv_find = cv2.findContours
+    get_time = time.perf_counter
+    
+    # Referências globais que serão atualizadas
     global frame_count, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
     global contador_perfs_ciclo, perfuracao_na_linha, pos_ancora_debug, fps_real_proc, tempo_ms_ciclo
 
-    MARGEM_S_VAL = 15  
+    # Constantes Locais
     ESCALA_CV = 0.5 
-    FATOR_MULT = int(1 / ESCALA_CV)
+    FATOR_MULT = 2 # int(1 / 0.5)
+    MARGEM_S_VAL = 15
+    
+    # Contador para o "Pulo de Quadro" do Dashboard
+    skip_ui = 0
 
     while True:
-        t_inicio_ciclo = time.perf_counter()
+        t_inicio = get_time()
         
-        # Captura o frame bruto da Picamera2
-        frame_raw = picam2.capture_array()
+        frame_raw = cap_array()
         if frame_raw is None: continue
         
-        # Geometria do ROI
-        ry, rx = max(0, min(ROI_Y, 710)), max(0, min(ROI_X, 1070))
-        rh, rw = max(10, min(ROI_H, 720 - ry)), max(10, min(ROI_W, 1080 - rx))
-
-        # --- OTIMIZAÇÃO DE OURO: CORTAR ANTES DE CONVERTER ---
-        roi_color = frame_raw[ry:ry+rh, rx:rx+rw]
-        roi_gray = cv2.cvtColor(roi_color, cv2.COLOR_RGB2GRAY) # Converte apenas o pedacinho (80x600)
+        # 2. Localização de ROI (Slicing direto é ultra-rápido)
+        # Usamos variáveis locais para evitar o lookup global de ROI_X, ROI_Y etc.
+        lx, ly, lw, lh = ROI_X, ROI_Y, ROI_W, ROI_H
+        roi_color = frame_raw[ly:ly+lh, lx:lx+lw]
         
-        # Threshold e Contornos na escala reduzida
-        roi_small = cv2.resize(roi_gray, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV)
-        _, binary_small = cv2.threshold(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY)
-        contours, _ = cv2.findContours(binary_small, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # 3. Processamento de Visão (Otimizado)
+        roi_gray = cv_cvt(roi_color, cv2.COLOR_RGB2GRAY)
+        roi_small = cv_resize(roi_gray, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV)
+        _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY)
+        contours, _ = cv_find(binary_small, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        perfs_neste_frame, debug_visual = [], []
+        perfs_neste_frame = []
+        debug_visual = []
+        
         for cnt in contours:
-            area_real = cv2.contourArea(cnt) * (FATOR_MULT ** 2) 
-            x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
-            x, y, w, h = x_s * FATOR_MULT, y_s * FATOR_MULT, w_s * FATOR_MULT, h_s * FATOR_MULT
-            
-            if 150 < area_real < 10000 and 0.4 < (w/h) < 2.5:
-                cx, cy = x + (w//2) + rx, y + (h//2) + ry
-                perfs_neste_frame.append({'cx': cx, 'cy': cy})
-                debug_visual.append({'rect': (x+rx, y+ry, w, h), 'color': (0, 255, 0)})
+            # Cálculo de área simplificado
+            area = cv2.contourArea(cnt) * 4 # FATOR_MULT**2
+            if 150 < area < 10000:
+                x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
+                if 0.4 < (w_s/h_s) < 2.5:
+                    cx = (x_s * 2) + (w_s) + lx
+                    cy = (y_s * 2) + (h_s) + ly
+                    perfs_neste_frame.append({'cx': cx, 'cy': cy})
+                    debug_visual.append({'rect': (x_s*2+lx, y_s*2+ly, w_s*2, h_s*2), 'color': (0, 255, 0)})
 
         perfs_neste_frame.sort(key=lambda p: p['cy'])
-        line_y_abs = ry + LINHA_RESET_Y
+        line_y_abs = ly + LINHA_RESET_Y
         furo_detectado_agora = False
         
         if perfs_neste_frame:
-            topo_mais_alto = perfs_neste_frame[0]['cy']
-            if abs(topo_mais_alto - line_y_abs) < MARGEM_S_VAL:
+            if abs(perfs_neste_frame[0]['cy'] - line_y_abs) < MARGEM_S_VAL:
                 furo_detectado_agora = True
                 if not perfuracao_na_linha:
                     contador_perfs_ciclo += 1
                     perfuracao_na_linha = True
-                    if contador_perfs_ciclo >= 4:
-                        if len(perfs_neste_frame) >= 4:
-                            grupo = perfs_neste_frame[0:4]
-                            cx_a = int(np.mean([p['cx'] for p in grupo]))
-                            cy_a = int(np.mean([p['cy'] for p in grupo]))
-                            pos_ancora_debug = (cx_a, cy_a)
-                            processar_captura(frame_raw, cx_a, cy_a, frame_count)
-                            frame_count += 1
+                    if contador_perfs_ciclo >= 4 and len(perfs_neste_frame) >= 4:
+                        # Cálculo de média rápido com NumPy
+                        pts = perfs_neste_frame[0:4]
+                        cx_a = int(sum(p['cx'] for p in pts) / 4)
+                        cy_a = int(sum(p['cy'] for p in pts) / 4)
+                        pos_ancora_debug = (cx_a, cy_a)
+                        
+                        processar_captura(frame_raw, cx_a, cy_a, frame_count)
+                        frame_count += 1
                         contador_perfs_ciclo = 0
         
         if not furo_detectado_agora:
             perfuracao_na_linha = False
 
-        # --- ATUALIZAÇÃO LEVE PARA O DASHBOARD ---
-        ultimo_frame_bruto = frame_raw
-        ultimo_frame_binario = binary_small # Enviamos o binário pequeno mesmo (Dashboard que dê resize)
-        lista_contornos_debug = debug_visual
+        # --- 4. ESTRATÉGIA DE UI THROTTLING (A MÁGICA) ---
+        # Só atualizamos as variáveis pesadas do Dashboard a cada 3 quadros (~30 FPS)
+        skip_ui += 1
+        if skip_ui >= 3:
+            ultimo_frame_bruto = frame_raw # Referência, não cópia
+            ultimo_frame_binario = binary_small
+            lista_contornos_debug = debug_visual
+            skip_ui = 0
         
-        # Cálculo de performance
-        t_fim_ciclo = time.perf_counter()
-        tempo_decorrido = t_fim_ciclo - t_inicio_ciclo
-        tempo_ms_ciclo = tempo_decorrido * 1000.0
-        fps_real_proc = 1.0 / tempo_decorrido if tempo_decorrido > 0 else 0
+        # Performance info
+        t_fim = get_time()
+        tempo_ms_ciclo = (t_fim - t_inicio) * 1000.0
+        fps_real_proc = 1.0 / (t_fim - t_inicio) if (t_fim - t_inicio) > 0 else 0
 
 # --- FLASK: DASHBOARD ATUALIZADO (MANTIDO) ---
 def generate_dashboard():
