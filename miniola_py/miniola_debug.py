@@ -2,7 +2,7 @@ import sys
 from unittest.mock import MagicMock
 import os
 
-# --- MOCKS ---
+# --- MOCKS PARA AMBIENTE SEM HARDWARE ---
 sys.modules["pykms"] = MagicMock()
 sys.modules["kms"] = MagicMock()
 
@@ -28,17 +28,17 @@ picam2.start()
 
 # --- GEOMETRIA E CONTROLE ---
 GRAVANDO = False
-ESTADO_ATUAL = "BUSCAR_QUADRO"
-ROI_X, ROI_Y = 400, 50
+ROI_X, ROI_Y = 215, 50
 ROI_W, ROI_H = 80, 600
-LINHA_RESET_Y = 140  
-THRESH_VAL = 239
+LINHA_RESET_Y = 150  # A linha de gatilho (Trigger Line)
+THRESH_VAL = 110
 OFFSET_X = 260
 CROP_W, CROP_H = 440, 330 
 
+# Variáveis de Estado de Contagem
+contador_perfs_ciclo = 0
+perfuracao_na_linha = False
 frame_count = 0
-alvo_rastreio_y = -1 
-ultimo_pitch = 120 # Valor inicial seguro para o tracking
 ultimo_frame_bruto = None
 ultimo_frame_binario = None
 ultimo_crop_preview = np.zeros((CROP_H, CROP_W, 3), dtype=np.uint8)
@@ -59,15 +59,16 @@ def processar_captura(frame, cx, cy, n_frame):
     return (x1, y1, x2, y2)
 
 def painel_controle():
-    global frame_count, GRAVANDO, LINHA_RESET_Y, ROI_X, ROI_Y, ROI_W, ROI_H, OFFSET_X, CROP_W, CROP_H, THRESH_VAL, ESTADO_ATUAL
+    global frame_count, GRAVANDO, LINHA_RESET_Y, ROI_X, ROI_Y, ROI_W, ROI_H, OFFSET_X, CROP_W, CROP_H, THRESH_VAL, contador_perfs_ciclo
     time.sleep(2)
     print("\n" + "═"*45)
-    print("   MINIOLA v5.1 - SMART TRACKER DE 4 PITCHES")
+    print("   MINIOLA v6.0 - CONTADOR DE 4 PERFURAÇÕES")
     print("═"*45)
-    print("   ly [v] : Linha de Gatilho (Recomendo 100 ou 150)")
+    print("   ly [v] : Linha de Gatilho (Contagem)")
     print("   t [v]  : Threshold (Contraste)")
     print("   ox [v] : Offset X (Horizontal)")
-    print("   rec    : Toggle Gravação")
+    print("   rec    : Iniciar/Parar Gravação")
+    print("   r      : Resetar contador de frames")
     print("═"*45)
 
     while True:
@@ -84,14 +85,16 @@ def painel_controle():
             elif cmd == 'rx': ROI_X = val
             elif cmd == 'ry': ROI_Y = val
             elif cmd == 'rec': GRAVANDO = not GRAVANDO
-            elif cmd == 'r': frame_count = 0
+            elif cmd == 'r': 
+                frame_count = 0
+                contador_perfs_ciclo = 0
             elif cmd == 'clean':
                 for f in os.listdir('capturas'): os.remove(os.path.join('capturas', f))
         except: pass
 
 def logica_scanner():
     global frame_count, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
-    global ESTADO_ATUAL, alvo_rastreio_y, ultimo_pitch, pos_ancora_debug
+    global contador_perfs_ciclo, perfuracao_na_linha, pos_ancora_debug
 
     while True:
         frame_raw = picam2.capture_array()
@@ -106,52 +109,44 @@ def logica_scanner():
         for cnt in contours:
             area = cv2.contourArea(cnt)
             x, y, w, h = cv2.boundingRect(cnt)
+            # Filtro de forma baseado em padrões de preservação audiovisual
             if 150 < area < 9000 and 0.4 < (w/h) < 2.5:
                 cx, cy = x + (w//2) + ROI_X, y + (h//2) + ROI_Y
-                perfs_neste_frame.append({'cx': cx, 'cy': cy})
+                perfs_neste_frame.append({'cx': cx, 'cy': cy, 'y_topo': y + ROI_Y})
                 debug_visual.append({'rect': (x+ROI_X, y+ROI_Y, w, h), 'color': (0, 255, 0)})
 
+        # Ordena do topo para o fundo
         perfs_neste_frame.sort(key=lambda p: p['cy'])
 
-        if len(perfs_neste_frame) >= 4:
-            grupo_centro = perfs_neste_frame[0:4]
-            cx_a, cy_a = int(np.mean([p['cx'] for p in grupo_centro])), int(np.mean([p['cy'] for p in grupo_centro]))
-            pos_ancora_debug = (cx_a, cy_a)
-
-        # --- LÓGICA DE ESTADOS ---
-        if ESTADO_ATUAL == "BUSCAR_QUADRO":
-            if len(perfs_neste_frame) >= 4:
-                # 1. Tira a foto
-                processar_captura(frame_raw, pos_ancora_debug[0], pos_ancora_debug[1], frame_count)
-                frame_count += 1
+        # --- LÓGICA DE CONTAGEM E GATILHO ---
+        line_y_abs = ROI_Y + LINHA_RESET_Y
+        
+        # Detecta se a perfuração mais alta cruzou a linha (subindo)
+        if perfs_neste_frame:
+            topo_mais_alto = perfs_neste_frame[0]['cy']
+            
+            # Se a perfuração cruzou a linha para cima
+            if topo_mais_alto < line_y_abs and not perfuracao_na_linha:
+                contador_perfs_ciclo += 1
+                perfuracao_na_linha = True # Trava para não contar o mesmo furo várias vezes
                 
-                # 2. Calcula a distância (pitch) e projeta onde está a 5ª perfuração
-                grupo = perfs_neste_frame[0:4]
-                ultimo_pitch = (grupo[3]['cy'] - grupo[0]['cy']) / 3
-                
-                # A perfuração que define exatamente 1 quadro de avanço está 4 pitches abaixo do topo
-                y_ideal_proximo_quadro = grupo[0]['cy'] + (4 * ultimo_pitch)
-                
-                # 3. Procura essa 5ª perfuração na tela e gruda nela
-                alvo_candidato = min(perfs_neste_frame, key=lambda p: abs(p['cy'] - y_ideal_proximo_quadro))
-                alvo_rastreio_y = alvo_candidato['cy']
-                ESTADO_ATUAL = "RASTREAR"
-
-        elif ESTADO_ATUAL == "RASTREAR":
-            if perfs_neste_frame:
-                # Procura a perfuração mais próxima da bolinha amarela
-                alvo_atual = min(perfs_neste_frame, key=lambda p: abs(p['cy'] - alvo_rastreio_y))
-                
-                # Margem de segurança de 80% do pitch evita que a bolinha pule de furo
-                if abs(alvo_atual['cy'] - alvo_rastreio_y) < (ultimo_pitch * 0.5):
-                    alvo_rastreio_y = alvo_atual['cy']
-                
-                # CONDIÇÃO DE SAÍDA: A bolinha cruzou a linha vermelha?
-                if alvo_rastreio_y < (ROI_Y + LINHA_RESET_Y):
-                    ESTADO_ATUAL = "BUSCAR_QUADRO"
-                    alvo_rastreio_y = -1
-            else:
-                ESTADO_ATUAL = "BUSCAR_QUADRO"
+                # Se completou o ciclo de 4 furos (1 quadro SMPTE)
+                if contador_perfs_ciclo >= 4:
+                    if len(perfs_neste_frame) >= 4:
+                        # Calcula o centroide das 4 perfs atuais para estabilidade
+                        grupo = perfs_neste_frame[0:4]
+                        cx_a = int(np.mean([p['cx'] for p in grupo]))
+                        cy_a = int(np.mean([p['cy'] for p in grupo]))
+                        pos_ancora_debug = (cx_a, cy_a)
+                        
+                        processar_captura(frame_raw, cx_a, cy_a, frame_count)
+                        frame_count += 1
+                    
+                    contador_perfs_ciclo = 0 # Reinicia o ciclo
+            
+            # Reset da trava: só permite contar o próximo furo quando o atual sair da zona da linha
+            elif topo_mais_alto > (line_y_abs + 20): # Margem de "gap filling"
+                perfuracao_na_linha = False
 
         ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug = frame_raw, binary, debug_visual
         time.sleep(0.002)
@@ -162,6 +157,7 @@ def generate_dashboard():
         p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
         sx, sy = 640/1080, 420/720
         
+        # ROI e Linha de Gatilho
         cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
         y_gl = ROI_Y + LINHA_RESET_Y
         cv2.line(p_live, (int(ROI_X*sx), int(y_gl*sy)), (int((ROI_X+ROI_W)*sx), int(y_gl*sy)), (0, 0, 255), 2)
@@ -177,15 +173,11 @@ def generate_dashboard():
             cx2, cy2 = int((fx_c + CROP_W//2)*sx), int((fy_c + CROP_H//2)*sy)
             cv2.rectangle(p_live, (cx1, cy1), (cx2, cy2), (255, 255, 0), 1)
 
-        # Bolinha amarela rastreadora
-        if ESTADO_ATUAL == "RASTREAR" and alvo_rastreio_y > 0:
-            cx_alvo = ROI_X + (ROI_W // 2)
-            cv2.circle(p_live, (int(cx_alvo*sx), int(alvo_rastreio_y*sy)), 10, (0, 255, 255), -1)
-
         p_bin = np.zeros((420, 640, 3), dtype=np.uint8)
         bin_z = cv2.resize(cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB), (240, 420))
         p_bin[0:420, 200:440] = bin_z
 
+        # Preview do Crop Final
         p_prev = np.zeros((480, 1280, 3), dtype=np.uint8)
         if ultimo_crop_preview is not None:
             hc, wc = ultimo_crop_preview.shape[:2]
@@ -193,7 +185,8 @@ def generate_dashboard():
             p_prev[10:470, (1280-nw)//2 : (1280-nw)//2 + nw] = cv2.resize(ultimo_crop_preview, (nw, 460))
         
         cor_rec = (0, 0, 255) if GRAVANDO else (0, 255, 0)
-        txt_rec = f"REC: {frame_count:05d} | ESTADO: {ESTADO_ATUAL}"
+        # Exibe o contador de ciclo (1 a 4) para feedback visual
+        txt_rec = f"REC: {frame_count:05d} | CICLO: {contador_perfs_ciclo}/4"
         cv2.putText(p_prev, txt_rec, (30, 55), cv2.FONT_HERSHEY_SIMPLEX, 1.2, cor_rec, 3)
 
         dashboard = np.vstack((np.hstack((p_live, p_bin)), p_prev))
@@ -204,7 +197,7 @@ def generate_dashboard():
 def video_feed(): return Response(generate_dashboard(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/status')
-def get_status(): return f"ESTADO: {ESTADO_ATUAL} | FRAMES: {frame_count}"
+def get_status(): return f"Furos no Ciclo: {contador_perfs_ciclo} | Total Frames: {frame_count}"
 
 @app.route('/')
 def index():
