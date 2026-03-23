@@ -308,7 +308,7 @@ def preview_feed():
     def generate_preview():
         while True:
             files = sorted([f for f in os.listdir(CAPTURE_PATH) if f.endswith('.jpg')])
-            last_frames = files[-48:] if len(files) > 0 else []
+            last_frames = files[-120:] if len(files) > 0 else []
             if not last_frames: time.sleep(0.5); continue
             for frame_file in last_frames:
                 img = cv2.imread(os.path.join(CAPTURE_PATH, frame_file))
@@ -324,4 +324,5 @@ def video_feed(): return Response(generate_dashboard(), mimetype='multipart/x-mi
 if __name__ == '__main__':
     threading.Thread(target=painel_controle, daemon=True).start()
     threading.Thread(target=logica_scanner, daemon=True).start()
+    threading.Thread(target=thread_escrita_disco, daemon=True).start()
     app.run(host='0.0.0.0', port=5000, threaded=True, use_reloader=False)
