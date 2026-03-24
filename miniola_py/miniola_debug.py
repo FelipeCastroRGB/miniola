@@ -33,7 +33,7 @@ picam2.start()
 GRAVANDO = False
 ROI_X, ROI_Y = 215, 50
 ROI_W, ROI_H = 80, 600
-LINHA_RESET_Y = 400 
+LINHA_RESET_Y = 110
 THRESH_VAL = 110
 OFFSET_X = 260
 CROP_W, CROP_H = 440, 330 
@@ -165,7 +165,7 @@ def logica_scanner():
     # Constantes Locais
     ESCALA_CV = 0.5 
     FATOR_MULT = 2 # int(1 / 0.5)
-    MARGEM_S_VAL = 20
+    MARGEM_S_VAL = 30
     
     # Contador para o "Pulo de Quadro" do Dashboard
     skip_ui = 0
