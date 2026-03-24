@@ -204,14 +204,19 @@ def logica_scanner():
                     contador_perfs_ciclo += 1
                     perfuracao_na_linha = True
                     
-                    if contador_perfs_ciclo >= 4 and len(perfs_neste_frame) >= 4:
-                        pts = perfs_neste_frame[0:4]
-                        # Usa as coordenadas globais calculadas lá em cima
-                        cx_a = int(sum(p['cx_global'] for p in pts) / 4)
-                        cy_a = int(sum(p['cy_global'] for p in pts) / 4)
+                    if contador_perfs_ciclo >= 4:
+                        # Pega até 4 furos (o que estiver visível na ROI)
+                        qtd_furos_visiveis = min(4, len(perfs_neste_frame))
+                        pts = perfs_neste_frame[0:qtd_furos_visiveis]
+                        
+                        # Calcula o centro com base no que a câmera está vendo
+                        cx_a = int(sum(p['cx_global'] for p in pts) / qtd_furos_visiveis)
+                        cy_a = int(sum(p['cy_global'] for p in pts) / qtd_furos_visiveis)
                         
                         processar_captura(frame_raw, cx_a, cy_a, frame_count)
                         frame_count += 1
+                        
+                        # OBRIGATÓRIO: Zera o ciclo sempre que bater 4!
                         contador_perfs_ciclo = 0
         
         if not furo_detectado_agora:
