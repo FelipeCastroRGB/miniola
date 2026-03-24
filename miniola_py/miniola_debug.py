@@ -6,12 +6,12 @@ import os
 sys.modules["pykms"] = MagicMock()
 sys.modules["kms"] = MagicMock()
 
-from flask import Flask, Response
-from picamera2 import Picamera2
+from flask import Flask, Response # type: ignore
+from picamera2 import Picamera2 # type: ignore
 import cv2
 import numpy as np
 import threading
-import multiprocessing as mp # <--- Importado para o Motor de Gravação
+import multiprocessing as mp # MULTIPROCESSAMENTO
 import time
 import logging
 
@@ -23,14 +23,14 @@ CAPTURE_PATH = "capturas"
 if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
 
 picam2 = Picamera2()
-shutter_speed, gain, fps_cam = 300, 1.0, 90
+shutter_speed, gain, fps_cam = 300, 1.0, 60
 foco_atual, passo_foco = 15.0, 0.5
 config = picam2.create_video_configuration(main={"size": (1080, 720), "format": "RGB888"})
 picam2.configure(config)
 picam2.set_controls({"ExposureTime": shutter_speed, "AnalogueGain": gain, "FrameRate": fps_cam, "LensPosition": foco_atual})
 picam2.start()
 
-# --- GEOMETRIA E ESTADO ---
+# --- GEOMETRIA DO ROI E ESTADO ---
 GRAVANDO = False
 ROI_X, ROI_Y = 215, 50
 ROI_W, ROI_H = 80, 600
@@ -38,10 +38,12 @@ ROI_W, ROI_H = 80, 600
 # --- LÓGICA DE GATILHO SIMPLIFICADA ---
 LINHA_GATILHO_Y = 110  # Posição Y relativa DENTRO da ROI
 MARGEM_GATILHO = 30    # Margem de disparo (px para cima e para baixo)
+THRESH_VAL = 110 # Valor do threshold para binarização
 
-THRESH_VAL = 110
-OFFSET_X = 260
-CROP_W, CROP_H = 440, 330 
+# --- PARÂMETROS DO CROP ---
+OFFSET_X = 260 # Deslocamento X do centro global em relação ao centro da ROI (ajuste fino para alinhar o crop com a posição real dos furos)
+CROP_W, CROP_H = 440, 330 # Tamanho do crop final (ajustado para capturar a área do fotograma)
+
 contador_perfs_ciclo = 0
 frame_count = 0
 perfuracao_na_linha = False
@@ -65,8 +67,7 @@ def processo_escrita_disco(fila_in):
         
         img_rgb, filename = item
         img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
-        # Qualidade 90 para aliviar a CPU do Pi Zero
-        # cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+        cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
 
 def processar_captura(frame, cx_global, cy_global, n_frame):
     global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
@@ -90,13 +91,14 @@ def processar_captura(frame, cx_global, cy_global, n_frame):
 
 # --- PAINEL DE CONTROLE ---
 def painel_controle():
-    global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, ROI_Y, ROI_W, ROI_H, THRESH_VAL
+    global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, CROP_H, CROP_W, ROI_Y, ROI_W, ROI_H, THRESH_VAL
     global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo
     time.sleep(2)
     print("\n" + "═"*45)
     print("   MINIOLA v9.0 - MULTICORE SCANNER")
     print("═"*45)
     print("   GATILHO:   ly (Linha na ROI)| mg (Margem)")
+    print("   FOCO:   k|l (Ajuste)| j [val] (Ajuste de passo do foco)")
     print("═"*45)
     while True:
         try:
@@ -113,6 +115,8 @@ def painel_controle():
             elif cmd == 'ry': ROI_Y = int(val)
             elif cmd == 'rw': ROI_W = int(val)
             elif cmd == 'rh': ROI_H = int(val)
+            elif cmd == 'ch': CROP_H = int(val)
+            elif cmd == 'cw': CROP_W = int(val)
             elif cmd == 'ly': 
                 LINHA_GATILHO_Y = int(val)
                 print(f"[GATILHO] Linha ajustada para: {LINHA_GATILHO_Y}px dentro da ROI")
@@ -153,7 +157,7 @@ def logica_scanner():
     global frame_count, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
     global contador_perfs_ciclo, perfuracao_na_linha, fps_real_proc, tempo_ms_ciclo
 
-    ESCALA_CV = 0.5 
+    ESCALA_CV = 0.5 # Reduz a resolução para acelerar o processamento de contornos (ajuste fino para manter a detecção confiável) 
     skip_ui = 0
 
     while True:
@@ -165,10 +169,10 @@ def logica_scanner():
         lx, ly, lw, lh = ROI_X, ROI_Y, ROI_W, ROI_H
         roi_color = frame_raw[ly:ly+lh, lx:lx+lw]
         
-        roi_gray = cv_cvt(roi_color, cv2.COLOR_RGB2GRAY)
-        roi_small = cv_resize(roi_gray, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV)
-        _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY)
-        contours, _ = cv_find(binary_small, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        roi_gray = cv_cvt(roi_color, cv2.COLOR_RGB2GRAY) # Converte para cinza para processamento de contornos (mais rápido e eficaz para detecção de formas)
+        roi_small = cv_resize(roi_gray, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV) # Reduz a resolução para acelerar o processamento de contornos (ajuste fino para manter a detecção confiável)
+        _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY) # Binarização simples (ajuste fino do THRESH_VAL para melhor detecção)
+        contours, _ = cv_find(binary_small, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE) # Encontra contornos na imagem binária reduzida
 
         perfs_neste_frame = []
         debug_visual = []
@@ -178,7 +182,7 @@ def logica_scanner():
             if 150 < area < 10000:
                 x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
                 if 0.4 < (w_s/h_s) < 2.5:
-                    # A MÁGICA DA SIMPLIFICAÇÃO: Coordenadas relativas apenas à ROI
+                    # Coordenadas relativas apenas à ROI
                     cy_roi = (y_s * 2) + h_s 
                     
                     # Coordenadas globais só para passar para o Crop depois
@@ -238,7 +242,7 @@ def logica_scanner():
 def generate_dashboard():
     global perfuracao_na_linha
     while True:
-        time.sleep(0.04) 
+        time.sleep(0.04) # Limita a taxa de atualização do dashboard para cerca de 25 FPS para não sobrecarregar o Pi Zero
         if ultimo_frame_bruto is None: continue
         
         p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
