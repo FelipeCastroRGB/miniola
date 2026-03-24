@@ -66,7 +66,7 @@ def processo_escrita_disco(fila_in):
         img_rgb, filename = item
         img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
         # Qualidade 90 para aliviar a CPU do Pi Zero
-        cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+        # cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
 
 def processar_captura(frame, cx_global, cy_global, n_frame):
     global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
