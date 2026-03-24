@@ -2,7 +2,7 @@ import sys
 from unittest.mock import MagicMock
 import os
 
-# --- CONFIGURAÇÃO DE AMBIENTE E HARDWARE (MANTIDOS) ---
+# --- CONFIGURAÇÃO DE AMBIENTE E HARDWARE ---
 sys.modules["pykms"] = MagicMock()
 sys.modules["kms"] = MagicMock()
 
@@ -11,16 +11,17 @@ from picamera2 import Picamera2
 import cv2
 import numpy as np
 import threading
+import multiprocessing as mp # <--- Importado para o Motor de Gravação
 import time
 import logging
-from queue import Queue # Importação da Fila
-
 
 app = Flask(__name__)
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR) 
+
 CAPTURE_PATH = "capturas"
 if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
+
 picam2 = Picamera2()
 shutter_speed, gain, fps_cam = 300, 1.0, 90
 foco_atual, passo_foco = 15.0, 0.5
@@ -29,11 +30,15 @@ picam2.configure(config)
 picam2.set_controls({"ExposureTime": shutter_speed, "AnalogueGain": gain, "FrameRate": fps_cam, "LensPosition": foco_atual})
 picam2.start()
 
-# --- GEOMETRIA E ESTADO (MANTIDOS) ---
+# --- GEOMETRIA E ESTADO ---
 GRAVANDO = False
 ROI_X, ROI_Y = 215, 50
 ROI_W, ROI_H = 80, 600
-LINHA_RESET_Y = 110
+
+# --- LÓGICA DE GATILHO SIMPLIFICADA ---
+LINHA_GATILHO_Y = 110  # Posição Y relativa DENTRO da ROI
+MARGEM_GATILHO = 30    # Margem de disparo (px para cima e para baixo)
+
 THRESH_VAL = 110
 OFFSET_X = 260
 CROP_W, CROP_H = 440, 330 
@@ -44,70 +49,54 @@ ultimo_frame_bruto = None
 ultimo_frame_binario = None
 ultimo_crop_preview = np.zeros((CROP_H, CROP_W, 3), dtype=np.uint8)
 lista_contornos_debug = []
-pos_ancora_debug = None
 fps_real_proc = 0.0
 tempo_ms_ciclo = 0.0
 
-# ---------------------------------------------------------
-# --- NOVA THREAD: GRAVAÇÃO ASSÍNCRONA DE ARQUIVOS (QUEUE) ---
-# Esta fila armazenará as imagens para gravação em disco RAM.
-fila_gravacao = Queue(maxsize=100) # Buffer para 100 frames (~1 segundo)
+# --- FILA DE MULTIPROCESSAMENTO ---
+# Fila compartilhada entre o Scanner (Thread) e o Gravador (Processo)
+fila_gravacao = mp.Queue(maxsize=30) 
 
-def thread_escrita_disco():
-    """ Assistente que assume a conversão de cor e a gravação. """
-    print("[SISTEMA] Thread de gravação otimizada iniciada.")
+def processo_escrita_disco(fila_in):
+    """ Este processo roda isolado em outro núcleo da CPU para não travar o Scanner """
+    print("[SISTEMA] Processo de gravação (Núcleo Isolado) iniciado.")
     while True:
-        # Recebe a imagem ainda em RGB e o nome do arquivo
-        item = fila_gravacao.get()
+        item = fila_in.get()
         if item is None: break
         
         img_rgb, filename = item
-        
-        # Faz a conversão de cor aqui (fora do loop do scanner!)
         img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
-        
-        # Salva no disco RAM
+        # Qualidade 90 para aliviar a CPU do Pi Zero
         cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
-        
-        fila_gravacao.task_done()
 
-def processar_captura(frame, cx, cy, n_frame):
+def processar_captura(frame, cx_global, cy_global, n_frame):
     global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
     
-    # Cálculo rápido de coordenadas
-    fx, fy = cx + OFFSET_X, cy
+    # Cálculo rápido de coordenadas usando o centro global calculado
+    fx, fy = cx_global + OFFSET_X, cy_global
     x1, y1 = max(0, int(fx - (CROP_W // 2))), max(0, int(fy - (CROP_H // 2)))
     x2, y2 = min(frame.shape[1], x1 + CROP_W), min(frame.shape[0], y1 + CROP_H)
     
-    # Recorte puro (Slicing de array é extremamente rápido em Python)
     crop = frame[y1:y2, x1:x2]
     
     if crop.size > 0:
-        # Atualiza o preview do Dashboard (já está em RGB, sem custo extra)
         ultimo_crop_preview = crop
-        
         if GRAVANDO:
             filename = f"{CAPTURE_PATH}/miniola_{n_frame:06d}.jpg"
             try:
-                # Enviamos a cópia do recorte RGB para a fila.
-                # O .copy() é vital para não corromper a imagem se o frame_raw mudar.
+                # Envia para o processo isolado
                 fila_gravacao.put((crop.copy(), filename), block=False)
             except:
-                print(f"[ALERTA] Fila cheia! Frame {n_frame} ignorado.")
+                pass # Fila cheia, pula o frame silenciosamente para não travar
 
-# --- PAINEL DE CONTROLE (MANTIDO) ---
+# --- PAINEL DE CONTROLE ---
 def painel_controle():
-    global frame_count, GRAVANDO, LINHA_RESET_Y, ROI_X, ROI_Y, ROI_W, ROI_H, THRESH_VAL
+    global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, ROI_Y, ROI_W, ROI_H, THRESH_VAL
     global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo
     time.sleep(2)
     print("\n" + "═"*45)
-    print("   MINIOLA v8.0 - HIGH PERFORMANCE SCANNER")
+    print("   MINIOLA v9.0 - MULTICORE SCANNER")
     print("═"*45)
-    print("   ROI POS:   rx [x] | ry [y]  (ou w,a,s,d)")
-    print("   ROI SIZE:  rw [w] | rh [h]")
-    print("   ÓPTICA:    k/l (Foco)| e (Exp) | g (Gain) | fps [v]")
-    print("   GATILHO:   ly (Linha)| t (Thresh)| ox (Offset)")
-    print("   SISTEMA:   rec (Gravar)| r (Reset)")
+    print("   GATILHO:   ly (Linha na ROI)| mg (Margem)")
     print("═"*45)
     while True:
         try:
@@ -115,6 +104,7 @@ def painel_controle():
             if not entrada: continue
             cmd = entrada[0].lower()
             val = float(entrada[1]) if len(entrada) > 1 else 0
+            
             if cmd == 'w': ROI_Y = max(0, ROI_Y - 5)
             elif cmd == 's': ROI_Y = min(720 - ROI_H, ROI_Y + 5)
             elif cmd == 'a': ROI_X = max(0, ROI_X - 5)
@@ -123,7 +113,12 @@ def painel_controle():
             elif cmd == 'ry': ROI_Y = int(val)
             elif cmd == 'rw': ROI_W = int(val)
             elif cmd == 'rh': ROI_H = int(val)
-            elif cmd == 'ly': LINHA_RESET_Y = int(val)
+            elif cmd == 'ly': 
+                LINHA_GATILHO_Y = int(val)
+                print(f"[GATILHO] Linha ajustada para: {LINHA_GATILHO_Y}px dentro da ROI")
+            elif cmd == 'mg':
+                MARGEM_GATILHO = int(val)
+                print(f"[GATILHO] Margem ajustada para: +-{MARGEM_GATILHO}px")
             elif cmd == 'ox': OFFSET_X = int(val)
             elif cmd == 'l':
                 foco_atual = round(foco_atual + passo_foco, 2)
@@ -131,14 +126,12 @@ def painel_controle():
             elif cmd == 'k':
                 foco_atual = max(0.0, round(foco_atual - passo_foco, 2))
                 picam2.set_controls({"LensPosition": foco_atual})
-            elif cmd == 'j': passo_foco = val
             elif cmd == 'e': 
                 shutter_speed = int(val); picam2.set_controls({"ExposureTime": shutter_speed})
             elif cmd == 'g': 
                 gain = val; picam2.set_controls({"AnalogueGain": gain})
             elif cmd == 'fps':
                 fps_cam = int(val); picam2.set_controls({"FrameRate": fps_cam})
-                print(f"[CAM] Taxa de quadros alterada para: {fps_cam} FPS")
             elif cmd == 't': THRESH_VAL = int(val)
             elif cmd == 'rec': GRAVANDO = not GRAVANDO
             elif cmd == 'r': 
@@ -148,9 +141,8 @@ def painel_controle():
                 print("RAM DRIVE LIMPO.")
         except Exception as e: print(f"Erro: {e}")
 
-# --- LÓGICA DO SCANNER (MANTIDA DA VERSÃO ANTERIOR COM PROFILER) ---
+# --- LÓGICA DO SCANNER OTIMIZADA ---
 def logica_scanner():
-    # 1. "Cachear" funções em variáveis locais (Busca de função em Python é lenta)
     cap_array = picam2.capture_array
     cv_cvt = cv2.cvtColor
     cv_resize = cv2.resize
@@ -158,16 +150,10 @@ def logica_scanner():
     cv_find = cv2.findContours
     get_time = time.perf_counter
     
-    # Referências globais que serão atualizadas
     global frame_count, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
-    global contador_perfs_ciclo, perfuracao_na_linha, pos_ancora_debug, fps_real_proc, tempo_ms_ciclo
+    global contador_perfs_ciclo, perfuracao_na_linha, fps_real_proc, tempo_ms_ciclo
 
-    # Constantes Locais
     ESCALA_CV = 0.5 
-    FATOR_MULT = 2 # int(1 / 0.5)
-    MARGEM_S_VAL = 30
-    
-    # Contador para o "Pulo de Quadro" do Dashboard
     skip_ui = 0
 
     while True:
@@ -176,12 +162,9 @@ def logica_scanner():
         frame_raw = cap_array()
         if frame_raw is None: continue
         
-        # 2. Localização de ROI (Slicing direto é ultra-rápido)
-        # Usamos variáveis locais para evitar o lookup global de ROI_X, ROI_Y etc.
         lx, ly, lw, lh = ROI_X, ROI_Y, ROI_W, ROI_H
         roi_color = frame_raw[ly:ly+lh, lx:lx+lw]
         
-        # 3. Processamento de Visão (Otimizado)
         roi_gray = cv_cvt(roi_color, cv2.COLOR_RGB2GRAY)
         roi_small = cv_resize(roi_gray, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV)
         _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY)
@@ -191,32 +174,41 @@ def logica_scanner():
         debug_visual = []
         
         for cnt in contours:
-            # Cálculo de área simplificado
-            area = cv2.contourArea(cnt) * 4 # FATOR_MULT**2
+            area = cv2.contourArea(cnt) * 4 
             if 150 < area < 10000:
                 x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
                 if 0.4 < (w_s/h_s) < 2.5:
-                    cx = (x_s * 2) + (w_s) + lx
-                    cy = (y_s * 2) + (h_s) + ly
-                    perfs_neste_frame.append({'cx': cx, 'cy': cy})
+                    # A MÁGICA DA SIMPLIFICAÇÃO: Coordenadas relativas apenas à ROI
+                    cy_roi = (y_s * 2) + h_s 
+                    
+                    # Coordenadas globais só para passar para o Crop depois
+                    cx_global = (x_s * 2) + w_s + lx
+                    cy_global = cy_roi + ly
+                    
+                    perfs_neste_frame.append({
+                        'cy_roi': cy_roi, 
+                        'cx_global': cx_global, 
+                        'cy_global': cy_global
+                    })
                     debug_visual.append({'rect': (x_s*2+lx, y_s*2+ly, w_s*2, h_s*2), 'color': (0, 255, 0)})
 
-        perfs_neste_frame.sort(key=lambda p: p['cy'])
-        line_y_abs = ly + LINHA_RESET_Y
+        # Ordena as perfurações pela posição Y dentro da ROI
+        perfs_neste_frame.sort(key=lambda p: p['cy_roi'])
         furo_detectado_agora = False
         
         if perfs_neste_frame:
-            if abs(perfs_neste_frame[0]['cy'] - line_y_abs) < MARGEM_S_VAL:
+            # Avalia DENTRO do espaço da ROI
+            if abs(perfs_neste_frame[0]['cy_roi'] - LINHA_GATILHO_Y) <= MARGEM_GATILHO:
                 furo_detectado_agora = True
                 if not perfuracao_na_linha:
                     contador_perfs_ciclo += 1
                     perfuracao_na_linha = True
+                    
                     if contador_perfs_ciclo >= 4 and len(perfs_neste_frame) >= 4:
-                        # Cálculo de média rápido com NumPy
                         pts = perfs_neste_frame[0:4]
-                        cx_a = int(sum(p['cx'] for p in pts) / 4)
-                        cy_a = int(sum(p['cy'] for p in pts) / 4)
-                        pos_ancora_debug = (cx_a, cy_a)
+                        # Usa as coordenadas globais calculadas lá em cima
+                        cx_a = int(sum(p['cx_global'] for p in pts) / 4)
+                        cy_a = int(sum(p['cy_global'] for p in pts) / 4)
                         
                         processar_captura(frame_raw, cx_a, cy_a, frame_count)
                         frame_count += 1
@@ -225,42 +217,50 @@ def logica_scanner():
         if not furo_detectado_agora:
             perfuracao_na_linha = False
 
-        # --- 4. ESTRATÉGIA DE UI THROTTLING (A MÁGICA) ---
-        # Só atualizamos as variáveis pesadas do Dashboard a cada 3 quadros (~30 FPS)
+        # THROTTLING DA UI
         skip_ui += 1
         if skip_ui >= 3:
-            ultimo_frame_bruto = frame_raw # Referência, não cópia
+            ultimo_frame_bruto = frame_raw 
             ultimo_frame_binario = binary_small
             lista_contornos_debug = debug_visual
             skip_ui = 0
         
-        # Performance info
         t_fim = get_time()
         tempo_ms_ciclo = (t_fim - t_inicio) * 1000.0
         fps_real_proc = 1.0 / (t_fim - t_inicio) if (t_fim - t_inicio) > 0 else 0
 
-# --- FLASK: DASHBOARD ATUALIZADO (MANTIDO) ---
+# --- FLASK: DASHBOARD SIMPLIFICADO ---
 def generate_dashboard():
     global perfuracao_na_linha
     while True:
-        time.sleep(0.04) # <--- FREIO: Limita o dashboard a ~25 FPS.
+        time.sleep(0.04) 
         if ultimo_frame_bruto is None: continue
+        
         p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
         sx, sy = 640/1080, 420/720
+        
         cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
         cor_gatilho = (0, 0, 255) if perfuracao_na_linha else (0, 255, 0)
-        y_gl = ROI_Y + LINHA_RESET_Y
+        
+        # A linha desenhada no Live usa a posição Y da ROI + o Gatilho interno
+        y_gl = ROI_Y + LINHA_GATILHO_Y
         cv2.line(p_live, (int(ROI_X*sx), int(y_gl*sy)), (int((ROI_X+ROI_W)*sx), int(y_gl*sy)), cor_gatilho, 3)
-        txt_status = "TRAVA" if perfuracao_na_linha else "PRONTO"
-        cv2.putText(p_live, txt_status, (int(ROI_X*sx), int(y_gl*sy) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, cor_gatilho, 1)
+        
+        # Desenha a margem visual (duas linhas finas)
+        cv2.line(p_live, (int(ROI_X*sx), int((y_gl - MARGEM_GATILHO)*sy)), (int((ROI_X+ROI_W)*sx), int((y_gl - MARGEM_GATILHO)*sy)), (50, 50, 50), 1)
+        cv2.line(p_live, (int(ROI_X*sx), int((y_gl + MARGEM_GATILHO)*sy)), (int((ROI_X+ROI_W)*sx), int((y_gl + MARGEM_GATILHO)*sy)), (50, 50, 50), 1)
+
         for item in lista_contornos_debug:
             x, y, w, h = item['rect']; cv2.rectangle(p_live, (int(x*sx), int(y*sy)), (int((x+w)*sx), int((y+h)*sy)), item['color'], 2)
+        
         p_bin = np.zeros((420, 640, 3), dtype=np.uint8)
         if ultimo_frame_binario is not None:
             bin_res = cv2.resize(cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB), (240, 420))
             p_bin[0:420, 200:440] = bin_res
+            
         p_inf = np.zeros((300, 1280, 3), dtype=np.uint8)
         if ultimo_crop_preview is not None: p_inf[10:290, 440:840] = cv2.resize(ultimo_crop_preview, (400, 280))
+        
         dashboard = np.vstack((np.hstack((p_live, p_bin)), p_inf))
         _, buffer = cv2.imencode('.jpg', cv2.cvtColor(dashboard, cv2.COLOR_RGB2BGR), [int(cv2.IMWRITE_JPEG_QUALITY), 50])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
@@ -268,12 +268,11 @@ def generate_dashboard():
 @app.route('/status')
 def get_status():
     global GRAVANDO, contador_perfs_ciclo, frame_count, fps_real_proc, tempo_ms_ciclo
-    # Adicionamos o tamanho da fila ao status para monitoramento
     return {
         "rec": "GRAVANDO" if GRAVANDO else "PARADO", "cor": "#ff0000" if GRAVANDO else "#00ff00",
         "ciclo": f"{contador_perfs_ciclo}/4", "total": frame_count,
         "fps_proc": f"{fps_real_proc:.1f} FPS", "ms_ciclo": f"{tempo_ms_ciclo:.1f} ms",
-        "queue": fila_gravacao.qsize() # <--- Novo campo: Tamanho da Fila
+        "queue": fila_gravacao.qsize()
     }
 
 @app.route('/')
@@ -283,7 +282,7 @@ def index():
         <div style='display:flex; background:#111; padding:10px; border-bottom:1px solid #333; justify-content:space-around;'>
             <span id='m'>--</span> | CICLO: <b id='c'>0/4</b> | FRAMES: <b id='f'>0</b> | 
             PROC: <b id='fps_proc' style='color:#0ff'>0.0 FPS</b> (<b id='ms_ciclo' style='color:#ff0'>0.0 ms</b>) | 
-            QUEUE: <b id='q' style='color:#f0f'>0</b>/100
+            QUEUE: <b id='q' style='color:#f0f'>0</b>/30
         </div>
         <div style='display:flex; height:92vh;'>
             <div style='flex:2; border-right:1px solid #333;'><img src="/video_feed" style="width:100%;"></div>
@@ -295,14 +294,13 @@ def index():
                     const m = document.getElementById('m'); m.innerText = d.rec; m.style.color = d.cor;
                     document.getElementById('c').innerText = d.ciclo; document.getElementById('f').innerText = d.total;
                     document.getElementById('fps_proc').innerText = d.fps_proc; document.getElementById('ms_ciclo').innerText = d.ms_ciclo;
-                    document.getElementById('q').innerText = d.queue; // Atualiza o tamanho da fila
+                    document.getElementById('q').innerText = d.queue;
                 });
             }, 250);
         </script>
     </body></html>
     """
 
-# --- ROTAS RESTANTES E EXECUÇÃO (MANTIDOS) ---
 @app.route('/preview_feed')
 def preview_feed():
     def generate_preview():
@@ -322,7 +320,12 @@ def preview_feed():
 def video_feed(): return Response(generate_dashboard(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == '__main__':
+    # 1. Inicia o Processo Isolado para Gravação (Ocupa o Core 2)
+    mp.Process(target=processo_escrita_disco, args=(fila_gravacao,), daemon=True).start()
+    
+    # 2. Inicia as Threads principais
     threading.Thread(target=painel_controle, daemon=True).start()
     threading.Thread(target=logica_scanner, daemon=True).start()
-    threading.Thread(target=thread_escrita_disco, daemon=True).start()
+    
+    # 3. Roda o Flask
     app.run(host='0.0.0.0', port=5000, threaded=True, use_reloader=False)
