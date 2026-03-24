@@ -95,10 +95,13 @@ def painel_controle():
     global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo
     time.sleep(2)
     print("\n" + "═"*45)
-    print("   MINIOLA v9.0 - MULTICORE SCANNER")
+    print("   MINIOLA - PAINEL DE CONTROLE")
     print("═"*45)
     print("   GATILHO:   ly (Linha na ROI)| mg (Margem)")
-    print("   FOCO:   k|l (Ajuste)| j [val] (Ajuste de passo do foco)")
+    print("   FOCO:   k e l (Ajuste)| j [val] (Ajuste de passo do foco)")
+    print("   CROP:   ch (Altura)| cw (Largura)")
+    print("   TRESHOLD:   t")
+    print("   ROI: w, a, s, d (Move ROI)| rx, ry, rw, rh [val] (Ajuste direto da ROI)")
     print("═"*45)
     while True:
         try:
