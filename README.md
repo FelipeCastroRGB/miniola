@@ -2,14 +2,6 @@
 
 O **Miniola** é uma estação de trabalho de baixo custo para a digitalização e inspeção de películas cinematográficas. Desenvolvido para operar em mesas de revisão manuais, o sistema utiliza uma **Raspberry Pi Zero 2 W** e a **Camera Module 3** para capturar quadros sincronizados através da detecção de perfurações.
 
-## Arquitetura e Decisões Técnicas
-
-O projeto foi reconstruído para ser resiliente a falhas de hardware e atualizações de sistema operacional, alinhado aos padrões de preservação (FIAF/AMIA):
-
-* **Proteção de Dados (RAM Drive):** O sistema utiliza uma repartição em memória volátil (`tmpfs`) para o diretório de captura. Isso evita o desgaste do cartão SD e garante a velocidade necessária para gravar frames em 60fps sem latência de escrita.
-* **Decoupled Preview (Headless):** Através de um *mock* de sistema no topo do código, o visionamento é feito via rede (Flask), tornando o scanner independente de monitores físicos ou drivers de vídeo complexos.
-* **Foco Motorizado por Gradação:** Controle fino sobre a lente da Camera Module 3, permitindo ajustes milimétricos na emulsão da película via comandos de terminal.
-
 ---
 
 ## 🚀 Guia de Instalação (SOP)
