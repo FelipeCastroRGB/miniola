@@ -23,7 +23,7 @@ CAPTURE_PATH = "capturas"
 if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
 
 picam2 = Picamera2()
-shutter_speed, gain, fps_cam = 600, 1.0, 60
+shutter_speed, gain, fps_cam = 600, 1.0, 70
 foco_atual, passo_foco = 15.0, 0.5
 config = picam2.create_video_configuration(main={"size": (1080, 720), "format": "RGB888"})
 picam2.configure(config)
@@ -38,10 +38,10 @@ ROI_W, ROI_H = 80, 700
 # --- LÓGICA DE GATILHO SIMPLIFICADA ---
 LINHA_GATILHO_Y = 110  # Posição Y relativa DENTRO da ROI
 MARGEM_GATILHO = 30    # Margem de disparo (px para cima e para baixo)
-THRESH_VAL = 238 # Valor do threshold para binarização
+THRESH_VAL = 239 # Valor do threshold para binarização
 
 # --- PARÂMETROS DO CROP ---
-OFFSET_X = 450 # Deslocamento X do centro global em relação ao centro da ROI (ajuste fino para alinhar o crop com a posição real dos furos)
+OFFSET_X = 470 # Deslocamento X do centro global em relação ao centro da ROI (ajuste fino para alinhar o crop com a posição real dos furos)
 CROP_W, CROP_H = 918, 612 # Tamanho do crop final (ajustado para capturar a área do fotograma)
 
 contador_perfs_ciclo = 0
@@ -280,33 +280,78 @@ def generate_dashboard():
 @app.route('/status')
 def get_status():
     global GRAVANDO, contador_perfs_ciclo, frame_count, fps_real_proc, tempo_ms_ciclo
+    global ROI_X, ROI_Y, ROI_W, ROI_H, CROP_W, CROP_H, OFFSET_X
+    global foco_atual, shutter_speed, gain, fps_cam, THRESH_VAL, LINHA_GATILHO_Y, MARGEM_GATILHO
+    
     return {
-        "rec": "GRAVANDO" if GRAVANDO else "PARADO", "cor": "#ff0000" if GRAVANDO else "#00ff00",
-        "ciclo": f"{contador_perfs_ciclo}/4", "total": frame_count,
-        "fps_proc": f"{fps_real_proc:.1f} FPS", "ms_ciclo": f"{tempo_ms_ciclo:.1f} ms",
-        "queue": fila_gravacao.qsize()
+        "rec": "GRAVANDO" if GRAVANDO else "PARADO", 
+        "cor": "#ff0000" if GRAVANDO else "#00ff00",
+        "ciclo": f"{contador_perfs_ciclo}/4", 
+        "total": frame_count,
+        "fps_proc": f"{fps_real_proc:.1f} FPS", 
+        "ms_ciclo": f"{tempo_ms_ciclo:.1f} ms",
+        "queue": fila_gravacao.qsize(),
+        # --- NOVAS VARIÁVEIS DE TELEMETRIA ---
+        "foco": f"{foco_atual:.2f}",
+        "exp": shutter_speed,
+        "gain": f"{gain:.1f}",
+        "fps_cam": fps_cam,
+        "thresh": THRESH_VAL,
+        "roi_x": ROI_X, "roi_y": ROI_Y, "roi_w": ROI_W, "roi_h": ROI_H,
+        "crop_w": CROP_W, "crop_h": CROP_H, "ox": OFFSET_X,
+        "gatilho_y": LINHA_GATILHO_Y, "margem": MARGEM_GATILHO
     }
 
 @app.route('/')
 def index():
     return """
     <html><body style='background:#0a0a0a; color:#eee; font-family:monospace; margin:0;'>
-        <div style='display:flex; background:#111; padding:10px; border-bottom:1px solid #333; justify-content:space-around;'>
-            <span id='m'>--</span> | CICLO: <b id='c'>0/4</b> | FRAMES: <b id='f'>0</b> | 
+        
+        <div style='display:flex; background:#111; padding:10px; border-bottom:1px solid #333; justify-content:space-around; font-size:16px;'>
+            <span id='m'>--</span> | 
+            CICLO: <b id='c'>0/4</b> | 
+            FRAMES: <b id='f'>0</b> | 
             PROC: <b id='fps_proc' style='color:#0ff'>0.0 FPS</b> (<b id='ms_ciclo' style='color:#ff0'>0.0 ms</b>) | 
             QUEUE: <b id='q' style='color:#f0f'>0</b>/30
         </div>
-        <div style='display:flex; height:92vh;'>
+        
+        <div style='display:flex; background:#1a1a1a; padding:6px 10px; border-bottom:1px solid #444; justify-content:space-between; font-size:12px; color:#aaa;'>
+            <span><b>ÓPTICA:</b> Foco <span id='v_foco' style='color:#fff'>-</span> | Exp <span id='v_exp' style='color:#fff'>-</span> | Gain <span id='v_gain' style='color:#fff'>-</span> | Cam <span id='v_fps_cam' style='color:#fff'>-</span>fps</span>
+            <span><b>VISÃO:</b> Thresh <span id='v_thresh' style='color:#fff'>-</span> | Gatilho Y:<span id='v_gatilho' style='color:#fff'>-</span> &plusmn;<span id='v_margem' style='color:#fff'>-</span></span>
+            <span><b>GEOMETRIA:</b> ROI(X:<span id='v_rx' style='color:#fff'>-</span> Y:<span id='v_ry' style='color:#fff'>-</span> W:<span id='v_rw' style='color:#fff'>-</span> H:<span id='v_rh' style='color:#fff'>-</span>) | Crop(W:<span id='v_cw' style='color:#fff'>-</span> H:<span id='v_ch' style='color:#fff'>-</span>) | OX:<span id='v_ox' style='color:#fff'>-</span></span>
+        </div>
+
+        <div style='display:flex; height:88vh;'>
             <div style='flex:2; border-right:1px solid #333;'><img src="/video_feed" style="width:100%;"></div>
             <div style='flex:1; background:#000;'><img src="/preview_feed" style="width:100%; border:1px solid #0f0;"></div>
         </div>
+        
         <script>
             setInterval(() => {
                 fetch('/status').then(r => r.json()).then(d => {
+                    // Atualiza Barra Principal
                     const m = document.getElementById('m'); m.innerText = d.rec; m.style.color = d.cor;
-                    document.getElementById('c').innerText = d.ciclo; document.getElementById('f').innerText = d.total;
-                    document.getElementById('fps_proc').innerText = d.fps_proc; document.getElementById('ms_ciclo').innerText = d.ms_ciclo;
+                    document.getElementById('c').innerText = d.ciclo; 
+                    document.getElementById('f').innerText = d.total;
+                    document.getElementById('fps_proc').innerText = d.fps_proc; 
+                    document.getElementById('ms_ciclo').innerText = d.ms_ciclo;
                     document.getElementById('q').innerText = d.queue;
+                    
+                    // Atualiza Barra de Telemetria
+                    document.getElementById('v_foco').innerText = d.foco;
+                    document.getElementById('v_exp').innerText = d.exp;
+                    document.getElementById('v_gain').innerText = d.gain;
+                    document.getElementById('v_fps_cam').innerText = d.fps_cam;
+                    document.getElementById('v_thresh').innerText = d.thresh;
+                    document.getElementById('v_gatilho').innerText = d.gatilho_y;
+                    document.getElementById('v_margem').innerText = d.margem;
+                    document.getElementById('v_rx').innerText = d.roi_x;
+                    document.getElementById('v_ry').innerText = d.roi_y;
+                    document.getElementById('v_rw').innerText = d.roi_w;
+                    document.getElementById('v_rh').innerText = d.roi_h;
+                    document.getElementById('v_cw').innerText = d.crop_w;
+                    document.getElementById('v_ch').innerText = d.crop_h;
+                    document.getElementById('v_ox').innerText = d.ox;
                 });
             }, 250);
         </script>
