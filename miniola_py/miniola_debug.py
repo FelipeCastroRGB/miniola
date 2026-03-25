@@ -283,6 +283,13 @@ def get_status():
     global ROI_X, ROI_Y, ROI_W, ROI_H, CROP_W, CROP_H, OFFSET_X
     global foco_atual, shutter_speed, gain, fps_cam, THRESH_VAL, LINHA_GATILHO_Y, MARGEM_GATILHO
     
+    # Leitura ultrarrápida da temperatura direto do hardware
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
+            cpu_temp = float(f.read()) / 1000.0
+    except:
+        cpu_temp = 0.0
+    
     return {
         "rec": "GRAVANDO" if GRAVANDO else "PARADO", 
         "cor": "#ff0000" if GRAVANDO else "#00ff00",
@@ -291,7 +298,7 @@ def get_status():
         "fps_proc": f"{fps_real_proc:.1f} FPS", 
         "ms_ciclo": f"{tempo_ms_ciclo:.1f} ms",
         "queue": fila_gravacao.qsize(),
-        # --- NOVAS VARIÁVEIS DE TELEMETRIA ---
+        "temp": f"{cpu_temp:.1f} °C", # <--- TEMPERATURA AQUI
         "foco": f"{foco_atual:.2f}",
         "exp": shutter_speed,
         "gain": f"{gain:.1f}",
@@ -312,7 +319,8 @@ def index():
             CICLO: <b id='c'>0/4</b> | 
             FRAMES: <b id='f'>0</b> | 
             PROC: <b id='fps_proc' style='color:#0ff'>0.0 FPS</b> (<b id='ms_ciclo' style='color:#ff0'>0.0 ms</b>) | 
-            QUEUE: <b id='q' style='color:#f0f'>0</b>/30
+            QUEUE: <b id='q' style='color:#f0f'>0</b>/30 |
+            TEMP: <b id='t_cpu' style='color:#f90'>0.0 °C</b>
         </div>
         
         <div style='display:flex; background:#1a1a1a; padding:6px 10px; border-bottom:1px solid #444; justify-content:space-between; font-size:12px; color:#aaa;'>
@@ -336,6 +344,7 @@ def index():
                     document.getElementById('fps_proc').innerText = d.fps_proc; 
                     document.getElementById('ms_ciclo').innerText = d.ms_ciclo;
                     document.getElementById('q').innerText = d.queue;
+                    document.getElementById('t_cpu').innerText = d.temp; // <--- INJETA A TEMPERATURA AQUI
                     
                     // Atualiza Barra de Telemetria
                     document.getElementById('v_foco').innerText = d.foco;
