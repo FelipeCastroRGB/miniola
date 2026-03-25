@@ -6,8 +6,8 @@ import os
 sys.modules["pykms"] = MagicMock()
 sys.modules["kms"] = MagicMock()
 
-from flask import Flask, Response # type: ignore
-from picamera2 import Picamera2 # type: ignore
+from flask import Flask, Response 
+from picamera2 import Picamera2 
 import cv2
 import numpy as np
 import threading
