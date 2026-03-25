@@ -14,6 +14,7 @@ import threading
 import multiprocessing as mp # MULTIPROCESSAMENTO
 import time
 import logging
+import shutil
 
 app = Flask(__name__)
 log = logging.getLogger('werkzeug')
@@ -24,7 +25,7 @@ if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
 
 picam2 = Picamera2()
 shutter_speed, gain, fps_cam = 600, 1.0, 70
-foco_atual, passo_foco = 15.0, 0.5
+foco_atual, passo_foco = 14.5, 0.5
 config = picam2.create_video_configuration(main={"size": (1080, 720), "format": "RGB888"})
 picam2.configure(config)
 picam2.set_controls({"ExposureTime": shutter_speed, "AnalogueGain": gain, "FrameRate": fps_cam, "LensPosition": foco_atual})
@@ -37,7 +38,7 @@ ROI_W, ROI_H = 80, 700
 
 # --- LÓGICA DE GATILHO SIMPLIFICADA ---
 LINHA_GATILHO_Y = 110  # Posição Y relativa DENTRO da ROI
-MARGEM_GATILHO = 30    # Margem de disparo (px para cima e para baixo)
+MARGEM_GATILHO = 23    # Margem de disparo (px para cima e para baixo)
 THRESH_VAL = 239 # Valor do threshold para binarização
 
 # --- PARÂMETROS DO CROP ---
@@ -98,6 +99,7 @@ def painel_controle():
     print("   MINIOLA - PAINEL DE CONTROLE")
     print("═"*45)
     print("   GATILHO:   ly (Linha na ROI)| mg (Margem)")
+    print("   SISTEMA:   rec (Gravar)| r (Reset Tudo)| rc (Realinhar Ciclo)")
     print("   FOCO:   k e l (Ajuste)| j [val] (Ajuste de passo do foco)")
     print("   CROP:   ch (Altura)| cw (Largura)")
     print("   TRESHOLD:   t")
@@ -141,9 +143,11 @@ def painel_controle():
                 fps_cam = int(val); picam2.set_controls({"FrameRate": fps_cam})
             elif cmd == 't': THRESH_VAL = int(val)
             elif cmd == 'rec': GRAVANDO = not GRAVANDO
+            elif cmd == 'rc': 
+                contador_perfs_ciclo = 0
+                print("[SISTEMA] Fase realinhada! Ciclo forçado para 0/4.")
             elif cmd == 'r': 
                 frame_count = 0
-                contador_perfs_ciclo = 0
                 for f in os.listdir(CAPTURE_PATH): os.remove(os.path.join(CAPTURE_PATH, f))
                 print("RAM DRIVE LIMPO.")
         except Exception as e: print(f"Erro: {e}")
@@ -283,12 +287,17 @@ def get_status():
     global ROI_X, ROI_Y, ROI_W, ROI_H, CROP_W, CROP_H, OFFSET_X
     global foco_atual, shutter_speed, gain, fps_cam, THRESH_VAL, LINHA_GATILHO_Y, MARGEM_GATILHO
     
-    # Leitura ultrarrápida da temperatura direto do hardware
     try:
         with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
             cpu_temp = float(f.read()) / 1000.0
     except:
         cpu_temp = 0.0
+
+    # --- LEITURA DE DISCO E ARQUIVOS (Ultrarrápida) ---
+    total_arquivos = sum(1 for _ in os.scandir(CAPTURE_PATH))
+    uso_disco = shutil.disk_usage(CAPTURE_PATH)
+    espaco_livre_mb = uso_disco.free / (1024 * 1024)
+    espaco_total_mb = uso_disco.total / (1024 * 1024)
     
     return {
         "rec": "GRAVANDO" if GRAVANDO else "PARADO", 
@@ -298,7 +307,9 @@ def get_status():
         "fps_proc": f"{fps_real_proc:.1f} FPS", 
         "ms_ciclo": f"{tempo_ms_ciclo:.1f} ms",
         "queue": fila_gravacao.qsize(),
-        "temp": f"{cpu_temp:.1f} °C", # <--- TEMPERATURA AQUI
+        "temp": f"{cpu_temp:.1f} °C",
+        "arquivos": total_arquivos,  # <--- ENVIANDO TOTAL DE FOTOS
+        "espaco": f"{espaco_livre_mb:.0f}MB", # <--- ENVIANDO ESPAÇO LIVRE
         "foco": f"{foco_atual:.2f}",
         "exp": shutter_speed,
         "gain": f"{gain:.1f}",
@@ -316,7 +327,8 @@ def index():
         
         <div style='display:flex; background:#111; padding:10px; border-bottom:1px solid #333; justify-content:space-around; font-size:16px;'>
             <span id='m'>--</span> | 
-            CICLO: <b id='c'>0/4</b> | 
+            CICLO: <b id='c'>0/4</b> |
+            DISCO: <b id='arq' style='color:#0f0'>0</b> imgs (<b id='esp' style='color:#0aa'>-</b> livres) | 
             FRAMES: <b id='f'>0</b> | 
             PROC: <b id='fps_proc' style='color:#0ff'>0.0 FPS</b> (<b id='ms_ciclo' style='color:#ff0'>0.0 ms</b>) | 
             QUEUE: <b id='q' style='color:#f0f'>0</b>/30 |
@@ -341,6 +353,8 @@ def index():
                     const m = document.getElementById('m'); m.innerText = d.rec; m.style.color = d.cor;
                     document.getElementById('c').innerText = d.ciclo; 
                     document.getElementById('f').innerText = d.total;
+                    document.getElementById('arq').innerText = d.arquivos;
+                    document.getElementById('esp').innerText = d.espaco;
                     document.getElementById('fps_proc').innerText = d.fps_proc; 
                     document.getElementById('ms_ciclo').innerText = d.ms_ciclo;
                     document.getElementById('q').innerText = d.queue;
