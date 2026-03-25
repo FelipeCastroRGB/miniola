@@ -33,7 +33,7 @@ picam2.start()
 # --- GEOMETRIA DO ROI E ESTADO ---
 GRAVANDO = False
 ROI_X, ROI_Y = 215, 50
-ROI_W, ROI_H = 80, 600
+ROI_W, ROI_H = 80, 700
 
 # --- LÓGICA DE GATILHO SIMPLIFICADA ---
 LINHA_GATILHO_Y = 110  # Posição Y relativa DENTRO da ROI
@@ -41,7 +41,7 @@ MARGEM_GATILHO = 30    # Margem de disparo (px para cima e para baixo)
 THRESH_VAL = 110 # Valor do threshold para binarização
 
 # --- PARÂMETROS DO CROP ---
-OFFSET_X = 260 # Deslocamento X do centro global em relação ao centro da ROI (ajuste fino para alinhar o crop com a posição real dos furos)
+OFFSET_X = 450 # Deslocamento X do centro global em relação ao centro da ROI (ajuste fino para alinhar o crop com a posição real dos furos)
 CROP_W, CROP_H = 440, 330 # Tamanho do crop final (ajustado para capturar a área do fotograma)
 
 contador_perfs_ciclo = 0
@@ -67,7 +67,7 @@ def processo_escrita_disco(fila_in):
         
         img_rgb, filename = item
         img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+        cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
 
 def processar_captura(frame, cx_global, cy_global, n_frame):
     global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
@@ -245,7 +245,7 @@ def logica_scanner():
 def generate_dashboard():
     global perfuracao_na_linha
     while True:
-        time.sleep(0.04) # Limita a taxa de atualização do dashboard para cerca de 25 FPS para não sobrecarregar o Pi Zero
+        time.sleep(0.06) # Limita a taxa de atualização do dashboard para cerca de 25 FPS para não sobrecarregar o Pi Zero
         if ultimo_frame_bruto is None: continue
         
         p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
@@ -274,7 +274,7 @@ def generate_dashboard():
         if ultimo_crop_preview is not None: p_inf[10:290, 440:840] = cv2.resize(ultimo_crop_preview, (400, 280))
         
         dashboard = np.vstack((np.hstack((p_live, p_bin)), p_inf))
-        _, buffer = cv2.imencode('.jpg', cv2.cvtColor(dashboard, cv2.COLOR_RGB2BGR), [int(cv2.IMWRITE_JPEG_QUALITY), 50])
+        _, buffer = cv2.imencode('.jpg', cv2.cvtColor(dashboard, cv2.COLOR_RGB2BGR), [int(cv2.IMWRITE_JPEG_QUALITY), 70])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
 @app.route('/status')
@@ -323,7 +323,7 @@ def preview_feed():
             for frame_file in last_frames:
                 img = cv2.imread(os.path.join(CAPTURE_PATH, frame_file))
                 if img is None: continue
-                _, buffer = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
+                _, buffer = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
                 yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
                 time.sleep(1/24)
     return Response(generate_preview(), mimetype='multipart/x-mixed-replace; boundary=frame')
