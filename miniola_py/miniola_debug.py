@@ -23,7 +23,7 @@ CAPTURE_PATH = "capturas"
 if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
 
 picam2 = Picamera2()
-shutter_speed, gain, fps_cam = 300, 1.0, 60
+shutter_speed, gain, fps_cam = 600, 1.0, 60
 foco_atual, passo_foco = 15.0, 0.5
 config = picam2.create_video_configuration(main={"size": (1080, 720), "format": "RGB888"})
 picam2.configure(config)
@@ -32,7 +32,7 @@ picam2.start()
 
 # --- GEOMETRIA DO ROI E ESTADO ---
 GRAVANDO = False
-ROI_X, ROI_Y = 215, 50
+ROI_X, ROI_Y = 25, 10
 ROI_W, ROI_H = 80, 700
 
 # --- LÓGICA DE GATILHO SIMPLIFICADA ---
@@ -42,7 +42,7 @@ THRESH_VAL = 110 # Valor do threshold para binarização
 
 # --- PARÂMETROS DO CROP ---
 OFFSET_X = 450 # Deslocamento X do centro global em relação ao centro da ROI (ajuste fino para alinhar o crop com a posição real dos furos)
-CROP_W, CROP_H = 440, 330 # Tamanho do crop final (ajustado para capturar a área do fotograma)
+CROP_W, CROP_H = 972, 648 # Tamanho do crop final (ajustado para capturar a área do fotograma)
 
 contador_perfs_ciclo = 0
 frame_count = 0
