@@ -176,10 +176,18 @@ def logica_scanner():
         lx, ly, lw, lh = ROI_X, ROI_Y, ROI_W, ROI_H
         roi_color = frame_raw[ly:ly+lh, lx:lx+lw]
         
-        roi_gray = cv_cvt(roi_color, cv2.COLOR_RGB2GRAY) # Converte para cinza para processamento de contornos (mais rápido e eficaz para detecção de formas)
-        roi_small = cv_resize(roi_gray, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV) # Reduz a resolução para acelerar o processamento de contornos (ajuste fino para manter a detecção confiável)
-        _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY) # Binarização simples (ajuste fino do THRESH_VAL para melhor detecção)
-        contours, _ = cv_find(binary_small, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE) # Encontra contornos na imagem binária reduzida
+        roi_gray = cv_cvt(roi_color, cv2.COLOR_RGB2GRAY)
+        roi_small = cv_resize(roi_gray, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV) 
+        
+        # --- NOVO: AUTO-CONTRASTE PARA OTIMIZAR A BINARIZAÇÃO ---
+        # Estica o histograma apenas da miniatura usada para leitura.
+        # Isso garante que a diferença entre a luz da lâmpada e a borda do filme seja máxima,
+        # sem alterar o 'frame_raw' que será salvo no disco RAM.
+        roi_small = cv2.normalize(roi_small, None, 0, 255, cv2.NORM_MINMAX)
+        # --------------------------------------------------------
+
+        _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY) 
+        contours, _ = cv_find(binary_small, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         perfs_neste_frame = []
         debug_visual = []
@@ -245,69 +253,79 @@ def logica_scanner():
         tempo_ms_ciclo = (t_fim - t_inicio) * 1000.0
         fps_real_proc = 1.0 / (t_fim - t_inicio) if (t_fim - t_inicio) > 0 else 0
 
-# --- FLASK: DASHBOARD SIMPLIFICADO ---
+# --- FLASK: DASHBOARD SIMPLIFICADO + HISTOGRAMA + ZEBRA ESTÁTICO ---
 def generate_dashboard():
     global perfuracao_na_linha
     while True:
-        time.sleep(0.06) # Limita a taxa de atualização do dashboard para cerca de 25 FPS para não sobrecarregar o Pi Zero
+        time.sleep(0.06) 
         if ultimo_frame_bruto is None: continue
         
+        # --- PAINEL ESQUERDO (p_live): LIVE VIEW LIMPO ---
         p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
         sx, sy = 640/1080, 420/720
         
+        # Desenhos da Geometria da ROI
         cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
         cor_gatilho = (0, 0, 255) if perfuracao_na_linha else (0, 255, 0)
         
-        # A linha desenhada no Live usa a posição Y da ROI + o Gatilho interno
         y_gl = ROI_Y + LINHA_GATILHO_Y
         cv2.line(p_live, (int(ROI_X*sx), int(y_gl*sy)), (int((ROI_X+ROI_W)*sx), int(y_gl*sy)), cor_gatilho, 3)
-        
-        # Desenha a margem visual (duas linhas finas)
         cv2.line(p_live, (int(ROI_X*sx), int((y_gl - MARGEM_GATILHO)*sy)), (int((ROI_X+ROI_W)*sx), int((y_gl - MARGEM_GATILHO)*sy)), (50, 50, 50), 1)
         cv2.line(p_live, (int(ROI_X*sx), int((y_gl + MARGEM_GATILHO)*sy)), (int((ROI_X+ROI_W)*sx), int((y_gl + MARGEM_GATILHO)*sy)), (50, 50, 50), 1)
 
         for item in lista_contornos_debug:
             x, y, w, h = item['rect']; cv2.rectangle(p_live, (int(x*sx), int(y*sy)), (int((x+w)*sx), int((y+h)*sy)), item['color'], 2)
         
-        # Preview do binário (redimensionado e convertido para RGB para exibir no dashboard)
+        # --- PAINEL DIREITO (p_bin): BINÁRIO E HISTOGRAMA ---
         p_bin = np.zeros((420, 640, 3), dtype=np.uint8)
+        
         if ultimo_frame_binario is not None:
             bin_res = cv2.resize(cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB), (240, 420))
-            p_bin[0:420, 200:440] = bin_res
-
-        # --- NOVO: GERADOR DE HISTOGRAMA ULTRARRÁPIDO ---
-            # Vamos gerar o histograma da última imagem recortada (Crop) para avaliar a exposição real do fotograma
+            p_bin[0:420, 50:290] = bin_res
+            
             if ultimo_crop_preview is not None and ultimo_crop_preview.size > 0:
-                # 1. Converte o crop para escala de cinza (Luma)
                 gray_crop = cv2.cvtColor(ultimo_crop_preview, cv2.COLOR_RGB2GRAY)
-                # 2. Calcula o Histograma (rápido, via C++)
                 hist = cv2.calcHist([gray_crop], [0], None, [256], [0, 256])
-                # 3. Normaliza os valores para caber na nossa janelinha do dashboard
                 cv2.normalize(hist, hist, 0, 150, cv2.NORM_MINMAX)
                 
-                # 4. Desenha o gráfico na lateral direita do painel binário
                 grafico_h = np.zeros((150, 256, 3), dtype=np.uint8)
-                # Fundo cinza escuro
                 cv2.rectangle(grafico_h, (0, 0), (256, 150), (30, 30, 30), -1)
                 
-                # Desenha as linhas do histograma
                 for x in range(256):
                     valor_y = int(hist[x][0])
-                    # Quanto mais pra direita (branco), muda a cor do gráfico
                     cor_linha = (255, 255, 255) if x > 200 else (150, 255, 150)
                     cv2.line(grafico_h, (x, 150), (x, 150 - valor_y), cor_linha, 1)
                 
-                # Adiciona guias visuais de perigo (0 e 255)
-                cv2.line(grafico_h, (10, 0), (10, 150), (0, 0, 255), 1)   # Esmagamento de Pretos
-                cv2.line(grafico_h, (245, 0), (245, 150), (0, 0, 255), 1) # Estouro de Brancos
+                cv2.line(grafico_h, (10, 0), (10, 150), (0, 0, 255), 1)
+                cv2.line(grafico_h, (245, 0), (245, 150), (0, 0, 255), 1)
                 
-                # Joga o gráfico no canto inferior esquerdo do bloco Binário
-                p_bin[250:400, 10:266] = grafico_h
-            # ------------------------------------------------
-            
-        p_inf = np.zeros((300, 1280, 3), dtype=np.uint8)
-        if ultimo_crop_preview is not None: p_inf[10:290, 440:840] = cv2.resize(ultimo_crop_preview, (400, 280))
+                pos_y_hist = 135
+                pos_x_hist = 330
+                p_bin[pos_y_hist : pos_y_hist+150, pos_x_hist : pos_x_hist+256] = grafico_h
+                cv2.putText(p_bin, "HISTOGRAMA", (pos_x_hist, pos_y_hist - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
         
+        # --- PAINEL INFERIOR (p_inf): FOTOGRAMA ESTÁTICO COM ZEBRA ---
+        p_inf = np.zeros((300, 1280, 3), dtype=np.uint8)
+        
+        if ultimo_crop_preview is not None and ultimo_crop_preview.size > 0:
+            crop_preview = cv2.resize(ultimo_crop_preview.copy(), (400, 280))
+            luma = cv2.cvtColor(crop_preview, cv2.COLOR_RGB2GRAY)
+            
+            zebra_overlay = crop_preview.copy()
+            zebra_overlay[luma > 245] = [0, 0, 255] # Estouro = Vermelho
+            zebra_overlay[luma < 10] = [255, 0, 0]  # Crush = Azul
+            
+            # Centralizando a foto (1280 / 2) - (400 / 2) = 440
+            pos_y_zebra = 10
+            pos_x_zebra = 440 
+            
+            p_inf[pos_y_zebra : pos_y_zebra+280, pos_x_zebra : pos_x_zebra+400] = zebra_overlay
+            
+            # Fundo preto semi-transparente para o texto ficar legível
+            cv2.rectangle(p_inf, (pos_x_zebra, pos_y_zebra), (pos_x_zebra + 370, pos_y_zebra + 25), (0, 0, 0), -1)
+            cv2.putText(p_inf, "CROP ESTATICO (VERMELHO=ESTOURO / AZUL=CRUSH)", (pos_x_zebra + 5, pos_y_zebra + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+        
+        # Monta a imagem final (restaurando o vstack)
         dashboard = np.vstack((np.hstack((p_live, p_bin)), p_inf))
         _, buffer = cv2.imencode('.jpg', cv2.cvtColor(dashboard, cv2.COLOR_RGB2BGR), [int(cv2.IMWRITE_JPEG_QUALITY), 70])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
