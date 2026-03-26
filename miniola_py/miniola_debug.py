@@ -193,7 +193,7 @@ def painel_controle():
                 print("RAM DRIVE LIMPO.")
         except Exception as e: print(f"Erro: {e}")
 
-# --- LÓGICA DO SCANNER OTIMIZADA (CORREÇÃO DA MARGEM) ---
+# --- LÓGICA DO SCANNER OTIMIZADA (MOTORES ISOLADOS) ---
 def logica_scanner():
     cap_array = picam2.capture_array
     cv_cvt = cv2.cvtColor
@@ -204,8 +204,9 @@ def logica_scanner():
     
     global frame_count, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
     global contador_perfs_ciclo, perfuracao_na_linha, fps_real_proc, tempo_ms_ciclo
+    global MODO_DETECCAO
 
-    ESCALA_CV = 0.5 # Reduz a resolução para acelerar o processamento de contornos
+    ESCALA_CV = 0.5 
     skip_ui = 0
 
     while True:
@@ -221,43 +222,14 @@ def logica_scanner():
         roi_small = cv_resize(roi_gray, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV) 
 
         _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY) 
-        contours, _ = cv_find(binary_small, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
+        
+        # Variáveis limpas para o quadro atual
         perfs_neste_frame = []
         debug_visual = []
-        
-        for cnt in contours:
-            area = cv2.contourArea(cnt) * 4 
-            if 300 < area < 10000:
-                x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
-                if 0.4 < (w_s/h_s) < 2.5:
-                    # --- CORREÇÃO: CALCULA O CENTRO EXATO Y DO FURO ---
-                    # y_s*2 é o topo real, (h_s*2)//2 é a metade da altura real.
-                    cy_roi = (y_s * 2) + ((h_s * 2) // 2)
-                    
-                    # Coordenadas globais para o Crop
-                    cx_global = (x_s * 2) + (w_s * 2 // 2) + lx
-                    cy_global = cy_roi + ly
-                    
-                    # Verifica imediatamente se ESTE furo acionou o gatilho para o debug visual
-                    acionou_gatilho = abs(cy_roi - LINHA_GATILHO_Y) <= MARGEM_GATILHO
-                    cor_retangulo = (0, 0, 255) if acionou_gatilho else (0, 255, 0)
-                    
-                    perfs_neste_frame.append({
-                        'cy_roi': cy_roi, 
-                        'cx_global': cx_global, 
-                        'cy_global': cy_global,
-                        'acionou': acionou_gatilho
-                    })
-                    
-                    debug_visual.append({'rect': (x_s*2+lx, y_s*2+ly, w_s*2, h_s*2), 'color': cor_retangulo})
-
-        # Ordena as perfurações pela posição Y dentro da ROI
-        perfs_neste_frame.sort(key=lambda p: p['cy_roi'])
         furo_detectado_agora = False
-        
-# ==========================================================
-        # MOTOR 1: O SEU CÓDIGO ORIGINAL (2D - FINDCONTOURS)
+
+        # ==========================================================
+        # MOTOR 1: 2D - FINDCONTOURS (Agora estritamente isolado)
         # ==========================================================
         if MODO_DETECCAO == '2D':
             contours, _ = cv_find(binary_small, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -295,44 +267,32 @@ def logica_scanner():
                         contador_perfs_ciclo = 0
 
         # ==========================================================
-        # MOTOR 2: O NOVO CÓDIGO (1D - CENTRO DE MASSA CRAVADO)
+        # MOTOR 2: 1D - CENTRO DE MASSA CRAVADO
         # ==========================================================
         elif MODO_DETECCAO == '1D':
-            # Esmaga a imagem na horizontal. Retorna um array com a soma de luz de cada linha.
             projecao_y = np.sum(binary_small, axis=1)
-            
-            # Define o que é luz suficiente para ser um furo (ajuste se necessário)
             limiar_luz = 255 * 8
-            
-            # Pega os índices de TODAS as linhas que ultrapassam o limiar
             linhas_claras = np.where(projecao_y > limiar_luz)[0]
             
             if len(linhas_claras) > 0:
-                # O SEGREDO DO "CRAVAMENTO": 
-                # Agrupamos as linhas vizinhas para formar "blocos" (os furos reais)
                 furos_1d = []
                 bloco_atual = [linhas_claras[0]]
                 
                 for i in range(1, len(linhas_claras)):
-                    # Se a próxima linha clara estiver colada na anterior (com até 3px de falha), é o mesmo furo
                     if linhas_claras[i] - linhas_claras[i-1] <= 3:
                         bloco_atual.append(linhas_claras[i])
                     else:
                         furos_1d.append(bloco_atual)
                         bloco_atual = [linhas_claras[i]]
-                furos_1d.append(bloco_atual) # Adiciona o último bloco encontrado
+                furos_1d.append(bloco_atual) 
                 
-                # Pegamos sempre o primeiro furo visível (o mais ao topo da ROI) para "cravar" o rastreio
                 furo_alvo = furos_1d[0]
-                
-                # O centro exato do furo é a média matemática do bloco! Fim do "samba".
                 y_pico_small = int(np.mean(furo_alvo))
                 y_pico_real = int(y_pico_small / ESCALA_CV)
                 
                 limite_sup = LINHA_GATILHO_Y - MARGEM_GATILHO
                 limite_inf = LINHA_GATILHO_Y + MARGEM_GATILHO
                 
-                # Desenha o rastreador visual
                 cor_1d = (0, 0, 255) if (limite_sup <= y_pico_real <= limite_inf) else (0, 255, 0)
                 debug_visual.append({'rect': (lx, y_pico_real - 5 + ly, lw, 10), 'color': cor_1d})
                 
@@ -350,17 +310,13 @@ def logica_scanner():
                             processar_captura(frame_raw, cx_a, cy_a, frame_count)
                             frame_count += 1
                             contador_perfs_ciclo = 0
-                else:
-                    # Furo está visível, mas fora da margem
-                    debug_visual.append({'rect': (lx, y_pico_real - 5 + ly, lw, 10), 'color': (0, 255, 0)})
 
         # ==========================================================
-        # FECHAMENTO DO GATILHO (Vale para ambos os motores)
+        # FECHAMENTO DO GATILHO E UI (Comum aos dois motores)
+        # ==========================================================
         if not furo_detectado_agora:
             perfuracao_na_linha = False
-        # ==========================================================
 
-        # THROTTLING DA UI
         skip_ui += 1
         if skip_ui >= 3:
             ultimo_frame_bruto = frame_raw 
