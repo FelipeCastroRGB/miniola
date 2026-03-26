@@ -187,7 +187,7 @@ def painel_controle():
                 print("RAM DRIVE LIMPO.")
         except Exception as e: print(f"Erro: {e}")
 
-# --- LÓGICA DO SCANNER OTIMIZADA ---
+# --- LÓGICA DO SCANNER OTIMIZADA (CORREÇÃO DA MARGEM) ---
 def logica_scanner():
     cap_array = picam2.capture_array
     cv_cvt = cv2.cvtColor
@@ -199,7 +199,7 @@ def logica_scanner():
     global frame_count, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
     global contador_perfs_ciclo, perfuracao_na_linha, fps_real_proc, tempo_ms_ciclo
 
-    ESCALA_CV = 0.5 # Reduz a resolução para acelerar o processamento de contornos (ajuste fino para manter a detecção confiável) 
+    ESCALA_CV = 0.5 # Reduz a resolução para acelerar o processamento de contornos
     skip_ui = 0
 
     while True:
@@ -225,28 +225,37 @@ def logica_scanner():
             if 300 < area < 10000:
                 x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
                 if 0.4 < (w_s/h_s) < 2.5:
-                    # Coordenadas relativas apenas à ROI
-                    cy_roi = (y_s * 2) + h_s 
+                    # --- CORREÇÃO: CALCULA O CENTRO EXATO Y DO FURO ---
+                    # y_s*2 é o topo real, (h_s*2)//2 é a metade da altura real.
+                    cy_roi = (y_s * 2) + ((h_s * 2) // 2)
                     
-                    # Coordenadas globais só para passar para o Crop depois
-                    cx_global = (x_s * 2) + w_s + lx
+                    # Coordenadas globais para o Crop
+                    cx_global = (x_s * 2) + (w_s * 2 // 2) + lx
                     cy_global = cy_roi + ly
+                    
+                    # Verifica imediatamente se ESTE furo acionou o gatilho para o debug visual
+                    acionou_gatilho = abs(cy_roi - LINHA_GATILHO_Y) <= MARGEM_GATILHO
+                    cor_retangulo = (0, 0, 255) if acionou_gatilho else (0, 255, 0)
                     
                     perfs_neste_frame.append({
                         'cy_roi': cy_roi, 
                         'cx_global': cx_global, 
-                        'cy_global': cy_global
+                        'cy_global': cy_global,
+                        'acionou': acionou_gatilho
                     })
-                    debug_visual.append({'rect': (x_s*2+lx, y_s*2+ly, w_s*2, h_s*2), 'color': (0, 255, 0)})
+                    
+                    debug_visual.append({'rect': (x_s*2+lx, y_s*2+ly, w_s*2, h_s*2), 'color': cor_retangulo})
 
         # Ordena as perfurações pela posição Y dentro da ROI
         perfs_neste_frame.sort(key=lambda p: p['cy_roi'])
         furo_detectado_agora = False
         
         if perfs_neste_frame:
-            # Avalia DENTRO do espaço da ROI
-            if abs(perfs_neste_frame[0]['cy_roi'] - LINHA_GATILHO_Y) <= MARGEM_GATILHO:
+            # Se a primeira perfuração (mais ao topo) acionou a margem
+            if perfs_neste_frame[0]['acionou']:
                 furo_detectado_agora = True
+                
+                # Só processa se a linha estava limpa antes (borda de subida)
                 if not perfuracao_na_linha:
                     contador_perfs_ciclo += 1
                     perfuracao_na_linha = True
@@ -266,6 +275,7 @@ def logica_scanner():
                         # OBRIGATÓRIO: Zera o ciclo sempre que bater 4!
                         contador_perfs_ciclo = 0
         
+        # Se nenhum furo acionou a rede neste milissegundo, desarma o gatilho
         if not furo_detectado_agora:
             perfuracao_na_linha = False
 
