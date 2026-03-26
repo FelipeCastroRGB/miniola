@@ -231,40 +231,55 @@ def logica_scanner():
         furo_detectado_agora = False
 
         # ==========================================================
-        # MOTOR 1: 2D - FINDCONTOURS (Agora estritamente isolado)
+        # MOTOR 1: 2D - FINDCONTOURS (OTIMIZAÇÃO AGRESSIVA)
         # ==========================================================
         if MODO_DETECCAO == '2D':
-            contours, _ = cv_find(binary_small, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            # RETR_LIST: Ignora o cálculo demorado de hierarquias de contornos filhos
+            contours, _ = cv_find(binary_small, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+            
+            # Limites da Rede de Pesca (Calculados apenas uma vez por frame)
+            limite_superior = LINHA_GATILHO_Y - MARGEM_GATILHO
+            limite_inferior = LINHA_GATILHO_Y + MARGEM_GATILHO
+            
+            melhor_furo_ativo = None
             
             for cnt in contours:
-                area = cv2.contourArea(cnt) * 4 
-                if 300 < area < 10000:
-                    x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
-                    if 0.4 < (w_s/h_s) < 2.5:
-                        cy_roi = (y_s * 2) + ((h_s * 2) // 2)
+                x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
+                
+                # Cálculo de área ultrarrápido (substitui o pesado cv2.contourArea)
+                # Multiplicamos a área por 4 para compensar a escala da miniatura (ESCALA_CV = 0.5)
+                area_aprox = (w_s * h_s) * 4 
+                
+                # Filtra poeira e verifica a proporção do retângulo
+                if 300 < area_aprox < 10000 and 0.4 < (w_s / h_s) < 2.5:
+                    cy_roi = (y_s * 2) + ((h_s * 2) // 2)
+                    
+                    # 1. VERIFICAÇÃO DE ESCOPO: O furo está na rede de gatilho?
+                    if limite_superior <= cy_roi <= limite_inferior:
+                        # Furo detectado! Guarda os dados para o crop.
                         cx_global = (x_s * 2) + (w_s * 2 // 2) + lx
                         cy_global = cy_roi + ly
                         
-                        acionou_gatilho = abs(cy_roi - LINHA_GATILHO_Y) <= MARGEM_GATILHO
-                        cor_retangulo = (0, 0, 255) if acionou_gatilho else (0, 255, 0)
+                        # Salva apenas o melhor furo (o que ativou o gatilho)
+                        melhor_furo_ativo = {'cx_g': cx_global, 'cy_g': cy_global, 'rect': (x_s*2+lx, y_s*2+ly, w_s*2, h_s*2)}
                         
-                        perfs_neste_frame.append({'cy_roi': cy_roi, 'cx_global': cx_global, 'cy_global': cy_global, 'acionou': acionou_gatilho})
-                        debug_visual.append({'rect': (x_s*2+lx, y_s*2+ly, w_s*2, h_s*2), 'color': cor_retangulo})
+                        # Aciona o gatilho visual e quebra o loop (Não gasta CPU com os outros furos)
+                        debug_visual.append({'rect': melhor_furo_ativo['rect'], 'color': (0, 0, 255)})
+                        furo_detectado_agora = True
+                        break 
+                    else:
+                        # Se não está no gatilho, apenas desenha verde para feedback visual e segue
+                        debug_visual.append({'rect': (x_s*2+lx, y_s*2+ly, w_s*2, h_s*2), 'color': (0, 255, 0)})
 
-            perfs_neste_frame.sort(key=lambda p: p['cy_roi'])
-            
-            if perfs_neste_frame and perfs_neste_frame[0]['acionou']:
-                furo_detectado_agora = True
+            # 2. LÓGICA DE TIRO (Executada apenas se o furo mestre foi validado)
+            if furo_detectado_agora:
                 if not perfuracao_na_linha:
                     contador_perfs_ciclo += 1
                     perfuracao_na_linha = True
+                    
                     if contador_perfs_ciclo >= 4:
-                        qtd_furos_visiveis = min(4, len(perfs_neste_frame))
-                        pts = perfs_neste_frame[0:qtd_furos_visiveis]
-                        cx_a = int(sum(p['cx_global'] for p in pts) / qtd_furos_visiveis)
-                        cy_a = int(sum(p['cy_global'] for p in pts) / qtd_furos_visiveis)
-                        
-                        processar_captura(frame_raw, cx_a, cy_a, frame_count)
+                        # Usa as coordenadas limpas e únicas do furo mestre
+                        processar_captura(frame_raw, melhor_furo_ativo['cx_g'], melhor_furo_ativo['cy_g'], frame_count)
                         frame_count += 1
                         contador_perfs_ciclo = 0
 
