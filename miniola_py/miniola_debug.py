@@ -179,12 +179,12 @@ def logica_scanner():
         roi_gray = cv_cvt(roi_color, cv2.COLOR_RGB2GRAY)
         roi_small = cv_resize(roi_gray, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV) 
         
-        # --- NOVO: AUTO-CONTRASTE PARA OTIMIZAR A BINARIZAÇÃO ---
-        # Estica o histograma apenas da miniatura usada para leitura.
-        # Isso garante que a diferença entre a luz da lâmpada e a borda do filme seja máxima,
-        # sem alterar o 'frame_raw' que será salvo no disco RAM.
-        roi_small = cv2.normalize(roi_small, None, 0, 255, cv2.NORM_MINMAX)
-        # --------------------------------------------------------
+        # --- AMPLIFICAÇÃO DE BRANCOS (GANHO DIGITAL) ---
+        # Multiplica os valores dos pixels por 1.5 (alpha). 
+        # O limite máximo do OpenCV é 255, então o que estourar trava no branco puro.
+        # A imagem 'frame_raw' que será salva no HD continua intacta.
+        roi_small = cv2.convertScaleAbs(roi_small, alpha=1.5, beta=0)
+        # -----------------------------------------------
 
         _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY) 
         contours, _ = cv_find(binary_small, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
