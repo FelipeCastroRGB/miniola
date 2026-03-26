@@ -1,24 +1,24 @@
-import sys
-from unittest.mock import MagicMock
-import os
+import sys # Para manipulação de módulos e ambiente, especialmente para simular módulos de hardware ausentes durante o desenvolvimento em ambientes sem acesso à câmera ou hardware específico (como o PiCamera2), evitando erros de importação e permitindo que o restante do código seja testado e desenvolvido normalmente.
+from unittest.mock import MagicMock # Para simular módulos de hardware ausentes durante o desenvolvimento em ambientes sem acesso à câmera ou hardware específico (como o PiCamera2), evitando erros de importação e permitindo que o restante do código seja testado e desenvolvido normalmente.
+import os # Para manipulação de arquivos, diretórios e leitura de temperatura do sistema
 
 # --- CONFIGURAÇÃO DE AMBIENTE E HARDWARE ---
-sys.modules["pykms"] = MagicMock()
-sys.modules["kms"] = MagicMock()
+sys.modules["pykms"] = MagicMock() # Simula o módulo pykms para evitar erros de importação em ambientes sem acesso ao hardware específico (como o PiCamera2), permitindo que o restante do código seja testado e desenvolvido normalmente. O MagicMock cria um objeto fictício que pode ser importado sem causar falhas, facilitando o desenvolvimento e testes em máquinas de desenvolvimento comuns antes de implantar no hardware real.
+sys.modules["kms"] = MagicMock() # O módulo "kms" é uma dependência do "pykms" e também é simulado para garantir que qualquer importação ou uso relacionado a ele não cause erros, permitindo que o código seja executado em ambientes de desenvolvimento sem acesso ao hardware específico (como o PiCamera2). Isso é especialmente útil para testar a lógica de processamento de imagem e a interface do usuário sem precisar do hardware real durante as fases iniciais de desenvolvimento.
 
 from flask import Flask, Response 
 from picamera2 import Picamera2 
-import cv2
-import numpy as np
-import threading
+import cv2 # OpenCV para processamento de imagem e visualização (Roda no Core 1, isolado do processo de gravação)
+import numpy as np # Para manipulação de arrays e cálculos (Roda no Core 1 junto com o OpenCV)
+import threading # PARA O PAINEL DE CONTROLE E LÓGICA DE SCANNER RODAREM EM THREADS SEPARADAS E NÃO BLOQUEAREM O FLASK
 import multiprocessing as mp # MULTIPROCESSAMENTO
-import time
-import logging
-import shutil
+import time # PARA MEDIR TEMPO DE PROCESSAMENTO E CONTROLAR O PAINEL DE CONTROLE
+import logging # PARA GERENCIAR LOGS DO FLASK E MANTER O CONSOLE LIMPO
+import shutil # Para verificar o uso do disco e espaço livre
 
-app = Flask(__name__)
-log = logging.getLogger('werkzeug')
-log.setLevel(logging.ERROR) 
+app = Flask(__name__) # Flask para o Dashboard (Roda no Core 0)
+log = logging.getLogger('werkzeug') # Desativa os logs de requisição do Flask para não poluir o console
+log.setLevel(logging.ERROR) # Apenas erros críticos serão exibidos, mantendo o console limpo para mensagens do sistema e do painel de controle.
 
 CAPTURE_PATH = "capturas"
 if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
@@ -270,6 +270,7 @@ def logica_scanner():
         # MOTOR 2: 1D - CENTRO DE MASSA CRAVADO
         # ==========================================================
         elif MODO_DETECCAO == '1D':
+            # 1. Gatilho 1D super rápido
             projecao_y = np.sum(binary_small, axis=1)
             limiar_luz = 255 * 8
             linhas_claras = np.where(projecao_y > limiar_luz)[0]
@@ -286,9 +287,17 @@ def logica_scanner():
                         bloco_atual = [linhas_claras[i]]
                 furos_1d.append(bloco_atual) 
                 
+                # Pega o primeiro bloco de linhas (o furo mais alto)
                 furo_alvo = furos_1d[0]
-                y_pico_small = int(np.mean(furo_alvo))
-                y_pico_real = int(y_pico_small / ESCALA_CV)
+                
+                # 2. O "MIX": Matemática 2D aplicada sobre o array 1D
+                # Extrai a quantidade de luz (peso) de cada linha deste furo específico
+                pesos_luz = projecao_y[furo_alvo]
+                
+                # Calcula a média ponderada (Centro de Massa). Isso é precisão sub-pixel!
+                # Se uma borda piscar, o peso brutal do miolo do furo absorve o erro.
+                y_pico_small_float = np.average(furo_alvo, weights=pesos_luz)
+                y_pico_real = int(y_pico_small_float / ESCALA_CV)
                 
                 limite_sup = LINHA_GATILHO_Y - MARGEM_GATILHO
                 limite_inf = LINHA_GATILHO_Y + MARGEM_GATILHO
