@@ -295,34 +295,55 @@ def logica_scanner():
                         contador_perfs_ciclo = 0
 
         # ==========================================================
-        # MOTOR 2: O NOVO CÓDIGO (1D - PROJEÇÃO INTEGRAL)
+        # MOTOR 2: O NOVO CÓDIGO (1D - CENTRO DE MASSA CRAVADO)
         # ==========================================================
         elif MODO_DETECCAO == '1D':
-            # Esmaga a imagem na horizontal. Retorna um gráfico de luz.
+            # Esmaga a imagem na horizontal. Retorna um array com a soma de luz de cada linha.
             projecao_y = np.sum(binary_small, axis=1)
             
-            pico_valor = np.max(projecao_y)
-            y_pico_small = np.argmax(projecao_y)
-            y_pico_real = int(y_pico_small / ESCALA_CV)
+            # Define o que é luz suficiente para ser um furo (ajuste se necessário)
+            limiar_luz = 255 * 8
             
-            # Limite mínimo de luz para considerar um furo (evita poeira)
-            perfuracao_valida = pico_valor > (255 * 8) 
+            # Pega os índices de TODAS as linhas que ultrapassam o limiar
+            linhas_claras = np.where(projecao_y > limiar_luz)[0]
             
-            limite_sup = LINHA_GATILHO_Y - MARGEM_GATILHO
-            limite_inf = LINHA_GATILHO_Y + MARGEM_GATILHO
-            
-            if perfuracao_valida:
-                # O pico de luz entrou na margem da rede?
+            if len(linhas_claras) > 0:
+                # O SEGREDO DO "CRAVAMENTO": 
+                # Agrupamos as linhas vizinhas para formar "blocos" (os furos reais)
+                furos_1d = []
+                bloco_atual = [linhas_claras[0]]
+                
+                for i in range(1, len(linhas_claras)):
+                    # Se a próxima linha clara estiver colada na anterior (com até 3px de falha), é o mesmo furo
+                    if linhas_claras[i] - linhas_claras[i-1] <= 3:
+                        bloco_atual.append(linhas_claras[i])
+                    else:
+                        furos_1d.append(bloco_atual)
+                        bloco_atual = [linhas_claras[i]]
+                furos_1d.append(bloco_atual) # Adiciona o último bloco encontrado
+                
+                # Pegamos sempre o primeiro furo visível (o mais ao topo da ROI) para "cravar" o rastreio
+                furo_alvo = furos_1d[0]
+                
+                # O centro exato do furo é a média matemática do bloco! Fim do "samba".
+                y_pico_small = int(np.mean(furo_alvo))
+                y_pico_real = int(y_pico_small / ESCALA_CV)
+                
+                limite_sup = LINHA_GATILHO_Y - MARGEM_GATILHO
+                limite_inf = LINHA_GATILHO_Y + MARGEM_GATILHO
+                
+                # Desenha o rastreador visual
+                cor_1d = (0, 0, 255) if (limite_sup <= y_pico_real <= limite_inf) else (0, 255, 0)
+                debug_visual.append({'rect': (lx, y_pico_real - 5 + ly, lw, 10), 'color': cor_1d})
+                
                 if limite_sup <= y_pico_real <= limite_inf:
                     furo_detectado_agora = True
-                    debug_visual.append({'rect': (lx, y_pico_real - 5 + ly, lw, 10), 'color': (0, 0, 255)}) # Furo disparado (Vermelho)
                     
                     if not perfuracao_na_linha:
                         contador_perfs_ciclo += 1
                         perfuracao_na_linha = True
                         
                         if contador_perfs_ciclo >= 4:
-                            # No 1D, não temos 4 furos desenhados, calculamos o centro global baseado no pico atual
                             cx_a = lx + (lw // 2)
                             cy_a = ly + y_pico_real
                             
