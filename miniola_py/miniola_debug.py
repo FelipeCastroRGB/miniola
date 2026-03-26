@@ -137,35 +137,32 @@ def painel_controle():
                 foco_atual = max(0.0, round(foco_atual - passo_foco, 2))
                 picam2.set_controls({"LensPosition": foco_atual})
             # --- NOVO: AUTOFOCO DE TIRO ÚNICO (MÉTODO RADAR) ---
+            # --- NOVO: AUTOFOCO DE TIRO ÚNICO (MÉTODO NATIVO DA PICAMERA2) ---
             elif cmd == 'af':
-                print("[ÓPTICA] Iniciando varredura de Auto Foco (Aguarde 3s...)")
-                
-                # AfMode 2 = Continuous AF. Força o motor a caçar o contraste ativamente.
-                picam2.set_controls({"AfMode": 2})
-                
-                # Dá 3 segundos para o motor da lente ir, voltar e estabilizar no grão
-                time.sleep(3) 
-                
+                print("[ÓPTICA] Iniciando varredura de Auto Foco nativo (Aguarde...)")
                 try:
-                    # Lê os metadados do exato momento em que o Continuous AF estabilizou
+                    # O método .autofocus() é uma função interna que suspende as travas 
+                    # manuais, faz o sweep completo usando o ISP da placa e trava a lente.
+                    picam2.autofocus()
+                    
+                    # Lê os metadados reais pós-foco
                     metadados = picam2.capture_metadata()
                     
                     if "LensPosition" in metadados:
-                        # Salva a nova posição real
+                        # Atualiza a nossa variável para o Dashboard
                         foco_atual = round(metadados["LensPosition"], 2)
                         
-                        # A MÁGICA ACONTECE AQUI: Volta para Manual (0) E ancora a lente na nova posição
+                        # Re-ancora a lente no modo manual explícito com a nova posição
+                        # Isso garante que as teclas 'k' e 'l' continuem funcionando a partir daqui
                         picam2.set_controls({"AfMode": 0, "LensPosition": foco_atual})
                         
-                        print(f"[ÓPTICA] Foco cravado e travado na posição real: {foco_atual}")
+                        print(f"[ÓPTICA] Sucesso! Foco cravado na posição real: {foco_atual}")
                     else:
-                        print("[ÓPTICA] Falha: O sensor não relatou a posição da lente.")
-                        picam2.set_controls({"AfMode": 0}) # Trava em manual por segurança
+                        print("[ÓPTICA] Varredura concluída, mas posição não relatada pelo sensor.")
                         
                 except Exception as e:
-                    print(f"[ÓPTICA] Erro na varredura: {e}")
-                    picam2.set_controls({"AfMode": 0})
-            # ----------------------------------------------
+                    print(f"[ÓPTICA] Erro no Autofoco nativo: {e}")
+            # -----------------------------------------------------------------
             elif cmd == 'e': 
                 shutter_speed = int(val); picam2.set_controls({"ExposureTime": shutter_speed})
             elif cmd == 'g': 
