@@ -100,7 +100,8 @@ def painel_controle():
     print("═"*45)
     print("   GATILHO:   ly (Linha na ROI)| mg (Margem)")
     print("   SISTEMA:   rec (Gravar)| r (Reset Tudo)| rc (Realinhar Ciclo)")
-    print("   FOCO:   k e l (Ajuste)| j [val] (Ajuste de passo do foco)")
+    print("   ÓPTICA:    k/l (Foco Manual)| j [val] (Passo)| af (Auto Foco)")
+    print("   EXPOSIÇÃO: e [val] (Shutter Speed)| g [val] (Gain)| fps [val] (Frame Rate)")
     print("   CROP:   ch (Altura)| cw (Largura)")
     print("   TRESHOLD:   t")
     print("   ROI: w, a, s, d (Move ROI)| rx, ry, rw, rh [val] (Ajuste direto da ROI)")
@@ -135,6 +136,22 @@ def painel_controle():
             elif cmd == 'k':
                 foco_atual = max(0.0, round(foco_atual - passo_foco, 2))
                 picam2.set_controls({"LensPosition": foco_atual})
+            elif cmd == 'af':
+                print("[ÓPTICA] Iniciando varredura de Auto Foco (Aguarde...)")
+                # AfMode: 1 (Auto), AfTrigger: 1 (Start)
+                picam2.set_controls({"AfMode": 1, "AfTrigger": 1})
+                
+                # Dá 3 segundos para o motor da lente ir e voltar procurando o contraste
+                time.sleep(3) 
+                
+                # AfMode: 0 (Manual). Trava a lente na posição encontrada (Padrão de Arquivo)
+                picam2.set_controls({"AfMode": 0})
+                
+                # Lê os sensores internos da câmera para descobrir onde o motor parou
+                controles_atuais = picam2.get_controls()
+                if "LensPosition" in controles_atuais:
+                    foco_atual = round(controles_atuais["LensPosition"], 2)
+                print(f"[ÓPTICA] Foco cravado e travado na posição: {foco_atual}")
             elif cmd == 'e': 
                 shutter_speed = int(val); picam2.set_controls({"ExposureTime": shutter_speed})
             elif cmd == 'g': 
