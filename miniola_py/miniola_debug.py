@@ -292,8 +292,8 @@ def generate_dashboard():
                 cv2.line(grafico_h, (10, 0), (10, 150), (0, 0, 255), 1)
                 cv2.line(grafico_h, (245, 0), (245, 150), (0, 0, 255), 1)
                 
-                pos_y_hist = 10
-                pos_x_hist = 440
+                pos_y_hist = 135
+                pos_x_hist = 330
                 p_bin[pos_y_hist : pos_y_hist+150, pos_x_hist : pos_x_hist+256] = grafico_h
                 cv2.putText(p_bin, "HISTOGRAMA", (pos_x_hist, pos_y_hist - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
         
@@ -310,7 +310,7 @@ def generate_dashboard():
             
             # Centralizando a foto (1280 / 2) - (400 / 2) = 440
             pos_y_zebra = 10
-            pos_x_zebra = 200
+            pos_x_zebra = 50 
             
             p_inf[pos_y_zebra : pos_y_zebra+280, pos_x_zebra : pos_x_zebra+400] = zebra_overlay
             
