@@ -136,6 +136,7 @@ def painel_controle():
             elif cmd == 'k':
                 foco_atual = max(0.0, round(foco_atual - passo_foco, 2))
                 picam2.set_controls({"LensPosition": foco_atual})
+            # --- NOVO: AUTOFOCO DE TIRO ÚNICO COM TRAVA (CORRIGIDO) ---
             elif cmd == 'af':
                 print("[ÓPTICA] Iniciando varredura de Auto Foco (Aguarde...)")
                 # AfMode: 1 (Auto), AfTrigger: 1 (Start)
@@ -144,14 +145,22 @@ def painel_controle():
                 # Dá 3 segundos para o motor da lente ir e voltar procurando o contraste
                 time.sleep(3) 
                 
-                # AfMode: 0 (Manual). Trava a lente na posição encontrada (Padrão de Arquivo)
+                # AfMode: 0 (Manual). Trava a lente na posição física atual
                 picam2.set_controls({"AfMode": 0})
                 
-                # Lê os sensores internos da câmera para descobrir onde o motor parou
-                controles_atuais = picam2.get_controls()
-                if "LensPosition" in controles_atuais:
-                    foco_atual = round(controles_atuais["LensPosition"], 2)
-                print(f"[ÓPTICA] Foco cravado e travado na posição: {foco_atual}")
+                # Extrai os metadados do quadro exato que acabou de ser processado no sensor
+                # Isso garante precisão absoluta sobre a posição física da lente
+                try:
+                    metadados = picam2.capture_metadata()
+                    if "LensPosition" in metadados:
+                        # Atualiza a nossa variável de controle manual para não perdermos a referência
+                        foco_atual = round(metadados["LensPosition"], 2)
+                        print(f"[ÓPTICA] Foco cravado e travado na posição real: {foco_atual}")
+                    else:
+                        print("[ÓPTICA] Autofoco concluído, mas a posição não foi relatada pelos metadados.")
+                except Exception as e:
+                    print(f"[ÓPTICA] Erro ao ler metadados da lente: {e}")
+            # ----------------------------------------------
             elif cmd == 'e': 
                 shutter_speed = int(val); picam2.set_controls({"ExposureTime": shutter_speed})
             elif cmd == 'g': 
