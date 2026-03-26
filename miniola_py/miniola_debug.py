@@ -178,13 +178,6 @@ def logica_scanner():
         
         roi_gray = cv_cvt(roi_color, cv2.COLOR_RGB2GRAY)
         roi_small = cv_resize(roi_gray, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV) 
-        
-        # --- O ÚNICO FILTRO QUE VALE A PENA (GAUSSIAN BLUR) ---
-        # Borra a imagem levemente para "derreter" os grãos e arranhões do filme.
-        # O furo (que é uma massa de luz) continua intacto, mas a sujeira/textura some.
-        # Custo de CPU: Quase absoluto zero.
-        roi_small = cv2.GaussianBlur(roi_small, (5, 5), 0)
-        # ------------------------------------------------------
 
         _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY) 
         contours, _ = cv_find(binary_small, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -194,7 +187,7 @@ def logica_scanner():
         
         for cnt in contours:
             area = cv2.contourArea(cnt) * 4 
-            if 400 < area < 10000:
+            if 300 < area < 10000:
                 x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
                 if 0.4 < (w_s/h_s) < 2.5:
                     # Coordenadas relativas apenas à ROI
@@ -299,8 +292,8 @@ def generate_dashboard():
                 cv2.line(grafico_h, (10, 0), (10, 150), (0, 0, 255), 1)
                 cv2.line(grafico_h, (245, 0), (245, 150), (0, 0, 255), 1)
                 
-                pos_y_hist = 135
-                pos_x_hist = 330
+                pos_y_hist = 10
+                pos_x_hist = 440
                 p_bin[pos_y_hist : pos_y_hist+150, pos_x_hist : pos_x_hist+256] = grafico_h
                 cv2.putText(p_bin, "HISTOGRAMA", (pos_x_hist, pos_y_hist - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
         
@@ -317,7 +310,7 @@ def generate_dashboard():
             
             # Centralizando a foto (1280 / 2) - (400 / 2) = 440
             pos_y_zebra = 10
-            pos_x_zebra = 440 
+            pos_x_zebra = 200
             
             p_inf[pos_y_zebra : pos_y_zebra+280, pos_x_zebra : pos_x_zebra+400] = zebra_overlay
             
