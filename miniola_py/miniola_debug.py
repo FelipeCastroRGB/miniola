@@ -231,38 +231,57 @@ def logica_scanner():
         furo_detectado_agora = False
 
         # ==========================================================
-        # MOTOR 1: 2D - FINDCONTOURS (Agora estritamente isolado)
+        # MOTOR 1: 2D - FINDCONTOURS (VELOCIDADE + ESTABILIDADE MULTI-FURO)
         # ==========================================================
         if MODO_DETECCAO == '2D':
-            contours, _ = cv_find(binary_small, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            # RETR_LIST continua aqui para garantir FPS alto
+            contours, _ = cv_find(binary_small, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+            
+            limite_superior = LINHA_GATILHO_Y - MARGEM_GATILHO
+            limite_inferior = LINHA_GATILHO_Y + MARGEM_GATILHO
+            
+            # Voltamos a guardar todos os furos válidos do frame para fazer a média
+            furos_validos = []
             
             for cnt in contours:
-                area = cv2.contourArea(cnt) * 4 
-                if 300 < area < 10000:
-                    x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
-                    if 0.4 < (w_s/h_s) < 2.5:
-                        cy_roi = (y_s * 2) + ((h_s * 2) // 2)
-                        cx_global = (x_s * 2) + (w_s * 2 // 2) + lx
-                        cy_global = cy_roi + ly
-                        
-                        acionou_gatilho = abs(cy_roi - LINHA_GATILHO_Y) <= MARGEM_GATILHO
-                        cor_retangulo = (0, 0, 255) if acionou_gatilho else (0, 255, 0)
-                        
-                        perfs_neste_frame.append({'cy_roi': cy_roi, 'cx_global': cx_global, 'cy_global': cy_global, 'acionou': acionou_gatilho})
-                        debug_visual.append({'rect': (x_s*2+lx, y_s*2+ly, w_s*2, h_s*2), 'color': cor_retangulo})
+                x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
+                
+                # Cálculo rápido de área para não pesar a CPU
+                area_aprox = (w_s * h_s) * 4 
+                
+                if 300 < area_aprox < 10000 and 0.4 < (w_s / h_s) < 2.5:
+                    cy_roi = (y_s * 2) + ((h_s * 2) // 2)
+                    cx_global = (x_s * 2) + (w_s * 2 // 2) + lx
+                    cy_global = cy_roi + ly
+                    
+                    acionou = limite_superior <= cy_roi <= limite_inferior
+                    cor = (0, 0, 255) if acionou else (0, 255, 0)
+                    
+                    furos_validos.append({
+                        'cy_roi': cy_roi, 
+                        'cx_g': cx_global, 
+                        'cy_g': cy_global, 
+                        'acionou': acionou
+                    })
+                    
+                    debug_visual.append({'rect': (x_s*2+lx, y_s*2+ly, w_s*2, h_s*2), 'color': cor})
 
-            perfs_neste_frame.sort(key=lambda p: p['cy_roi'])
+            # Ordena os furos de cima para baixo
+            furos_validos.sort(key=lambda p: p['cy_roi'])
             
-            if perfs_neste_frame and perfs_neste_frame[0]['acionou']:
+            if furos_validos and furos_validos[0]['acionou']:
                 furo_detectado_agora = True
                 if not perfuracao_na_linha:
                     contador_perfs_ciclo += 1
                     perfuracao_na_linha = True
+                    
                     if contador_perfs_ciclo >= 4:
-                        qtd_furos_visiveis = min(4, len(perfs_neste_frame))
-                        pts = perfs_neste_frame[0:qtd_furos_visiveis]
-                        cx_a = int(sum(p['cx_global'] for p in pts) / qtd_furos_visiveis)
-                        cy_a = int(sum(p['cy_global'] for p in pts) / qtd_furos_visiveis)
+                        # O SEGREDO DA ESTABILIDADE: A Média Espacial de múltiplos furos
+                        qtd = min(4, len(furos_validos))
+                        pts = furos_validos[0:qtd]
+                        
+                        cx_a = int(sum(p['cx_g'] for p in pts) / qtd)
+                        cy_a = int(sum(p['cy_g'] for p in pts) / qtd)
                         
                         processar_captura(frame_raw, cx_a, cy_a, frame_count)
                         frame_count += 1
