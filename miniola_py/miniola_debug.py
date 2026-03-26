@@ -40,6 +40,7 @@ ROI_W, ROI_H = 80, 700
 LINHA_GATILHO_Y = 110  # Posição Y relativa DENTRO da ROI
 MARGEM_GATILHO = 23    # Margem de disparo (px para cima e para baixo)
 THRESH_VAL = 239 # Valor do threshold para binarização
+MODO_DETECCAO = '2D'  # Inicia com o findContours que já está funcionando
 
 # --- PARÂMETROS DO CROP ---
 OFFSET_X = 470 # Deslocamento X do centro global em relação ao centro da ROI (ajuste fino para alinhar o crop com a posição real dos furos)
@@ -103,6 +104,7 @@ def painel_controle():
     print("   ÓPTICA:    k/l (Foco Manual)| j [val] (Passo)| af (Auto Foco)")
     print("   EXPOSIÇÃO: e [val] (Shutter Speed)| g [val] (Gain)| fps [val] (Frame Rate)")
     print("   CROP:   ch (Altura)| cw (Largura)")
+    print("   SISTEMA:   rec (Gravar)| r (Reset)| rc (Realinhar) | md (Modo 1D/2D)")
     print("   TRESHOLD:   t")
     print("   ROI: w, a, s, d (Move ROI)| rx, ry, rw, rh [val] (Ajuste direto da ROI)")
     print("═"*45)
@@ -181,6 +183,10 @@ def painel_controle():
             elif cmd == 'rc': 
                 contador_perfs_ciclo = 0
                 print("[SISTEMA] Fase realinhada! Ciclo forçado para 0/4.")
+            elif cmd == 'md':
+                global MODO_DETECCAO
+                MODO_DETECCAO = '1D' if MODO_DETECCAO == '2D' else '2D'
+                print(f"[SISTEMA] Motor de Visão alterado para: {MODO_DETECCAO}")
             elif cmd == 'r': 
                 frame_count = 0
                 for f in os.listdir(CAPTURE_PATH): os.remove(os.path.join(CAPTURE_PATH, f))
@@ -250,34 +256,88 @@ def logica_scanner():
         perfs_neste_frame.sort(key=lambda p: p['cy_roi'])
         furo_detectado_agora = False
         
-        if perfs_neste_frame:
-            # Se a primeira perfuração (mais ao topo) acionou a margem
-            if perfs_neste_frame[0]['acionou']:
+# ==========================================================
+        # MOTOR 1: O SEU CÓDIGO ORIGINAL (2D - FINDCONTOURS)
+        # ==========================================================
+        if MODO_DETECCAO == '2D':
+            contours, _ = cv_find(binary_small, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            for cnt in contours:
+                area = cv2.contourArea(cnt) * 4 
+                if 300 < area < 10000:
+                    x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
+                    if 0.4 < (w_s/h_s) < 2.5:
+                        cy_roi = (y_s * 2) + ((h_s * 2) // 2)
+                        cx_global = (x_s * 2) + (w_s * 2 // 2) + lx
+                        cy_global = cy_roi + ly
+                        
+                        acionou_gatilho = abs(cy_roi - LINHA_GATILHO_Y) <= MARGEM_GATILHO
+                        cor_retangulo = (0, 0, 255) if acionou_gatilho else (0, 255, 0)
+                        
+                        perfs_neste_frame.append({'cy_roi': cy_roi, 'cx_global': cx_global, 'cy_global': cy_global, 'acionou': acionou_gatilho})
+                        debug_visual.append({'rect': (x_s*2+lx, y_s*2+ly, w_s*2, h_s*2), 'color': cor_retangulo})
+
+            perfs_neste_frame.sort(key=lambda p: p['cy_roi'])
+            
+            if perfs_neste_frame and perfs_neste_frame[0]['acionou']:
                 furo_detectado_agora = True
-                
-                # Só processa se a linha estava limpa antes (borda de subida)
                 if not perfuracao_na_linha:
                     contador_perfs_ciclo += 1
                     perfuracao_na_linha = True
-                    
                     if contador_perfs_ciclo >= 4:
-                        # Pega até 4 furos (o que estiver visível na ROI)
                         qtd_furos_visiveis = min(4, len(perfs_neste_frame))
                         pts = perfs_neste_frame[0:qtd_furos_visiveis]
-                        
-                        # Calcula o centro com base no que a câmera está vendo
                         cx_a = int(sum(p['cx_global'] for p in pts) / qtd_furos_visiveis)
                         cy_a = int(sum(p['cy_global'] for p in pts) / qtd_furos_visiveis)
                         
                         processar_captura(frame_raw, cx_a, cy_a, frame_count)
                         frame_count += 1
-                        
-                        # OBRIGATÓRIO: Zera o ciclo sempre que bater 4!
                         contador_perfs_ciclo = 0
-        
-        # Se nenhum furo acionou a rede neste milissegundo, desarma o gatilho
+
+        # ==========================================================
+        # MOTOR 2: O NOVO CÓDIGO (1D - PROJEÇÃO INTEGRAL)
+        # ==========================================================
+        elif MODO_DETECCAO == '1D':
+            # Esmaga a imagem na horizontal. Retorna um gráfico de luz.
+            projecao_y = np.sum(binary_small, axis=1)
+            
+            pico_valor = np.max(projecao_y)
+            y_pico_small = np.argmax(projecao_y)
+            y_pico_real = int(y_pico_small / ESCALA_CV)
+            
+            # Limite mínimo de luz para considerar um furo (evita poeira)
+            perfuracao_valida = pico_valor > (255 * 8) 
+            
+            limite_sup = LINHA_GATILHO_Y - MARGEM_GATILHO
+            limite_inf = LINHA_GATILHO_Y + MARGEM_GATILHO
+            
+            if perfuracao_valida:
+                # O pico de luz entrou na margem da rede?
+                if limite_sup <= y_pico_real <= limite_inf:
+                    furo_detectado_agora = True
+                    debug_visual.append({'rect': (lx, y_pico_real - 5 + ly, lw, 10), 'color': (0, 0, 255)}) # Furo disparado (Vermelho)
+                    
+                    if not perfuracao_na_linha:
+                        contador_perfs_ciclo += 1
+                        perfuracao_na_linha = True
+                        
+                        if contador_perfs_ciclo >= 4:
+                            # No 1D, não temos 4 furos desenhados, calculamos o centro global baseado no pico atual
+                            cx_a = lx + (lw // 2)
+                            cy_a = ly + y_pico_real
+                            
+                            processar_captura(frame_raw, cx_a, cy_a, frame_count)
+                            frame_count += 1
+                            contador_perfs_ciclo = 0
+                else:
+                    # Furo está visível, mas fora da margem
+                    debug_visual.append({'rect': (lx, y_pico_real - 5 + ly, lw, 10), 'color': (0, 255, 0)})
+
+        # ==========================================================
+        # FECHAMENTO DO GATILHO (Vale para ambos os motores)
         if not furo_detectado_agora:
             perfuracao_na_linha = False
+        # ==========================================================
 
         # THROTTLING DA UI
         skip_ui += 1
@@ -361,7 +421,7 @@ def generate_dashboard():
             
             # Fundo preto semi-transparente para o texto ficar legível
             cv2.rectangle(p_inf, (pos_x_zebra, pos_y_zebra), (pos_x_zebra + 370, pos_y_zebra + 25), (0, 0, 0), -1)
-            cv2.putText(p_inf, "CROP ESTATICO (VERMELHO=ESTOURO / AZUL=CRUSH)", (pos_x_zebra + 5, pos_y_zebra + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+            cv2.putText(p_inf, "ZEBRA (VERMELHO=ALTAS / AZUL=BAIXAS)", (pos_x_zebra + 5, pos_y_zebra + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
         
         # Monta a imagem final (restaurando o vstack)
         dashboard = np.vstack((np.hstack((p_live, p_bin)), p_inf))
