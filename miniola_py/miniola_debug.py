@@ -136,14 +136,13 @@ def painel_controle():
             elif cmd == 'k':
                 foco_atual = max(0.0, round(foco_atual - passo_foco, 2))
                 picam2.set_controls({"LensPosition": foco_atual})
-            # --- NOVO: AUTOFOCO DE TIRO ÚNICO (MÉTODO RADAR) ---
-            # --- NOVO: AUTOFOCO DE TIRO ÚNICO (MÉTODO NATIVO DA PICAMERA2) ---
+            # --- NOVO: AUTOFOCO DE TIRO ÚNICO (MÉTODO NATIVO CORRIGIDO) ---
             elif cmd == 'af':
                 print("[ÓPTICA] Iniciando varredura de Auto Foco nativo (Aguarde...)")
                 try:
-                    # O método .autofocus() é uma função interna que suspende as travas 
-                    # manuais, faz o sweep completo usando o ISP da placa e trava a lente.
-                    picam2.autofocus()
+                    # O método correto é autofocus_cycle(). Ele trava o terminal 
+                    # por alguns segundos enquanto o motor da lente faz a varredura completa.
+                    picam2.autofocus_cycle()
                     
                     # Lê os metadados reais pós-foco
                     metadados = picam2.capture_metadata()
