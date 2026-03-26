@@ -186,7 +186,7 @@ def logica_scanner():
         
         for cnt in contours:
             area = cv2.contourArea(cnt) * 4 
-            if 150 < area < 10000:
+            if 400 < area < 10000:
                 x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
                 if 0.4 < (w_s/h_s) < 2.5:
                     # Coordenadas relativas apenas à ROI
@@ -269,10 +269,41 @@ def generate_dashboard():
         for item in lista_contornos_debug:
             x, y, w, h = item['rect']; cv2.rectangle(p_live, (int(x*sx), int(y*sy)), (int((x+w)*sx), int((y+h)*sy)), item['color'], 2)
         
+        # Preview do binário (redimensionado e convertido para RGB para exibir no dashboard)
         p_bin = np.zeros((420, 640, 3), dtype=np.uint8)
         if ultimo_frame_binario is not None:
             bin_res = cv2.resize(cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB), (240, 420))
             p_bin[0:420, 200:440] = bin_res
+
+        # --- NOVO: GERADOR DE HISTOGRAMA ULTRARRÁPIDO ---
+            # Vamos gerar o histograma da última imagem recortada (Crop) para avaliar a exposição real do fotograma
+            if ultimo_crop_preview is not None and ultimo_crop_preview.size > 0:
+                # 1. Converte o crop para escala de cinza (Luma)
+                gray_crop = cv2.cvtColor(ultimo_crop_preview, cv2.COLOR_RGB2GRAY)
+                # 2. Calcula o Histograma (rápido, via C++)
+                hist = cv2.calcHist([gray_crop], [0], None, [256], [0, 256])
+                # 3. Normaliza os valores para caber na nossa janelinha do dashboard
+                cv2.normalize(hist, hist, 0, 150, cv2.NORM_MINMAX)
+                
+                # 4. Desenha o gráfico na lateral direita do painel binário
+                grafico_h = np.zeros((150, 256, 3), dtype=np.uint8)
+                # Fundo cinza escuro
+                cv2.rectangle(grafico_h, (0, 0), (256, 150), (30, 30, 30), -1)
+                
+                # Desenha as linhas do histograma
+                for x in range(256):
+                    valor_y = int(hist[x][0])
+                    # Quanto mais pra direita (branco), muda a cor do gráfico
+                    cor_linha = (255, 255, 255) if x > 200 else (150, 255, 150)
+                    cv2.line(grafico_h, (x, 150), (x, 150 - valor_y), cor_linha, 1)
+                
+                # Adiciona guias visuais de perigo (0 e 255)
+                cv2.line(grafico_h, (10, 0), (10, 150), (0, 0, 255), 1)   # Esmagamento de Pretos
+                cv2.line(grafico_h, (245, 0), (245, 150), (0, 0, 255), 1) # Estouro de Brancos
+                
+                # Joga o gráfico no canto inferior esquerdo do bloco Binário
+                p_bin[250:400, 10:266] = grafico_h
+            # ------------------------------------------------
             
         p_inf = np.zeros((300, 1280, 3), dtype=np.uint8)
         if ultimo_crop_preview is not None: p_inf[10:290, 440:840] = cv2.resize(ultimo_crop_preview, (400, 280))
