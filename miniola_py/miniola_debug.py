@@ -136,39 +136,39 @@ def painel_controle():
             elif cmd == 'k':
                 foco_atual = max(0.0, round(foco_atual - passo_foco, 2))
                 picam2.set_controls({"LensPosition": foco_atual})
-            # --- NOVO: AUTOFOCO DE TIRO ÚNICO (MÉTODO NATIVO DESTRAVADO) ---
+            # --- NOVO: AUTOFOCO DE TIRO ÚNICO (MODO MACRO / FULL RANGE) ---
             elif cmd == 'af':
-                print("[ÓPTICA] Destravando o motor da lente... (Aguarde)")
+                print("[ÓPTICA] Destravando lente e ativando Modo Macro... (Aguarde)")
                 try:
-                    # 1. Tira a câmera do modo Manual (0) e coloca em Auto (1)
-                    picam2.set_controls({"AfMode": 1})
+                    # 1. AfMode: 1 (Auto). 
+                    # AfRange: 2 (Full). Isso diz ao algoritmo para ignorar o limite de 12.0 
+                    # e empurrar o motor até o limite físico do Macro (perto de 15.0).
+                    picam2.set_controls({"AfMode": 1, "AfRange": 2})
                     
-                    # Dá 0.5 segundos para o ISP processar a mudança de estado e energizar o motor
+                    # Dá 0.5 segundos para o ISP processar e energizar o motor
                     time.sleep(0.5) 
                     
-                    print("[ÓPTICA] Iniciando varredura...")
-                    # 2. Agora sim, com o motor livre, roda o ciclo nativo.
-                    # Ele vai caçar o foco e segurar o código até terminar.
+                    print("[ÓPTICA] Iniciando varredura profunda...")
                     picam2.autofocus_cycle()
                     
-                    # 3. Lê os metadados do exato momento pós-foco
+                    # Lê os metadados do exato momento pós-foco
                     metadados = picam2.capture_metadata()
                     
                     if "LensPosition" in metadados:
                         foco_atual = round(metadados["LensPosition"], 2)
                         
-                        # 4. A MÁGICA FINAL: Tranca a lente de volta no modo Manual (0) 
-                        # E ancora na nova posição para o 'k' e 'l' continuarem funcionando.
-                        picam2.set_controls({"AfMode": 0, "LensPosition": foco_atual})
+                        # 4. Tranca a lente de volta no modo Manual (0) e ancora na nova posição.
+                        # (O AfRange volta para 0 por segurança, já que estamos em manual).
+                        picam2.set_controls({"AfMode": 0, "LensPosition": foco_atual, "AfRange": 0})
                         
-                        print(f"[ÓPTICA] Sucesso! Foco cravado na posição real: {foco_atual}")
+                        print(f"[ÓPTICA] Sucesso! Foco Macro cravado em: {foco_atual}")
                     else:
                         print("[ÓPTICA] Varredura concluída, mas posição não relatada pelo sensor.")
-                        picam2.set_controls({"AfMode": 0}) # Trava por segurança
+                        picam2.set_controls({"AfMode": 0, "AfRange": 0}) 
                         
                 except Exception as e:
                     print(f"[ÓPTICA] Erro no Autofoco nativo: {e}")
-                    picam2.set_controls({"AfMode": 0}) # Trava por segurança
+                    picam2.set_controls({"AfMode": 0, "AfRange": 0}) 
             # -----------------------------------------------------------------
             elif cmd == 'e': 
                 shutter_speed = int(val); picam2.set_controls({"ExposureTime": shutter_speed})
