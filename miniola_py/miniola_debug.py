@@ -185,7 +185,9 @@ def painel_controle():
                 print("[SISTEMA] Fase realinhada! Ciclo forçado para 0/4.")
             elif cmd == 'md':
                 global MODO_DETECCAO
-                MODO_DETECCAO = '1D' if MODO_DETECCAO == '2D' else '2D'
+                if MODO_DETECCAO == '2D': MODO_DETECCAO = '1D'
+                elif MODO_DETECCAO == '1D': MODO_DETECCAO = 'MIX'
+                else: MODO_DETECCAO = '2D'
                 print(f"[SISTEMA] Motor de Visão alterado para: {MODO_DETECCAO}")
             elif cmd == 'r': 
                 frame_count = 0
@@ -319,6 +321,76 @@ def logica_scanner():
                             processar_captura(frame_raw, cx_a, cy_a, frame_count)
                             frame_count += 1
                             contador_perfs_ciclo = 0
+
+        # ==========================================================
+        # MOTOR 3: O HÍBRIDO (RADAR 1D + SNIPER 2D)
+        # ==========================================================
+        elif MODO_DETECCAO == 'MIX':
+            # 1. RADAR 1D: Rastreamento ultrarrápido contínuo (Garante FPS alto)
+            projecao_y = np.sum(binary_small, axis=1)
+            limiar_luz = 255 * 8
+            linhas_claras = np.where(projecao_y > limiar_luz)[0]
+            
+            if len(linhas_claras) > 0:
+                furos_1d = []
+                bloco_atual = [linhas_claras[0]]
+                for i in range(1, len(linhas_claras)):
+                    if linhas_claras[i] - linhas_claras[i-1] <= 3:
+                        bloco_atual.append(linhas_claras[i])
+                    else:
+                        furos_1d.append(bloco_atual)
+                        bloco_atual = [linhas_claras[i]]
+                furos_1d.append(bloco_atual) 
+                
+                furo_alvo = furos_1d[0]
+                y_pico_small = int(np.mean(furo_alvo))
+                y_pico_real_1d = int(y_pico_small / ESCALA_CV)
+                
+                limite_sup = LINHA_GATILHO_Y - MARGEM_GATILHO
+                limite_inf = LINHA_GATILHO_Y + MARGEM_GATILHO
+                
+                # O Radar 1D detectou que o furo cruzou a margem?
+                if limite_sup <= y_pico_real_1d <= limite_inf:
+                    furo_detectado_agora = True
+                    cor_mix = (0, 0, 255)
+                    
+                    # 2. SNIPER 2D: Acorda APENAS neste frame para extrair a geometria estável
+                    contours, _ = cv_find(binary_small, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    
+                    melhor_cy_2d = y_pico_real_1d # Fallback de segurança
+                    melhor_cx_2d = lx + (lw // 2)
+                    
+                    for cnt in contours:
+                        area = cv2.contourArea(cnt) * 4 
+                        if 300 < area < 10000:
+                            x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
+                            if 0.4 < (w_s/h_s) < 2.5:
+                                cy_roi_2d = (y_s * 2) + ((h_s * 2) // 2)
+                                
+                                # Confirma se o contorno 2D é o mesmo buraco que o 1D achou
+                                if abs(cy_roi_2d - y_pico_real_1d) < 30: 
+                                    melhor_cy_2d = cy_roi_2d
+                                    melhor_cx_2d = (x_s * 2) + (w_s * 2 // 2) + lx
+                                    
+                                    # Desenha a caixa geométrica vermelha do 2D
+                                    debug_visual.append({'rect': (x_s*2+lx, y_s*2+ly, w_s*2, h_s*2), 'color': cor_mix})
+                                    break 
+
+                    if not perfuracao_na_linha:
+                        contador_perfs_ciclo += 1
+                        perfuracao_na_linha = True
+                        
+                        if contador_perfs_ciclo >= 4:
+                            # 3. O TIRO: Usa a coordenada matemática estável do 2D para o Crop!
+                            cy_a = ly + melhor_cy_2d
+                            cx_a = melhor_cx_2d
+                            
+                            processar_captura(frame_raw, cx_a, cy_a, frame_count)
+                            frame_count += 1
+                            contador_perfs_ciclo = 0
+                else:
+                    # Fora da zona, usa só a barra verde do 1D (CPU descansa, FPS sobe)
+                    debug_visual.append({'rect': (lx, y_pico_real_1d - 5 + ly, lw, 10), 'color': (0, 255, 0)})
 
         # ==========================================================
         # FECHAMENTO DO GATILHO E UI (Comum aos dois motores)
