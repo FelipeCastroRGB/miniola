@@ -136,30 +136,35 @@ def painel_controle():
             elif cmd == 'k':
                 foco_atual = max(0.0, round(foco_atual - passo_foco, 2))
                 picam2.set_controls({"LensPosition": foco_atual})
-            # --- NOVO: AUTOFOCO DE TIRO ÚNICO COM TRAVA (CORRIGIDO) ---
+            # --- NOVO: AUTOFOCO DE TIRO ÚNICO (MÉTODO RADAR) ---
             elif cmd == 'af':
-                print("[ÓPTICA] Iniciando varredura de Auto Foco (Aguarde...)")
-                # AfMode: 1 (Auto), AfTrigger: 1 (Start)
-                picam2.set_controls({"AfMode": 1, "AfTrigger": 1})
+                print("[ÓPTICA] Iniciando varredura de Auto Foco (Aguarde 3s...)")
                 
-                # Dá 3 segundos para o motor da lente ir e voltar procurando o contraste
+                # AfMode 2 = Continuous AF. Força o motor a caçar o contraste ativamente.
+                picam2.set_controls({"AfMode": 2})
+                
+                # Dá 3 segundos para o motor da lente ir, voltar e estabilizar no grão
                 time.sleep(3) 
                 
-                # AfMode: 0 (Manual). Trava a lente na posição física atual
-                picam2.set_controls({"AfMode": 0})
-                
-                # Extrai os metadados do quadro exato que acabou de ser processado no sensor
-                # Isso garante precisão absoluta sobre a posição física da lente
                 try:
+                    # Lê os metadados do exato momento em que o Continuous AF estabilizou
                     metadados = picam2.capture_metadata()
+                    
                     if "LensPosition" in metadados:
-                        # Atualiza a nossa variável de controle manual para não perdermos a referência
+                        # Salva a nova posição real
                         foco_atual = round(metadados["LensPosition"], 2)
+                        
+                        # A MÁGICA ACONTECE AQUI: Volta para Manual (0) E ancora a lente na nova posição
+                        picam2.set_controls({"AfMode": 0, "LensPosition": foco_atual})
+                        
                         print(f"[ÓPTICA] Foco cravado e travado na posição real: {foco_atual}")
                     else:
-                        print("[ÓPTICA] Autofoco concluído, mas a posição não foi relatada pelos metadados.")
+                        print("[ÓPTICA] Falha: O sensor não relatou a posição da lente.")
+                        picam2.set_controls({"AfMode": 0}) # Trava em manual por segurança
+                        
                 except Exception as e:
-                    print(f"[ÓPTICA] Erro ao ler metadados da lente: {e}")
+                    print(f"[ÓPTICA] Erro na varredura: {e}")
+                    picam2.set_controls({"AfMode": 0})
             # ----------------------------------------------
             elif cmd == 'e': 
                 shutter_speed = int(val); picam2.set_controls({"ExposureTime": shutter_speed})
