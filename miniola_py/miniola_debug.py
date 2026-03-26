@@ -183,7 +183,7 @@ def logica_scanner():
         # Multiplica os valores dos pixels por 1.5 (alpha). 
         # O limite máximo do OpenCV é 255, então o que estourar trava no branco puro.
         # A imagem 'frame_raw' que será salva no HD continua intacta.
-        roi_small = cv2.convertScaleAbs(roi_small, alpha=1.5, beta=0)
+        roi_small = cv2.convertScaleAbs(roi_small, alpha=1.1, beta=0)
         # -----------------------------------------------
 
         _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY) 
