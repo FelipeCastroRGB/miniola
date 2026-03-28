@@ -13,7 +13,8 @@ import threading
 import multiprocessing as mp 
 import time 
 import logging 
-import shutil 
+import shutil
+import os
 
 app = Flask(__name__) # Flask para o Dashboard (Roda no Core 0)
 log = logging.getLogger('werkzeug') # Desativa os logs de requisição do Flask para não poluir o console
