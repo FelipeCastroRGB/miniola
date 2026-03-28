@@ -1,24 +1,21 @@
-import sys # Para manipulação de módulos e ambiente, especialmente para simular módulos de hardware ausentes durante o desenvolvimento em ambientes sem acesso à câmera ou hardware específico (como o PiCamera2), evitando erros de importação e permitindo que o restante do código seja testado e desenvolvido normalmente.
-from unittest.mock import MagicMock # Para simular módulos de hardware ausentes durante o desenvolvimento em ambientes sem acesso à câmera ou hardware específico (como o PiCamera2), evitando erros de importação e permitindo que o restante do código seja testado e desenvolvido normalmente.
-import os # Para manipulação de arquivos, diretórios e leitura de temperatura do sistema
+import sys 
 
 # --- CONFIGURAÇÃO DE AMBIENTE E HARDWARE ---
-sys.modules["pykms"] = MagicMock() # Simula o módulo pykms para evitar erros de importação em ambientes sem acesso ao hardware específico (como o PiCamera2), permitindo que o restante do código seja testado e desenvolvido normalmente. O MagicMock cria um objeto fictício que pode ser importado sem causar falhas, facilitando o desenvolvimento e testes em máquinas de desenvolvimento comuns antes de implantar no hardware real.
-sys.modules["kms"] = MagicMock() # O módulo "kms" é uma dependência do "pykms" e também é simulado para garantir que qualquer importação ou uso relacionado a ele não cause erros, permitindo que o código seja executado em ambientes de desenvolvimento sem acesso ao hardware específico (como o PiCamera2). Isso é especialmente útil para testar a lógica de processamento de imagem e a interface do usuário sem precisar do hardware real durante as fases iniciais de desenvolvimento.
+sys.modules["pykms"] = MagicMock() 
 
 from flask import Flask, Response 
 from picamera2 import Picamera2 
-import cv2 # OpenCV para processamento de imagem e visualização (Roda no Core 1, isolado do processo de gravação)
-import numpy as np # Para manipulação de arrays e cálculos (Roda no Core 1 junto com o OpenCV)
-import threading # PARA O PAINEL DE CONTROLE E LÓGICA DE SCANNER RODAREM EM THREADS SEPARADAS E NÃO BLOQUEAREM O FLASK
-import multiprocessing as mp # MULTIPROCESSAMENTO
-import time # PARA MEDIR TEMPO DE PROCESSAMENTO E CONTROLAR O PAINEL DE CONTROLE
-import logging # PARA GERENCIAR LOGS DO FLASK E MANTER O CONSOLE LIMPO
-import shutil # Para verificar o uso do disco e espaço livre
+import cv2 
+import numpy as np 
+import threading 
+import multiprocessing as mp 
+import time 
+import logging 
+import shutil 
 
 app = Flask(__name__) # Flask para o Dashboard (Roda no Core 0)
 log = logging.getLogger('werkzeug') # Desativa os logs de requisição do Flask para não poluir o console
-log.setLevel(logging.ERROR) # Apenas erros críticos serão exibidos, mantendo o console limpo para mensagens do sistema e do painel de controle.
+log.setLevel(logging.ERROR) 
 
 CAPTURE_PATH = "capturas"
 if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
@@ -43,8 +40,8 @@ THRESH_VAL = 239 # Valor do threshold para binarização
 MODO_DETECCAO = '2D'  # Inicia com o findContours que já está funcionando
 
 # --- PARÂMETROS DO CROP ---
-OFFSET_X = 470 # Deslocamento X do centro global em relação ao centro da ROI (ajuste fino para alinhar o crop com a posição real dos furos)
-CROP_W, CROP_H = 918, 612 # Tamanho do crop final (ajustado para capturar a área do fotograma)
+OFFSET_X = 470 
+CROP_W, CROP_H = 918, 612 
 
 contador_perfs_ciclo = 0
 frame_count = 0
@@ -276,12 +273,26 @@ def logica_scanner():
                     perfuracao_na_linha = True
                     
                     if contador_perfs_ciclo >= 4:
-                        # O SEGREDO DA ESTABILIDADE: A Média Espacial de múltiplos furos
+                        # --- O SEGREDO DA ESTABILIDADE: O PITCH DINÂMICO ---
                         qtd = min(4, len(furos_validos))
                         pts = furos_validos[0:qtd]
                         
+                        # EIXO X: Continua na média de todos para suavizar o Gate Weave horizontal
                         cx_a = int(sum(p['cx_g'] for p in pts) / qtd)
-                        cy_a = int(sum(p['cy_g'] for p in pts) / qtd)
+                        
+                        # EIXO Y: Cálculo geométrico para evitar o pulo quando 'qtd' for menor que 4
+                        if qtd > 1:
+                            # 1. Mede a distância (Pitch) entre os furos visíveis (compensa encolhimento)
+                            soma_pitch = 0
+                            for i in range(1, qtd):
+                                soma_pitch += (pts[i]['cy_g'] - pts[i-1]['cy_g'])
+                            pitch_medio = soma_pitch / (qtd - 1)
+                            
+                            # 2. Ancora no Furo 0 e projeta o centro exato do fotograma de 35mm (1.5x o Pitch)
+                            cy_a = int(pts[0]['cy_g'] + (1.5 * pitch_medio))
+                        else:
+                            # Fallback raro (se vir só 1 furo, usa o último pitch conhecido ou estático)
+                            cy_a = int(pts[0]['cy_g'] + 150) # Ajuste o 150 se necessário para sua ROI
                         
                         processar_captura(frame_raw, cx_a, cy_a, frame_count)
                         frame_count += 1
