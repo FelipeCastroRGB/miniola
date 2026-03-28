@@ -276,26 +276,31 @@ def logica_scanner():
                     perfuracao_na_linha = True
                     
                     if contador_perfs_ciclo >= 4:
-                        # --- O SEGREDO DA ESTABILIDADE: O PITCH DINÂMICO ---
+                        # --- O SEGREDO DA ESTABILIDADE 2.0: PROJEÇÃO MULTI-PONTO PURA (SEM EMA) ---
                         qtd = min(4, len(furos_validos))
                         pts = furos_validos[0:qtd]
                         
-                        # EIXO X: Continua na média de todos para suavizar o Gate Weave horizontal
+                        # EIXO X: Média clássica para amortecer o Gate Weave horizontal
                         cx_a = int(sum(p['cx_g'] for p in pts) / qtd)
                         
-                        # EIXO Y: Cálculo geométrico para evitar o pulo quando 'qtd' for menor que 4
                         if qtd > 1:
-                            # 1. Mede a distância (Pitch) entre os furos visíveis (compensa encolhimento)
+                            # 1. Mede o Pitch instantâneo (Apenas com os furos na tela agora)
                             soma_pitch = 0
                             for i in range(1, qtd):
                                 soma_pitch += (pts[i]['cy_g'] - pts[i-1]['cy_g'])
-                            pitch_medio = soma_pitch / (qtd - 1)
+                            pitch_instantaneo = soma_pitch / (qtd - 1)
                             
-                            # 2. Ancora no Furo 0 e projeta o centro exato do fotograma de 35mm (1.5x o Pitch)
-                            cy_a = int(pts[0]['cy_g'] + (1.5 * pitch_medio))
+                            # 2. Projeção Virtual: Cada furo projeta o centro e tiramos a média geral
+                            # Isso mata o pulo de 3 para 4 furos, ancorando o centro de forma geométrica.
+                            soma_centros_y = 0
+                            for i in range(qtd):
+                                multiplicador = 1.5 - i # Gera a escala matemática: 1.5, 0.5, -0.5, -1.5 
+                                soma_centros_y += (pts[i]['cy_g'] + (multiplicador * pitch_instantaneo))
+                                
+                            cy_a = int(soma_centros_y / qtd)
                         else:
-                            # Fallback raro (se vir só 1 furo, usa o último pitch conhecido ou estático)
-                            cy_a = int(pts[0]['cy_g'] + 150) # Ajuste o 150 se necessário para sua ROI
+                            # Fallback ultra raro (se a câmera piscar e só ver 1 furo)
+                            cy_a = int(pts[0]['cy_g'] + 150) 
                         
                         processar_captura(frame_raw, cx_a, cy_a, frame_count)
                         frame_count += 1
