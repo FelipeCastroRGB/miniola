@@ -1,7 +1,9 @@
 import sys 
+from unittest.mock import MagicMock
 
 # --- CONFIGURAÇÃO DE AMBIENTE E HARDWARE ---
-sys.modules["pykms"] = MagicMock() 
+sys.modules["pykms"] = MagicMock()
+sys.modules["kms"] = MagicMock()
 
 from flask import Flask, Response 
 from picamera2 import Picamera2 
