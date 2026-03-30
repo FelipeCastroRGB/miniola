@@ -591,7 +591,7 @@ def calibrar():
 @app.route('/')
 def index():
     return """
-    <html><body style='background:#0a0a0a; color:#eee; font-family:monospace; margin:0;'>
+    <html><body style='background:#0a0a0a; color:#eee; font-family:monospace; margin:0; overflow-x:hidden;'>
         
         <div style='display:flex; background:#111; padding:10px; border-bottom:1px solid #333; justify-content:space-around; font-size:16px;'>
             <span id='m'>--</span> | 
@@ -608,10 +608,16 @@ def index():
             <span><b>PRESERVAÇÃO:</b> SHRINKAGE: <b id='v_shrink' style='color:#f0f; font-size:14px;'>0.0%</b></span>
         </div>
 
-        <div style='display:flex; height:88vh; position:relative;'>
-            <div id='dashboard_container' style='position:relative; display:inline-block;'>
-                <img id='video_img' src="/video_feed" style="display:block; max-height:88vh; object-fit:contain;">
-                <canvas id="paquimetro" style="position:absolute; top:0; left:0; pointer-events:none; display:none;"></canvas>
+        <div style='display:flex; height:88vh; width:100vw;'>
+            <div style='flex:7; position:relative; background:#000; display:flex; justify-content:center; align-items:center;' id='video_container'>
+                <div id='canvas_wrapper' style='position:relative; display:inline-block;'>
+                    <img id='video_img' src="/video_feed" style="max-width:100%; max-height:88vh; display:block;">
+                    <canvas id="paquimetro" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:10; pointer-events:none;"></canvas>
+                </div>
+            </div>
+            
+            <div style='flex:3; background:#050505; border-left:1px solid #333; display:flex; align-items:center;'>
+                <img src="/preview_feed" style="width:100%; border:1px solid #0f0;">
             </div>
         </div>
         
@@ -619,21 +625,21 @@ def index():
             const canvas = document.getElementById('paquimetro');
             const ctx = canvas.getContext('2d');
             const videoImg = document.getElementById('video_img');
-            const dashboardContainer = document.getElementById('dashboard_container');
+            const wrapper = document.getElementById('canvas_wrapper');
             
             let isDrawing = false;
             let startX, startY;
             let modoCalibracao = false;
 
-            // Garante que o canvas tem o mesmo tamanho exato da imagem sendo exibida
             function syncCanvasSize() {
+                // Sincroniza a resolução matemática do canvas com o tamanho físico da imagem na tela do seu navegador
                 canvas.width = videoImg.clientWidth;
                 canvas.height = videoImg.clientHeight;
             }
             window.addEventListener('resize', syncCanvasSize);
             videoImg.addEventListener('load', syncCanvasSize);
 
-            // Atualização contínua de status
+            // Atualização contínua de status via Flask
             setInterval(() => {
                 fetch('/status').then(r => r.json()).then(d => {
                     const m = document.getElementById('m'); m.innerText = d.rec; m.style.color = d.cor;
@@ -650,83 +656,25 @@ def index():
                     
                     if(d.shrink) document.getElementById('v_shrink').innerText = d.shrink;
 
-                    // Lógica de Travar/Destravar o Canvas
+                    // Gatilho do Terminal: Libera a tela para o clique
                     if (d.calibrando && !modoCalibracao) {
                         modoCalibracao = true;
-                        syncCanvasSize(); // Garante o tamanho antes de habilitar
-                        canvas.style.display = 'block';
-                        canvas.style.pointerEvents = 'auto';
+                        syncCanvasSize();
+                        canvas.style.pointerEvents = 'auto'; // Habilita o clique
                         canvas.style.cursor = 'crosshair';
-                        dashboardContainer.style.outline = '4px solid #f90'; 
+                        wrapper.style.outline = '4px solid #f90'; // Borda laranja
                     } else if (!d.calibrando && modoCalibracao) {
                         modoCalibracao = false;
-                        canvas.style.display = 'none';
-                        canvas.style.pointerEvents = 'none';
-                        dashboardContainer.style.outline = 'none';
+                        canvas.style.pointerEvents = 'none'; // Trava o clique
+                        wrapper.style.outline = 'none';
                         ctx.clearRect(0, 0, canvas.width, canvas.height);
                     }
                 });
             }, 250);
 
-            // Desenho da Linha
+            // Ações de Desenho do Mouse
             canvas.addEventListener('mousedown', (e) => {
-                isDrawing = true;
-                const rect = canvas.getBoundingClientRect();
-                startX = e.clientX - rect.left;
-                startY = e.clientY - rect.top;
-            });
-
-            canvas.addEventListener('mousemove', (e) => {
-                if(!isDrawing) return;
-                const rect = canvas.getBoundingClientRect();
-                const currentX = e.clientX - rect.left;
-                const currentY = e.clientY - rect.top;
-                
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.beginPath();
-                ctx.moveTo(startX, startY);
-                ctx.lineTo(currentX, currentY);
-                ctx.strokeStyle = '#00ff00'; // Linha verde neon
-                ctx.lineWidth = 3;
-                ctx.stroke();
-            });
-
-            canvas.addEventListener('mouseup', (e) => {
-                if(!isDrawing) return;
-                isDrawing = false;
-                const rect = canvas.getBoundingClientRect();
-                const endX = e.clientX - rect.left;
-                const endY = e.clientY - rect.top;
-
-                // --- MATEMÁTICA REVERSA CORRIGIDA ---
-                const ratioX = 1280 / canvas.width;
-                const ratioY = 720 / canvas.height;
-                
-                const distX_mosaico = Math.abs(endX - startX) * ratioX;
-                const distY_mosaico = Math.abs(endY - startY) * ratioY;
-                
-                const escalaReversaX = 1080 / 640;
-                const escalaReversaY = 720 / 420;
-                
-                const distX_camera = distX_mosaico * escalaReversaX;
-                const distY_camera = distY_mosaico * escalaReversaY;
-                
-                const distRealPixels = Math.sqrt(Math.pow(distX_camera, 2) + Math.pow(distY_camera, 2));
-
-                const mm = prompt("Linha aferida. Qual é a medida física real em milímetros? (Para o pitch de 35mm, use 4.74)");
-                
-                if (mm && !isNaN(mm) && mm > 0) {
-                    fetch(`/calibrar?px=${distRealPixels}&mm=${mm}`).then(() => {
-                        ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    });
-                } else {
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                }
-            });
-            }, 250);
-
-            // Ações do Mouse (Só funcionam se o pointerEvents estiver 'auto')
-            canvas.addEventListener('mousedown', (e) => {
+                if(!modoCalibracao) return;
                 isDrawing = true;
                 const rect = canvas.getBoundingClientRect();
                 startX = e.clientX - rect.left;
@@ -755,15 +703,24 @@ def index():
                 const endX = e.clientX - rect.left;
                 const endY = e.clientY - rect.top;
 
-                // Escala a distância da tela para a resolução real do painel do mosaico
-                const proporcaoX = (1280 / canvas.width) * (1080 / 640);
-                const proporcaoY = (720 / canvas.height) * (720 / 420);
+                // 1. O painel completo de mosaico gerado no Python tem 1280x720.
+                const ratioX = 1280 / canvas.width;
+                const ratioY = 720 / canvas.height;
                 
-                const rawDistX = Math.abs(endX - startX) * proporcaoX;
-                const rawDistY = Math.abs(endY - startY) * proporcaoY;
-                const distRealPixels = Math.sqrt(Math.pow(rawDistX, 2) + Math.pow(rawDistY, 2));
+                const distX_mosaico = Math.abs(endX - startX) * ratioX;
+                const distY_mosaico = Math.abs(endY - startY) * ratioY;
+                
+                // 2. O Live View Colorido (onde você deve desenhar) ocupa um bloco de 640x420,
+                // que é um redimensionamento do sensor original de 1080x720.
+                const escalaReversaX = 1080 / 640;
+                const escalaReversaY = 720 / 420;
+                
+                const distX_camera = distX_mosaico * escalaReversaX;
+                const distY_camera = distY_mosaico * escalaReversaY;
+                
+                const distRealPixels = Math.sqrt(Math.pow(distX_camera, 2) + Math.pow(distY_camera, 2));
 
-                const mm = prompt("Linha registrada! Qual é o tamanho físico dessa distância em milímetros? (ex: 4.74 para pitch do 35mm)");
+                const mm = prompt("Linha aferida! Qual a medida real em milímetros? (Pitch 35mm = 4.74)");
                 
                 if (mm && !isNaN(mm) && mm > 0) {
                     fetch(`/calibrar?px=${distRealPixels}&mm=${mm}`).then(() => {
