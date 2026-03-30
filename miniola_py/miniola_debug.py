@@ -611,9 +611,10 @@ def index():
             TEMP: <b id='t_cpu' style='color:#f90'>0.0 °C</b>
         </div>
         
-        <div style='display:flex; background:#1a1a1a; padding:6px 10px; border-bottom:1px solid #444; justify-content:space-between; font-size:12px; color:#aaa;'>
-            <span><b>ÓPTICA:</b> Foco <span id='v_foco'>-</span> | Exp <span id='v_exp'>-</span> | Gain <span id='v_gain'>-</span></span>
-            <span><b>GEOMETRIA:</b> CROP(W:<span id='v_cw'>-</span> H:<span id='v_ch'>-</span>) | OX:<span id='v_ox'>-</span></span>
+<div style='display:flex; background:#1a1a1a; padding:6px 10px; border-bottom:1px solid #444; justify-content:space-between; font-size:12px; color:#aaa;'>
+            <span><b>ÓPTICA:</b> Foco <span id='v_foco' style='color:#fff'>-</span> | Exp <span id='v_exp' style='color:#fff'>-</span> | Gain <span id='v_gain' style='color:#fff'>-</span> | FPS Cam <span id='v_fpscam' style='color:#fff'>-</span></span>
+            <span><b>VISÃO:</b> Thresh <span id='v_thresh' style='color:#fff'>-</span> | Gatilho:<span id='v_gatilho' style='color:#fff'>-</span> &plusmn;<span id='v_margem' style='color:#fff'>-</span></span>
+            <span><b>GEOMETRIA:</b> CROP(W:<span id='v_cw' style='color:#fff'>-</span> H:<span id='v_ch' style='color:#fff'>-</span>) | OX:<span id='v_ox' style='color:#fff'>-</span></span>
             <span><b>PRESERVAÇÃO:</b> SHRINKAGE: <b id='v_shrink' style='color:#f0f; font-size:14px;'>0.0%</b></span>
         </div>
 
@@ -651,6 +652,7 @@ def index():
             // Atualização contínua de status via Flask
             setInterval(() => {
                 fetch('/status').then(r => r.json()).then(d => {
+// --- ATUALIZAÇÕES DO PAINEL SUPERIOR ---
                     const m = document.getElementById('m'); m.innerText = d.rec; m.style.color = d.cor;
                     document.getElementById('c').innerText = d.ciclo; 
                     document.getElementById('f').innerText = d.total;
@@ -659,9 +661,19 @@ def index():
                     document.getElementById('fps_proc').innerText = d.fps_proc; 
                     document.getElementById('t_cpu').innerText = d.temp; 
                     
+                    // --- ATUALIZAÇÕES DA BARRA INFERIOR DE TELEMETRIA ---
                     document.getElementById('v_foco').innerText = d.foco;
+                    document.getElementById('v_exp').innerText = d.exp;
+                    document.getElementById('v_gain').innerText = d.gain;
+                    document.getElementById('v_fpscam').innerText = d.fps_cam;
+                    
+                    document.getElementById('v_thresh').innerText = d.thresh;
+                    document.getElementById('v_gatilho').innerText = d.gatilho_y;
+                    document.getElementById('v_margem').innerText = d.margem;
+                    
                     document.getElementById('v_cw').innerText = d.crop_w;
                     document.getElementById('v_ch').innerText = d.crop_h;
+                    document.getElementById('v_ox').innerText = d.ox;
                     
                     if(d.shrink) document.getElementById('v_shrink').innerText = d.shrink;
 
