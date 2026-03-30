@@ -488,6 +488,78 @@ def calibrar():
         CALIBRANDO = False
         return f"Erro: {e}"
 
+# --- ROTA DA API PARA OS BOTÕES TOUCH ---
+@app.route('/api/comando', methods=['POST'])
+def api_comando():
+    global GRAVANDO, foco_atual, passo_foco, shutter_speed, gain, fps_cam, THRESH_VAL
+    global ROI_X, ROI_Y, ROI_W, ROI_H, CROP_W, CROP_H, OFFSET_X, LINHA_GATILHO_Y, MARGEM_GATILHO
+    global PITCH_PADRAO_PX, ultimo_pitch_medio, contador_perfs_ciclo, frame_count
+    
+    try:
+        dados = request.get_json()
+        cmd = dados.get('cmd')
+        val = float(dados.get('val', 0.0))
+
+        # --- AÇÕES DE SISTEMA ---
+        if cmd == 'rec': GRAVANDO = not GRAVANDO
+        elif cmd == 'rc': contador_perfs_ciclo = 0
+        elif cmd == 'r': 
+            frame_count = 0
+            for f in os.listdir(CAPTURE_PATH): os.remove(os.path.join(CAPTURE_PATH, f))
+        elif cmd == 'off': os.system("sudo poweroff")
+        
+        # --- ÓPTICA ---
+        elif cmd == 'foco': 
+            foco_atual = val; picam2.set_controls({"LensPosition": foco_atual})
+        elif cmd == 'exp': 
+            shutter_speed = int(val); picam2.set_controls({"ExposureTime": shutter_speed})
+        elif cmd == 'gain': 
+            gain = val; picam2.set_controls({"AnalogueGain": gain})
+        elif cmd == 'fps': 
+            fps_cam = int(val); picam2.set_controls({"FrameRate": fps_cam})
+        elif cmd == 'af':
+            # Motor de Autofoco Macro Nativo
+            picam2.set_controls({"AfMode": 1, "AfRange": 2})
+            time.sleep(0.5)
+            picam2.autofocus_cycle()
+            metadados = picam2.capture_metadata()
+            if "LensPosition" in metadados:
+                foco_atual = round(metadados["LensPosition"], 2)
+                picam2.set_controls({"AfMode": 0, "LensPosition": foco_atual, "AfRange": 0})
+        
+        # --- VISÃO E GATILHO ---
+        elif cmd == 'thresh': THRESH_VAL = int(val)
+        elif cmd == 'ly': LINHA_GATILHO_Y = int(val)
+        elif cmd == 'mg': MARGEM_GATILHO = int(val)
+        
+        # --- GEOMETRIA E CROP ---
+        elif cmd == 'ox': OFFSET_X = int(val)
+        elif cmd == 'rx': ROI_X = int(val)
+        elif cmd == 'ry': ROI_Y = int(val)
+        elif cmd == 'rw': ROI_W = int(val)
+        elif cmd == 'rh': ROI_H = int(val)
+        elif cmd == 'cw': CROP_W = int(val)
+        elif cmd == 'ch': CROP_H = int(val)
+        
+        # --- JOYSTICK DA ROI ---
+        elif cmd == 'w': ROI_Y = max(0, ROI_Y - 5)
+        elif cmd == 's': ROI_Y = min(720 - ROI_H, ROI_Y + 5)
+        elif cmd == 'a': ROI_X = max(0, ROI_X - 5)
+        elif cmd == 'd': ROI_X = min(1080 - ROI_W, ROI_X + 5)
+        
+        # --- METROLOGIA ---
+        elif cmd == 'setcal':
+            if ultimo_pitch_medio > 0:
+                fator_escala = 1.0 - (val / 100.0)
+                PITCH_PADRAO_PX = ultimo_pitch_medio / fator_escala
+                return {"status": "ok", "msg": f"Calibrado para {val}%"}
+            else:
+                return {"status": "erro", "msg": "Aguarde o filme rodar primeiro."}
+        
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "erro", "msg": str(e)}
+
 @app.route('/')
 def index():
     return """
@@ -502,11 +574,67 @@ def index():
             TEMP: <b id='t_cpu' style='color:#f90'>0.0 °C</b>
         </div>
         
-<div style='display:flex; background:#1a1a1a; padding:6px 10px; border-bottom:1px solid #444; justify-content:space-between; font-size:12px; color:#aaa;'>
+        <div style='display:flex; background:#1a1a1a; padding:6px 10px; border-bottom:1px solid #444; justify-content:space-between; font-size:12px; color:#aaa;'>
             <span><b>ÓPTICA:</b> Foco <span id='v_foco' style='color:#fff'>-</span> | Exp <span id='v_exp' style='color:#fff'>-</span> | Gain <span id='v_gain' style='color:#fff'>-</span> | FPS Cam <span id='v_fpscam' style='color:#fff'>-</span></span>
             <span><b>VISÃO:</b> Thresh <span id='v_thresh' style='color:#fff'>-</span> | Gatilho:<span id='v_gatilho' style='color:#fff'>-</span> &plusmn;<span id='v_margem' style='color:#fff'>-</span></span>
             <span><b>GEOMETRIA:</b> CROP(W:<span id='v_cw' style='color:#fff'>-</span> H:<span id='v_ch' style='color:#fff'>-</span>) | OX:<span id='v_ox' style='color:#fff'>-</span></span>
             <span><b>PRESERVAÇÃO</b> ENCOLHIMENTO: <b id='v_shrink' style='color:#f0f; font-size:14px;'>0.0%</b></span>
+        </div>
+
+        <div style='background:#1a1a1a; padding:10px; display:flex; flex-wrap:wrap; gap:10px; justify-content:space-around; border-bottom:1px solid #444; font-size:11px;'>
+            
+            <div style='background:#222; padding:8px; border-radius:5px; border:1px solid #333;'>
+                <b style='color:#aaa; display:block; margin-bottom:5px;'>SISTEMA & METROLOGIA</b>
+                <div style='display:flex; gap:5px; margin-bottom:5px;'>
+                    <button onclick="enviarCmd('rec')" style='background:#d00; color:#fff; border:none; padding:6px 12px; font-weight:bold; cursor:pointer; border-radius:3px;'>REC/STOP</button>
+                    <button onclick="enviarCmd('rc')" style='background:#444; color:#fff; border:none; padding:6px; cursor:pointer; border-radius:3px;'>Realinhar Ciclo</button>
+                    <button onclick="enviarCmd('r')" style='background:#444; color:#fff; border:none; padding:6px; cursor:pointer; border-radius:3px;'>Limpar RAM</button>
+                    <button onclick="if(confirm('Desligar a Miniola?')) enviarCmd('off')" style='background:#600; color:#fff; border:none; padding:6px; cursor:pointer; border-radius:3px;'>OFF</button>
+                </div>
+                <div style='display:flex; gap:5px;'>
+                    <input type="number" id="in_setcal" step="0.1" placeholder="Ref %" style="width:60px; background:#111; color:#0f0; border:1px solid #555; text-align:center;">
+                    <button onclick="enviarInput('setcal', 'in_setcal')" style='background:#0055ff; color:#fff; border:none; padding:6px; cursor:pointer; border-radius:3px;'>SETCAL (Dinâmico)</button>
+                </div>
+            </div>
+
+            <div style='background:#222; padding:8px; border-radius:5px; border:1px solid #333;'>
+                <b style='color:#aaa; display:block; margin-bottom:5px;'>ÓPTICA (Lente & Sensor)</b>
+                <div style='display:grid; grid-template-columns: 1fr 1fr; gap:5px;'>
+                    <div><input type="number" id="in_foco" step="0.1" placeholder="Foco" style="width:50px; background:#111; color:#fff; border:1px solid #555;"> <button onclick="enviarInput('foco', 'in_foco')">Set</button></div>
+                    <div><input type="number" id="in_exp" placeholder="Exp(us)" style="width:50px; background:#111; color:#fff; border:1px solid #555;"> <button onclick="enviarInput('exp', 'in_exp')">Set</button></div>
+                    <div><input type="number" id="in_gain" step="0.1" placeholder="Gain" style="width:50px; background:#111; color:#fff; border:1px solid #555;"> <button onclick="enviarInput('gain', 'in_gain')">Set</button></div>
+                    <div><input type="number" id="in_fps" placeholder="FPS" style="width:50px; background:#111; color:#fff; border:1px solid #555;"> <button onclick="enviarInput('fps', 'in_fps')">Set</button></div>
+                </div>
+                <button onclick="enviarCmd('af')" style='width:100%; margin-top:5px; background:#880; color:#fff; border:none; padding:4px; cursor:pointer; border-radius:3px;'>AUTO-FOCO MACRO</button>
+            </div>
+
+            <div style='background:#222; padding:8px; border-radius:5px; border:1px solid #333;'>
+                <b style='color:#aaa; display:block; margin-bottom:5px;'>VISÃO & GATILHO</b>
+                <div style='display:grid; grid-template-columns: 1fr; gap:5px;'>
+                    <div><input type="number" id="in_thresh" placeholder="Thresh" style="width:50px; background:#111; color:#fff; border:1px solid #555;"> <button onclick="enviarInput('thresh', 'in_thresh')">Thresh</button></div>
+                    <div><input type="number" id="in_ly" placeholder="Linha Y" style="width:50px; background:#111; color:#fff; border:1px solid #555;"> <button onclick="enviarInput('ly', 'in_ly')">Linha Y</button></div>
+                    <div><input type="number" id="in_mg" placeholder="Margem" style="width:50px; background:#111; color:#fff; border:1px solid #555;"> <button onclick="enviarInput('mg', 'in_mg')">Margem</button></div>
+                </div>
+            </div>
+
+            <div style='background:#222; padding:8px; border-radius:5px; border:1px solid #333; display:flex; gap:10px;'>
+                <div>
+                    <b style='color:#aaa; display:block; margin-bottom:5px;'>CROP E OFFSET</b>
+                    <div style='display:grid; grid-template-columns: 1fr; gap:5px;'>
+                        <div><input type="number" id="in_cw" placeholder="Crop W" style="width:50px; background:#111; color:#fff; border:1px solid #555;"> <button onclick="enviarInput('cw', 'in_cw')">W</button></div>
+                        <div><input type="number" id="in_ch" placeholder="Crop H" style="width:50px; background:#111; color:#fff; border:1px solid #555;"> <button onclick="enviarInput('ch', 'in_ch')">H</button></div>
+                        <div><input type="number" id="in_ox" placeholder="Offset X" style="width:50px; background:#111; color:#fff; border:1px solid #555;"> <button onclick="enviarInput('ox', 'in_ox')">OX</button></div>
+                    </div>
+                </div>
+                <div>
+                    <b style='color:#aaa; display:block; margin-bottom:5px;'>MOVER ROI</b>
+                    <div style='display:grid; grid-template-columns: 30px 30px 30px; gap:2px; text-align:center;'>
+                        <span></span><button onclick="enviarCmd('w')">W</button><span></span>
+                        <button onclick="enviarCmd('a')">A</button><button onclick="enviarCmd('s')">S</button><button onclick="enviarCmd('d')">D</button>
+                    </div>
+                </div>
+            </div>
+
         </div>
 
         <div style='display:flex; height:88vh; width:100vw;'>
@@ -537,13 +665,31 @@ def index():
                 canvas.width = videoImg.clientWidth;
                 canvas.height = videoImg.clientHeight;
             }
+
+            // --- FUNÇÕES DA API DO PAINEL ---
+            function enviarCmd(comando, valor=0) {
+                fetch('/api/comando', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cmd: comando, val: valor })
+                }).then(r => r.json()).then(res => {
+                    if(res.status === 'erro') alert("Erro no sistema: " + res.msg);
+                    else if(res.msg) alert(res.msg); // Mensagens de sucesso como Setcal
+                });
+            }
+
+            function enviarInput(comando, id_campo) {
+                let valor = document.getElementById(id_campo).value;
+                if(valor !== "") enviarCmd(comando, parseFloat(valor));
+            }
+            
             window.addEventListener('resize', syncCanvasSize);
             videoImg.addEventListener('load', syncCanvasSize);
 
             // Atualização contínua de status via Flask
             setInterval(() => {
                 fetch('/status').then(r => r.json()).then(d => {
-// --- ATUALIZAÇÕES DO PAINEL SUPERIOR ---
+                // --- ATUALIZAÇÕES DO PAINEL SUPERIOR ---
                     const m = document.getElementById('m'); m.innerText = d.rec; m.style.color = d.cor;
                     document.getElementById('c').innerText = d.ciclo; 
                     document.getElementById('f').innerText = d.total;
