@@ -21,55 +21,7 @@ log = logging.getLogger('werkzeug') # Desativa os logs de requisição do Flask 
 log.setLevel(logging.ERROR) 
 
 CAPTURE_PATH = "capturas"
-CAPTURE_EXT = ".jpg"
 if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
-
-_preview_cache = {"timestamp": 0.0, "files": []}
-_status_cache = {"timestamp": 0.0, "files": 0, "free_mb": 0.0}
-
-
-def list_recent_capture_files(limit=120, refresh_interval=0.5):
-    now = time.monotonic()
-    if now - _preview_cache["timestamp"] >= refresh_interval:
-        files = sorted(
-            (
-                entry.path
-                for entry in os.scandir(CAPTURE_PATH)
-                if entry.is_file() and entry.name.endswith(CAPTURE_EXT)
-            )
-        )
-        _preview_cache["files"] = files[-limit:]
-        _preview_cache["timestamp"] = now
-    return list(_preview_cache["files"])
-
-
-def clear_capture_dir():
-    removed = 0
-    for entry in os.scandir(CAPTURE_PATH):
-        if entry.is_file() and entry.name.endswith(CAPTURE_EXT):
-            os.remove(entry.path)
-            removed += 1
-    _preview_cache["files"] = []
-    _preview_cache["timestamp"] = 0.0
-    _status_cache["timestamp"] = 0.0
-    _status_cache["files"] = 0
-    return removed
-
-
-def get_cached_capture_stats(refresh_interval=1.5):
-    now = time.monotonic()
-    if now - _status_cache["timestamp"] >= refresh_interval:
-        total_arquivos = 0
-        for entry in os.scandir(CAPTURE_PATH):
-            if entry.is_file() and entry.name.endswith(CAPTURE_EXT):
-                total_arquivos += 1
-
-        uso_disco = shutil.disk_usage(CAPTURE_PATH)
-        _status_cache["timestamp"] = now
-        _status_cache["files"] = total_arquivos
-        _status_cache["free_mb"] = uso_disco.free / (1024 * 1024)
-
-    return _status_cache["files"], _status_cache["free_mb"]
 
 picam2 = Picamera2()
 shutter_speed, gain, fps_cam = 600, 1.0, 70
@@ -258,8 +210,8 @@ def painel_controle():
                 print("[SISTEMA] Fase realinhada! Ciclo forçado para 0/4.")
             elif cmd == 'r': 
                 frame_count = 0
-                removidos = clear_capture_dir()
-                print(f"RAM DRIVE LIMPO ({removidos} arquivos).")
+                for f in os.listdir(CAPTURE_PATH): os.remove(os.path.join(CAPTURE_PATH, f))
+                print("RAM DRIVE LIMPO.")
         except Exception as e: print(f"Erro: {e}")
 
 # --- LÓGICA DO SCANNER OTIMIZADA (MOTORES ISOLADOS) ---
@@ -298,88 +250,97 @@ def logica_scanner():
         perfs_neste_frame = []
         debug_visual = []
         furo_detectado_agora = False
-        contours, _ = cv_find(binary_small, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-        
-        limite_superior = LINHA_GATILHO_Y - MARGEM_GATILHO
-        limite_inferior = LINHA_GATILHO_Y + MARGEM_GATILHO
-        
-        # Voltamos a guardar todos os furos válidos do frame para fazer a média
-        furos_validos = []
-        
-        for cnt in contours:
-            x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
-            
-            # Cálculo rápido de área para não pesar a CPU
-            area_aprox = (w_s * h_s) * 4 
-            
-            if 200 < area_aprox < 10000 and 0.2 < (w_s / h_s) < 2.5:
-                cy_roi = (y_s * 2) + ((h_s * 2) // 2)
-                cx_global = (x_s * 2) + (w_s * 2 // 2) + lx
-                cy_global = cy_roi + ly
-                
-                acionou = limite_superior <= cy_roi <= limite_inferior
-                cor = (0, 0, 255) if acionou else (0, 255, 0)
-                
-                furos_validos.append({
-                    'cy_roi': cy_roi, 
-                    'cx_g': cx_global, 
-                    'cy_g': cy_global, 
-                    'acionou': acionou
-                })
-                
-                debug_visual.append({'rect': (x_s*2+lx, y_s*2+ly, w_s*2, h_s*2), 'color': cor})
 
-        # Ordena os furos de cima para baixo
-        furos_validos.sort(key=lambda p: p['cy_roi'])
-        
-        if furos_validos and furos_validos[0]['acionou']:
-            furo_detectado_agora = True
-            if not perfuracao_na_linha:
-                contador_perfs_ciclo += 1
-                perfuracao_na_linha = True
+        # ==========================================================
+        # MOTOR 1: 2D - FINDCONTOURS (VELOCIDADE + ESTABILIDADE MULTI-FURO)
+        # ==========================================================
+        if MODO_DETECCAO == '2D':
+            # RETR_LIST continua aqui para garantir FPS alto
+            contours, _ = cv_find(binary_small, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+            
+            limite_superior = LINHA_GATILHO_Y - MARGEM_GATILHO
+            limite_inferior = LINHA_GATILHO_Y + MARGEM_GATILHO
+            
+            # Voltamos a guardar todos os furos válidos do frame para fazer a média
+            furos_validos = []
+            
+            for cnt in contours:
+                x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
                 
-                if contador_perfs_ciclo >= 4:
-                    # --- PROJEÇÃO MULTI-PONTO PURA + ENCOLHIMENTO ---
-                    qtd = min(4, len(furos_validos))
-                    pts = furos_validos[0:qtd]
+                # Cálculo rápido de área para não pesar a CPU
+                area_aprox = (w_s * h_s) * 4 
+                
+                if 200 < area_aprox < 10000 and 0.2 < (w_s / h_s) < 2.5:
+                    cy_roi = (y_s * 2) + ((h_s * 2) // 2)
+                    cx_global = (x_s * 2) + (w_s * 2 // 2) + lx
+                    cy_global = cy_roi + ly
                     
-                    cx_a = int(sum(p['cx_g'] for p in pts) / qtd)
+                    acionou = limite_superior <= cy_roi <= limite_inferior
+                    cor = (0, 0, 255) if acionou else (0, 255, 0)
                     
-                    if qtd > 1:
-                        # 1. Mede o Pitch instantâneo
-                        soma_pitch = 0
-                        for i in range(1, qtd):
-                            soma_pitch += (pts[i]['cy_g'] - pts[i-1]['cy_g'])
-                        pitch_instantaneo = soma_pitch / (qtd - 1)
-                        
-                        # 2. CÁLCULO DE ENCOLHIMENTO (Lotes de 10 amostras)
-                        if pitch_instantaneo > 0:
-                            buffer_pitches.append(pitch_instantaneo)
-                            
-                            # Quando atingir 10 leituras válidas (Resposta rápida e estável)
-                            if len(buffer_pitches) >= 10:
-                                pitch_medio = sum(buffer_pitches) / len(buffer_pitches)
-                                ultimo_pitch_medio = pitch_medio # Salva para o comando setcal
-                                
-                                calc_pct = (1.0 - (pitch_medio / PITCH_PADRAO_PX)) * 100.0
-                                encolhimento_atual_pct = max(-5.0, min(10.0, calc_pct))
-                                
-                                buffer_pitches.clear() # Limpa a memória para o próximo lote    
-                        
-                        # 3. Projeção Virtual Geométrica (Crava o centro da tela)
-                        soma_centros_y = 0
-                        for i in range(qtd):
-                            multiplicador = 1.5 - i 
-                            soma_centros_y += (pts[i]['cy_g'] + (multiplicador * pitch_instantaneo))
-                            
-                        cy_a = int(soma_centros_y / qtd)
-                    else:
-                        cy_a = int(pts[0]['cy_g'] + 150) 
+                    furos_validos.append({
+                        'cy_roi': cy_roi, 
+                        'cx_g': cx_global, 
+                        'cy_g': cy_global, 
+                        'acionou': acionou
+                    })
                     
-                    processar_captura(frame_raw, cx_a, cy_a, frame_count)
-                    frame_count += 1
-                    contador_perfs_ciclo = 0
+                    debug_visual.append({'rect': (x_s*2+lx, y_s*2+ly, w_s*2, h_s*2), 'color': cor})
 
+            # Ordena os furos de cima para baixo
+            furos_validos.sort(key=lambda p: p['cy_roi'])
+            
+            if furos_validos and furos_validos[0]['acionou']:
+                furo_detectado_agora = True
+                if not perfuracao_na_linha:
+                    contador_perfs_ciclo += 1
+                    perfuracao_na_linha = True
+                    
+                    if contador_perfs_ciclo >= 4:
+                        # --- PROJEÇÃO MULTI-PONTO PURA + ENCOLHIMENTO ---
+                        qtd = min(4, len(furos_validos))
+                        pts = furos_validos[0:qtd]
+                        
+                        cx_a = int(sum(p['cx_g'] for p in pts) / qtd)
+                        
+                        if qtd > 1:
+                            # 1. Mede o Pitch instantâneo
+                            soma_pitch = 0
+                            for i in range(1, qtd):
+                                soma_pitch += (pts[i]['cy_g'] - pts[i-1]['cy_g'])
+                            pitch_instantaneo = soma_pitch / (qtd - 1)
+                            
+                            # 2. CÁLCULO DE ENCOLHIMENTO (Lotes de 10 amostras)
+                            if pitch_instantaneo > 0:
+                                buffer_pitches.append(pitch_instantaneo)
+                                
+                                # Quando atingir 10 leituras válidas (Resposta rápida e estável)
+                                if len(buffer_pitches) >= 10:
+                                    pitch_medio = sum(buffer_pitches) / len(buffer_pitches)
+                                    ultimo_pitch_medio = pitch_medio # Salva para o comando setcal
+                                    
+                                    calc_pct = (1.0 - (pitch_medio / PITCH_PADRAO_PX)) * 100.0
+                                    encolhimento_atual_pct = max(-5.0, min(10.0, calc_pct))
+                                    
+                                    buffer_pitches.clear() # Limpa a memória para o próximo lote    
+                            
+                            # 3. Projeção Virtual Geométrica (Crava o centro da tela)
+                            soma_centros_y = 0
+                            for i in range(qtd):
+                                multiplicador = 1.5 - i 
+                                soma_centros_y += (pts[i]['cy_g'] + (multiplicador * pitch_instantaneo))
+                                
+                            cy_a = int(soma_centros_y / qtd)
+                        else:
+                            cy_a = int(pts[0]['cy_g'] + 150) 
+                        
+                        processar_captura(frame_raw, cx_a, cy_a, frame_count)
+                        frame_count += 1
+                        contador_perfs_ciclo = 0
+
+        # ==========================================================
+        # FECHAMENTO DO GATILHO E UI (Comum aos dois motores)
+        # ==========================================================
         if not furo_detectado_agora:
             perfuracao_na_linha = False
 
@@ -484,9 +445,12 @@ def get_status():
     except:
         cpu_temp = 0.0
 
-    # --- LEITURA DE DISCO E ARQUIVOS (com cache curto para reduzir I/O) ---
-    total_arquivos, espaco_livre_mb = get_cached_capture_stats()
-
+    # --- LEITURA DE DISCO E ARQUIVOS (Ultrarrápida) ---
+    total_arquivos = sum(1 for _ in os.scandir(CAPTURE_PATH))
+    uso_disco = shutil.disk_usage(CAPTURE_PATH)
+    espaco_livre_mb = uso_disco.free / (1024 * 1024)
+    espaco_total_mb = uso_disco.total / (1024 * 1024)
+    
     return {
         "rec": "GRAVANDO" if GRAVANDO else "PARADO", 
         "cor": "#ff0000" if GRAVANDO else "#00ff00",
@@ -585,7 +549,7 @@ def index():
             // Atualização contínua de status via Flask
             setInterval(() => {
                 fetch('/status').then(r => r.json()).then(d => {
-                    // --- ATUALIZAÇÕES DO PAINEL SUPERIOR ---
+// --- ATUALIZAÇÕES DO PAINEL SUPERIOR ---
                     const m = document.getElementById('m'); m.innerText = d.rec; m.style.color = d.cor;
                     document.getElementById('c').innerText = d.ciclo; 
                     document.getElementById('f').innerText = d.total;
@@ -624,7 +588,7 @@ def index():
                         ctx.clearRect(0, 0, canvas.width, canvas.height);
                     }
                 });
-            }, 400);
+            }, 250);
 
             // Ações de Desenho do Mouse
             canvas.addEventListener('mousedown', (e) => {
@@ -674,21 +638,12 @@ def index():
                 
                 const distRealPixels = Math.sqrt(Math.pow(distX_camera, 2) + Math.pow(distY_camera, 2));
 
-                let inputVal = prompt("Linha aferida! Qual a medida real em milímetros? (Pitch 35mm = 4.74)");
+                const mm = prompt("Linha aferida! Qual a medida real em milímetros? (Pitch 35mm = 4.74)");
                 
-                if (inputVal) {
-                    // Substitui vírgula por ponto para aceitar o padrão brasileiro e o americano
-                    let mm = parseFloat(inputVal.replace(',', '.'));
-                    
-                    if (!isNaN(mm) && mm > 0) {
-                        fetch(`/calibrar?px=${distRealPixels}&mm=${mm}`).then(() => {
-                            ctx.clearRect(0, 0, canvas.width, canvas.height);
-                            console.log("Calibrado via Live View com:", mm, "mm");
-                        });
-                    } else {
-                        alert("Valor inválido. Digite apenas números.");
+                if (mm && !isNaN(mm) && mm > 0) {
+                    fetch(`/calibrar?px=${distRealPixels}&mm=${mm}`).then(() => {
                         ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    }
+                    });
                 } else {
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                 }
@@ -701,17 +656,14 @@ def index():
 def preview_feed():
     def generate_preview():
         while True:
-            last_frames = list_recent_capture_files(limit=120)
-            if not last_frames:
-                time.sleep(0.5)
-                continue
-            for frame_path in last_frames:
-                img = cv2.imread(frame_path)
-                if img is None:
-                    continue
-                ret, buffer = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
-                if ret:
-                    yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+            files = sorted([f for f in os.listdir(CAPTURE_PATH) if f.endswith('.jpg')])
+            last_frames = files[-120:] if len(files) > 0 else []
+            if not last_frames: time.sleep(0.5); continue
+            for frame_file in last_frames:
+                img = cv2.imread(os.path.join(CAPTURE_PATH, frame_file))
+                if img is None: continue
+                _, buffer = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
                 time.sleep(1/24)
     return Response(generate_preview(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
