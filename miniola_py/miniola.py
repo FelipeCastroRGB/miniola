@@ -506,7 +506,7 @@ def index():
             <span><b>ÓPTICA:</b> Foco <span id='v_foco' style='color:#fff'>-</span> | Exp <span id='v_exp' style='color:#fff'>-</span> | Gain <span id='v_gain' style='color:#fff'>-</span> | FPS Cam <span id='v_fpscam' style='color:#fff'>-</span></span>
             <span><b>VISÃO:</b> Thresh <span id='v_thresh' style='color:#fff'>-</span> | Gatilho:<span id='v_gatilho' style='color:#fff'>-</span> &plusmn;<span id='v_margem' style='color:#fff'>-</span></span>
             <span><b>GEOMETRIA:</b> CROP(W:<span id='v_cw' style='color:#fff'>-</span> H:<span id='v_ch' style='color:#fff'>-</span>) | OX:<span id='v_ox' style='color:#fff'>-</span></span>
-            <span><b>PRESERVAÇÃO:</b> SHRINKAGE: <b id='v_shrink' style='color:#f0f; font-size:14px;'>0.0%</b></span>
+            <span><b>PRESERVAÇÃO</b> ENCOLHIMENTO: <b id='v_shrink' style='color:#f0f; font-size:14px;'>0.0%</b></span>
         </div>
 
         <div style='display:flex; height:88vh; width:100vw;'>
