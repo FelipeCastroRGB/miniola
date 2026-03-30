@@ -249,7 +249,7 @@ def logica_scanner():
                 # Cálculo rápido de área para não pesar a CPU
                 area_aprox = (w_s * h_s) * 4 
                 
-                if 300 < area_aprox < 10000 and 0.4 < (w_s / h_s) < 2.5:
+                if 200 < area_aprox < 10000 and 0.2 < (w_s / h_s) < 2.5:
                     cy_roi = (y_s * 2) + ((h_s * 2) // 2)
                     cx_global = (x_s * 2) + (w_s * 2 // 2) + lx
                     cy_global = cy_roi + ly
