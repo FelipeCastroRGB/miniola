@@ -95,7 +95,7 @@ def processar_captura(frame, cx_global, cy_global, n_frame):
 # --- PAINEL DE CONTROLE ---
 def painel_controle():
     global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, CROP_H, CROP_W, ROI_Y, ROI_W, ROI_H, THRESH_VAL
-    global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo
+    global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo, CALIBRANDO
     time.sleep(2)
     print("\n" + "═"*45)
     print("   MINIOLA - PAINEL DE CONTROLE")
@@ -175,6 +175,14 @@ def painel_controle():
             # -----------------------------------------------------------------
             elif cmd == 'e': 
                 shutter_speed = int(val); picam2.set_controls({"ExposureTime": shutter_speed})
+            elif cmd == 'cal':
+                CALIBRANDO = True
+                print("[SISTEMA] MODO DE CALIBRAÇÃO ATIVADO!")
+                print("Vá para o navegador, clique no Live View e arraste para desenhar a linha do Pitch.")
+            elif cmd == 'off':
+                print("[SISTEMA] Encerrando processos e desligando a Raspberry Pi de forma segura...")
+                time.sleep(1)
+                os.system("sudo poweroff")
             elif cmd == 'g': 
                 gain = val; picam2.set_controls({"AnalogueGain": gain})
             elif cmd == 'fps':
@@ -532,6 +540,7 @@ def get_status():
     global GRAVANDO, contador_perfs_ciclo, frame_count, fps_real_proc, tempo_ms_ciclo
     global ROI_X, ROI_Y, ROI_W, ROI_H, CROP_W, CROP_H, OFFSET_X
     global foco_atual, shutter_speed, gain, fps_cam, THRESH_VAL, LINHA_GATILHO_Y, MARGEM_GATILHO
+    global encolhimento_atual_pct, CALIBRANDO
     
     try:
         with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
