@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 sys.modules["pykms"] = MagicMock()
 sys.modules["kms"] = MagicMock()
 
-from flask import Flask, Response 
+from flask import Flask, Response, request 
 from picamera2 import Picamera2 
 import cv2 
 import numpy as np 
@@ -33,15 +33,15 @@ picam2.start()
 
 # --- GEOMETRIA DO ROI E ESTADO ---
 GRAVANDO = False
+CALIBRANDO = False           # Trava de segurança da tela
 ROI_X, ROI_Y = 25, 10
 ROI_W, ROI_H = 80, 700
-
 # --- LÓGICA DE GATILHO SIMPLIFICADA ---
 LINHA_GATILHO_Y = 110  # Posição Y relativa DENTRO da ROI
 MARGEM_GATILHO = 23    # Margem de disparo (px para cima e para baixo)
 THRESH_VAL = 239 # Valor do threshold para binarização
 MODO_DETECCAO = '2D'  # Inicia com o findContours que já está funcionando
-
+PITCH_PADRAO_PX = 85.0  # CALIBRE AQUI: Quantos pixels tem o pitch de um filme NOVO na sua lente?
 # --- PARÂMETROS DO CROP ---
 OFFSET_X = 470 
 CROP_W, CROP_H = 918, 612 
@@ -55,6 +55,7 @@ ultimo_crop_preview = np.zeros((CROP_H, CROP_W, 3), dtype=np.uint8)
 lista_contornos_debug = []
 fps_real_proc = 0.0
 tempo_ms_ciclo = 0.0
+encolhimento_atual_pct = 0.0
 
 # --- FILA DE MULTIPROCESSAMENTO ---
 # Fila compartilhada entre o Scanner (Thread) e o Gravador (Processo)
@@ -104,7 +105,7 @@ def painel_controle():
     print("   ÓPTICA:    k/l (Foco Manual)| j [val] (Passo)| af (Auto Foco)")
     print("   EXPOSIÇÃO: e [val] (Shutter Speed)| g [val] (Gain)| fps [val] (Frame Rate)")
     print("   CROP:   ch (Altura)| cw (Largura)")
-    print("   SISTEMA:   rec (Gravar)| r (Reset)| rc (Realinhar) | md (Modo 1D/2D)")
+    print("   SISTEMA:   rec (Gravar)| r (Reset)| rc (Realinhar) | md (Modos) | off (Desligar) | cal (Calibrar)")
     print("   TRESHOLD:   t")
     print("   ROI: w, a, s, d (Move ROI)| rx, ry, rw, rh [val] (Ajuste direto da ROI)")
     print("═"*45)
@@ -276,30 +277,32 @@ def logica_scanner():
                     perfuracao_na_linha = True
                     
                     if contador_perfs_ciclo >= 4:
-                        # --- O SEGREDO DA ESTABILIDADE 2.0: PROJEÇÃO MULTI-PONTO PURA (SEM EMA) ---
+                        # --- PROJEÇÃO MULTI-PONTO PURA + ENCOLHIMENTO ---
                         qtd = min(4, len(furos_validos))
                         pts = furos_validos[0:qtd]
                         
-                        # EIXO X: Média clássica para amortecer o Gate Weave horizontal
                         cx_a = int(sum(p['cx_g'] for p in pts) / qtd)
                         
                         if qtd > 1:
-                            # 1. Mede o Pitch instantâneo (Apenas com os furos na tela agora)
+                            # 1. Mede o Pitch instantâneo
                             soma_pitch = 0
                             for i in range(1, qtd):
                                 soma_pitch += (pts[i]['cy_g'] - pts[i-1]['cy_g'])
                             pitch_instantaneo = soma_pitch / (qtd - 1)
                             
-                            # 2. Projeção Virtual: Cada furo projeta o centro e tiramos a média geral
-                            # Isso mata o pulo de 3 para 4 furos, ancorando o centro de forma geométrica.
+                            # 2. CÁLCULO DE ENCOLHIMENTO (A cada 10 frames gravados)
+                            if frame_count % 10 == 0 and pitch_instantaneo > 0:
+                                calc_pct = (1.0 - (pitch_instantaneo / PITCH_PADRAO_PX)) * 100.0
+                                encolhimento_atual_pct = max(-5.0, min(10.0, calc_pct))
+                            
+                            # 3. Projeção Virtual Geométrica (Crava o centro da tela)
                             soma_centros_y = 0
                             for i in range(qtd):
-                                multiplicador = 1.5 - i # Gera a escala matemática: 1.5, 0.5, -0.5, -1.5 
+                                multiplicador = 1.5 - i 
                                 soma_centros_y += (pts[i]['cy_g'] + (multiplicador * pitch_instantaneo))
                                 
                             cy_a = int(soma_centros_y / qtd)
                         else:
-                            # Fallback ultra raro (se a câmera piscar e só ver 1 furo)
                             cy_a = int(pts[0]['cy_g'] + 150) 
                         
                         processar_captura(frame_raw, cx_a, cy_a, frame_count)
@@ -557,11 +560,33 @@ def get_status():
         "exp": shutter_speed,
         "gain": f"{gain:.1f}",
         "fps_cam": fps_cam,
+        "shrink": f"{encolhimento_atual_pct:.1f}%",
+        "calibrando": CALIBRANDO,
         "thresh": THRESH_VAL,
         "roi_x": ROI_X, "roi_y": ROI_Y, "roi_w": ROI_W, "roi_h": ROI_H,
         "crop_w": CROP_W, "crop_h": CROP_H, "ox": OFFSET_X,
         "gatilho_y": LINHA_GATILHO_Y, "margem": MARGEM_GATILHO
     }
+
+
+# --- ROTA DE CALIBRAÇÃO ÓPTICA ---
+@app.route('/calibrar')
+def calibrar():
+    global PITCH_PADRAO_PX, CALIBRANDO
+    try:
+        px = float(request.args.get('px'))
+        mm = float(request.args.get('mm'))
+        pixels_por_mm = px / mm
+        
+        PITCH_PADRAO_PX = pixels_por_mm * 4.74  # 4.74mm é o pitch do 35mm positivo
+        CALIBRANDO = False  # Trava a tela novamente
+        
+        print(f"\n[SISTEMA] Calibração Óptica Concluída! 1mm = {pixels_por_mm:.2f}px")
+        print(f"[SISTEMA] Novo Pitch Padrão de 35mm cravado em: {PITCH_PADRAO_PX:.1f}px")
+        return "OK"
+    except Exception as e:
+        CALIBRANDO = False
+        return f"Erro: {e}"
 
 @app.route('/')
 def index():
@@ -574,52 +599,118 @@ def index():
             DISCO: <b id='arq' style='color:#0f0'>0</b> imgs (<b id='esp' style='color:#0aa'>-</b> livres) | 
             FRAMES: <b id='f'>0</b> | 
             PROC: <b id='fps_proc' style='color:#0ff'>0.0 FPS</b> (<b id='ms_ciclo' style='color:#ff0'>0.0 ms</b>) | 
-            QUEUE: <b id='q' style='color:#f0f'>0</b>/30 |
             TEMP: <b id='t_cpu' style='color:#f90'>0.0 °C</b>
         </div>
         
         <div style='display:flex; background:#1a1a1a; padding:6px 10px; border-bottom:1px solid #444; justify-content:space-between; font-size:12px; color:#aaa;'>
-            <span><b>ÓPTICA:</b> Foco <span id='v_foco' style='color:#fff'>-</span> | Exp <span id='v_exp' style='color:#fff'>-</span> | Gain <span id='v_gain' style='color:#fff'>-</span> | Cam <span id='v_fps_cam' style='color:#fff'>-</span>fps</span>
-            <span><b>VISÃO:</b> Thresh <span id='v_thresh' style='color:#fff'>-</span> | Gatilho Y:<span id='v_gatilho' style='color:#fff'>-</span> &plusmn;<span id='v_margem' style='color:#fff'>-</span></span>
-            <span><b>GEOMETRIA:</b> ROI(X:<span id='v_rx' style='color:#fff'>-</span> Y:<span id='v_ry' style='color:#fff'>-</span> W:<span id='v_rw' style='color:#fff'>-</span> H:<span id='v_rh' style='color:#fff'>-</span>) | Crop(W:<span id='v_cw' style='color:#fff'>-</span> H:<span id='v_ch' style='color:#fff'>-</span>) | OX:<span id='v_ox' style='color:#fff'>-</span></span>
+            <span><b>ÓPTICA:</b> Foco <span id='v_foco'>-</span> | Exp <span id='v_exp'>-</span> | Gain <span id='v_gain'>-</span></span>
+            <span><b>GEOMETRIA:</b> CROP(W:<span id='v_cw'>-</span> H:<span id='v_ch'>-</span>) | OX:<span id='v_ox'>-</span></span>
+            <span><b>PRESERVAÇÃO:</b> SHRINKAGE: <b id='v_shrink' style='color:#f0f; font-size:14px;'>0.0%</b></span>
         </div>
 
         <div style='display:flex; height:88vh;'>
-            <div style='flex:2; border-right:1px solid #333;'><img src="/video_feed" style="width:100%;"></div>
+            <div style='flex:2; border-right:1px solid #333; position:relative;' id='video_container'>
+                <img src="/video_feed" style="width:100%; height:100%; object-fit:contain; display:block; pointer-events:none;">
+                <canvas id="paquimetro" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;"></canvas>
+            </div>
             <div style='flex:1; background:#000;'><img src="/preview_feed" style="width:100%; border:1px solid #0f0;"></div>
         </div>
         
         <script>
+            const canvas = document.getElementById('paquimetro');
+            const ctx = canvas.getContext('2d');
+            const videoContainer = document.getElementById('video_container');
+            let isDrawing = false;
+            let startX, startY;
+            let modoCalibracao = false;
+
+            function resizeCanvas() {
+                canvas.width = canvas.clientWidth;
+                canvas.height = canvas.clientHeight;
+            }
+            window.addEventListener('resize', resizeCanvas);
+            resizeCanvas();
+
+            // Atualização contínua de status
             setInterval(() => {
                 fetch('/status').then(r => r.json()).then(d => {
-                    // Atualiza Barra Principal
                     const m = document.getElementById('m'); m.innerText = d.rec; m.style.color = d.cor;
                     document.getElementById('c').innerText = d.ciclo; 
                     document.getElementById('f').innerText = d.total;
                     document.getElementById('arq').innerText = d.arquivos;
                     document.getElementById('esp').innerText = d.espaco;
                     document.getElementById('fps_proc').innerText = d.fps_proc; 
-                    document.getElementById('ms_ciclo').innerText = d.ms_ciclo;
-                    document.getElementById('q').innerText = d.queue;
-                    document.getElementById('t_cpu').innerText = d.temp; // <--- INJETA A TEMPERATURA AQUI
+                    document.getElementById('t_cpu').innerText = d.temp; 
                     
-                    // Atualiza Barra de Telemetria
                     document.getElementById('v_foco').innerText = d.foco;
-                    document.getElementById('v_exp').innerText = d.exp;
-                    document.getElementById('v_gain').innerText = d.gain;
-                    document.getElementById('v_fps_cam').innerText = d.fps_cam;
-                    document.getElementById('v_thresh').innerText = d.thresh;
-                    document.getElementById('v_gatilho').innerText = d.gatilho_y;
-                    document.getElementById('v_margem').innerText = d.margem;
-                    document.getElementById('v_rx').innerText = d.roi_x;
-                    document.getElementById('v_ry').innerText = d.roi_y;
-                    document.getElementById('v_rw').innerText = d.roi_w;
-                    document.getElementById('v_rh').innerText = d.roi_h;
                     document.getElementById('v_cw').innerText = d.crop_w;
                     document.getElementById('v_ch').innerText = d.crop_h;
-                    document.getElementById('v_ox').innerText = d.ox;
+                    
+                    if(d.shrink) document.getElementById('v_shrink').innerText = d.shrink;
+
+                    // Trava ou Destrava a tela baseado no comando do terminal
+                    if (d.calibrando && !modoCalibracao) {
+                        modoCalibracao = true;
+                        canvas.style.pointerEvents = 'auto';
+                        canvas.style.cursor = 'crosshair';
+                        videoContainer.style.border = '3px solid #f90'; // Borda amarela alerta
+                    } else if (!d.calibrando && modoCalibracao) {
+                        modoCalibracao = false;
+                        canvas.style.pointerEvents = 'none';
+                        videoContainer.style.border = 'none';
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    }
                 });
             }, 250);
+
+            // Ações do Mouse (Só funcionam se o pointerEvents estiver 'auto')
+            canvas.addEventListener('mousedown', (e) => {
+                isDrawing = true;
+                const rect = canvas.getBoundingClientRect();
+                startX = e.clientX - rect.left;
+                startY = e.clientY - rect.top;
+            });
+
+            canvas.addEventListener('mousemove', (e) => {
+                if(!isDrawing) return;
+                const rect = canvas.getBoundingClientRect();
+                const currentX = e.clientX - rect.left;
+                const currentY = e.clientY - rect.top;
+                
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.beginPath();
+                ctx.moveTo(startX, startY);
+                ctx.lineTo(currentX, currentY);
+                ctx.strokeStyle = '#00ff00';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            });
+
+            canvas.addEventListener('mouseup', (e) => {
+                if(!isDrawing) return;
+                isDrawing = false;
+                const rect = canvas.getBoundingClientRect();
+                const endX = e.clientX - rect.left;
+                const endY = e.clientY - rect.top;
+
+                // Escala a distância da tela para a resolução real do painel do mosaico
+                const proporcaoX = (1280 / canvas.width) * (1080 / 640);
+                const proporcaoY = (720 / canvas.height) * (720 / 420);
+                
+                const rawDistX = Math.abs(endX - startX) * proporcaoX;
+                const rawDistY = Math.abs(endY - startY) * proporcaoY;
+                const distRealPixels = Math.sqrt(Math.pow(rawDistX, 2) + Math.pow(rawDistY, 2));
+
+                const mm = prompt("Linha registrada! Qual é o tamanho físico dessa distância em milímetros? (ex: 4.74 para pitch do 35mm)");
+                
+                if (mm && !isNaN(mm) && mm > 0) {
+                    fetch(`/calibrar?px=${distRealPixels}&mm=${mm}`).then(() => {
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    });
+                } else {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                }
+            });
         </script>
     </body></html>
     """
