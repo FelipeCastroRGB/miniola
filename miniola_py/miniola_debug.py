@@ -96,6 +96,7 @@ def processar_captura(frame, cx_global, cy_global, n_frame):
 def painel_controle():
     global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, CROP_H, CROP_W, ROI_Y, ROI_W, ROI_H, THRESH_VAL
     global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo, CALIBRANDO
+    global ultimo_pitch_medio, PITCH_PADRAO_PX  # <-- ADICIONADO AQUI
     time.sleep(2)
     print("\n" + "═"*45)
     print("   MINIOLA - PAINEL DE CONTROLE")
@@ -183,6 +184,22 @@ def painel_controle():
                 print("[SISTEMA] Encerrando processos e desligando a Raspberry Pi de forma segura...")
                 time.sleep(1)
                 os.system("sudo poweroff")
+            # --- NOVO: AFERIÇÃO ESTRUTURAL (CALIBRAÇÃO COM REFERÊNCIA) ---
+            elif cmd == 'setcal':
+                if 'ultimo_pitch_medio' in globals() and ultimo_pitch_medio > 0:
+                    encolhimento_referencia = float(val) if len(entrada) > 1 else 0.0
+                    
+                    # Calcula o fator de escala real do filme de teste
+                    fator_escala = 1.0 - (encolhimento_referencia / 100.0)
+                    
+                    # Projeta o novo Padrão (0%) cravado na óptica atual
+                    PITCH_PADRAO_PX = ultimo_pitch_medio / fator_escala
+                    
+                    print(f"\n[METROLOGIA] CALIBRAÇÃO DINÂMICA CONCLUÍDA!")
+                    print(f"-> Filme Referência utilizado: {encolhimento_referencia}% de encolhimento.")
+                    print(f"-> Novo Padrão (0%): {PITCH_PADRAO_PX:.2f}px")
+                else:
+                    print("[ERRO] Deixe o filme de referência rodar e estabilizar no dashboard antes de calibrar.")
             elif cmd == 'g': 
                 gain = val; picam2.set_controls({"AnalogueGain": gain})
             elif cmd == 'fps':
@@ -215,11 +232,12 @@ def logica_scanner():
     
     global frame_count, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
     global contador_perfs_ciclo, perfuracao_na_linha, fps_real_proc, tempo_ms_ciclo
-    global MODO_DETECCAO, encolhimento_atual_pct, PITCH_PADRAO_PX
+    global MODO_DETECCAO, encolhimento_atual_pct, PITCH_PADRAO_PX, ultimo_pitch_medio # <-- ADICIONADO AQUI
 
     ESCALA_CV = 0.5 
     skip_ui = 0
-    buffer_pitches = []  # <--- NOVA MEMÓRIA PARA AS 30 AMOSTRAS
+    buffer_pitches = []  
+    ultimo_pitch_medio = 0.0 # <-- INICIALIZADO AQUI
 
     while True:
         t_inicio = get_time()
@@ -299,21 +317,19 @@ def logica_scanner():
                                 soma_pitch += (pts[i]['cy_g'] - pts[i-1]['cy_g'])
                             pitch_instantaneo = soma_pitch / (qtd - 1)
                             
-                            # 2. CÁLCULO DE ENCOLHIMENTO ESTÁTICO (Lotes de 30 amostras)
+                            # 2. CÁLCULO DE ENCOLHIMENTO (Lotes de 10 amostras)
                             if pitch_instantaneo > 0:
                                 buffer_pitches.append(pitch_instantaneo)
                                 
-                                # Quando atingir 30 leituras válidas, faz a matemática e zera o ciclo
-                                if len(buffer_pitches) >= 30:
+                                # Quando atingir 10 leituras válidas (Resposta rápida e estável)
+                                if len(buffer_pitches) >= 10:
                                     pitch_medio = sum(buffer_pitches) / len(buffer_pitches)
+                                    ultimo_pitch_medio = pitch_medio # Salva para o comando setcal
                                     
-                                    # Fórmula clássica de Shrinkage baseada no padrão SMPTE calibrado
                                     calc_pct = (1.0 - (pitch_medio / PITCH_PADRAO_PX)) * 100.0
-                                    
-                                    # Deixei a trava de segurança ativada para evitar os falsos positivos de -110%
                                     encolhimento_atual_pct = max(-5.0, min(10.0, calc_pct))
                                     
-                                    buffer_pitches.clear() # Limpa a memória para o próximo lote
+                                    buffer_pitches.clear() # Limpa a memória para o próximo lote    
                             
                             # 3. Projeção Virtual Geométrica (Crava o centro da tela)
                             soma_centros_y = 0
