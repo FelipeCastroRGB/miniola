@@ -18,7 +18,17 @@ import os
 
 app = Flask(__name__) # Flask para o Dashboard (Roda no Core 0)
 log = logging.getLogger('werkzeug') # Desativa os logs de requisição do Flask para não poluir o console
-log.setLevel(logging.ERROR) 
+log.setLevel(logging.ERROR)
+sistema_logs = ["[SISTEMA] Miniola iniciada e aguardando comandos."]
+
+def registrar_log(msg):
+    global sistema_logs
+    agora = time.strftime("%H:%M:%S")
+    mensagem_formatada = f"[{agora}] {msg}"
+    sistema_logs.append(mensagem_formatada)
+    if len(sistema_logs) > 6: # Mantém apenas as últimas 6 mensagens para não pesar
+        sistema_logs.pop(0)
+    print(mensagem_formatada) # Mantém o print no terminal caso ele esteja aberto
 
 CAPTURE_PATH = "capturas"
 if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
@@ -487,13 +497,17 @@ def calibrar():
     except Exception as e:
         CALIBRANDO = False
         return f"Erro: {e}"
+    
+@app.route('/api/logs')
+def api_logs():
+    return {"logs": sistema_logs}
 
 # --- ROTA DA API PARA OS BOTÕES TOUCH ---
 @app.route('/api/comando', methods=['POST'])
 def api_comando():
     global GRAVANDO, foco_atual, passo_foco, shutter_speed, gain, fps_cam, THRESH_VAL
     global ROI_X, ROI_Y, ROI_W, ROI_H, CROP_W, CROP_H, OFFSET_X, LINHA_GATILHO_Y, MARGEM_GATILHO
-    global PITCH_PADRAO_PX, ultimo_pitch_medio, contador_perfs_ciclo, frame_count
+    global PITCH_PADRAO_PX, ultimo_pitch_medio, contador_perfs_ciclo, frame_count, CALIBRANDO
     
     try:
         dados = request.get_json()
@@ -548,6 +562,9 @@ def api_comando():
         elif cmd == 'd': ROI_X = min(1080 - ROI_W, ROI_X + 5)
         
         # --- METROLOGIA ---
+        elif cmd == 'cal':
+            CALIBRANDO = True
+            return {"status": "ok", "msg": "Modo Calibração ON: Desenhe a linha no Live View!"}
         elif cmd == 'setcal':
             if ultimo_pitch_medio > 0:
                 fator_escala = 1.0 - (val / 100.0)
@@ -583,7 +600,7 @@ def index():
 
         <div style='background:#1a1a1a; padding:10px; display:flex; flex-wrap:wrap; gap:10px; justify-content:space-around; border-bottom:1px solid #444; font-size:11px;'>
             
-            <div style='background:#222; padding:8px; border-radius:5px; border:1px solid #333;'>
+        <div style='background:#222; padding:8px; border-radius:5px; border:1px solid #333;'>
                 <b style='color:#aaa; display:block; margin-bottom:5px;'>SISTEMA & METROLOGIA</b>
                 <div style='display:flex; gap:5px; margin-bottom:5px;'>
                     <button onclick="enviarCmd('rec')" style='background:#d00; color:#fff; border:none; padding:6px 12px; font-weight:bold; cursor:pointer; border-radius:3px;'>REC/STOP</button>
@@ -592,7 +609,8 @@ def index():
                     <button onclick="if(confirm('Desligar a Miniola?')) enviarCmd('off')" style='background:#600; color:#fff; border:none; padding:6px; cursor:pointer; border-radius:3px;'>OFF</button>
                 </div>
                 <div style='display:flex; gap:5px;'>
-                    <input type="number" id="in_setcal" step="0.1" placeholder="Ref %" style="width:60px; background:#111; color:#0f0; border:1px solid #555; text-align:center;">
+                    <button onclick="enviarCmd('cal')" style='background:#f90; color:#000; border:none; padding:6px; font-weight:bold; cursor:pointer; border-radius:3px;'>CAL (Óptica)</button>
+                    <input type="number" id="in_setcal" step="0.1" placeholder="Ref %" style="width:60px; background:#111; color:#0f0; border:1px solid #555; text-align:center; margin-left:10px;">
                     <button onclick="enviarInput('setcal', 'in_setcal')" style='background:#0055ff; color:#fff; border:none; padding:6px; cursor:pointer; border-radius:3px;'>SETCAL (Dinâmico)</button>
                 </div>
             </div>
@@ -634,7 +652,12 @@ def index():
                     </div>
                 </div>
             </div>
+        </div>
 
+        <div style='background:#000; border-bottom:1px solid #333; padding:5px 10px; font-family:monospace; font-size:11px; height:80px; overflow-y:hidden; display:flex; flex-direction:column; justify-content:flex-end;'>
+            <div id="terminal_web" style='color:#0f0; line-height:1.4;'>
+                Carregando logs do sistema...
+            </div>
         </div>
 
         <div style='display:flex; height:88vh; width:100vw;'>
@@ -682,7 +705,7 @@ def index():
                 let valor = document.getElementById(id_campo).value;
                 if(valor !== "") enviarCmd(comando, parseFloat(valor));
             }
-            
+
             window.addEventListener('resize', syncCanvasSize);
             videoImg.addEventListener('load', syncCanvasSize);
 
@@ -727,6 +750,9 @@ def index():
                         wrapper.style.outline = 'none';
                         ctx.clearRect(0, 0, canvas.width, canvas.height);
                     }
+                    fetch('/api/logs').then(r => r.json()).then(dados => {
+                        document.getElementById('terminal_web').innerHTML = dados.logs.join('<br>');
+                    });
                 });
             }, 250);
 
