@@ -5,11 +5,9 @@ from unittest.mock import MagicMock
 sys.modules["pykms"] = MagicMock()
 sys.modules["kms"] = MagicMock()
 
-
 from flask import Flask, Response
 from picamera2 import Picamera2
 import cv2
-import numpy as np
 import threading
 import time
 import logging
@@ -59,6 +57,34 @@ modo_gravacao = False
 ultimo_frame_bruto = None
 ultimo_frame_binario = None
 lista_contornos_debug = []
+CAPTURE_EXT = ".jpg"
+_preview_cache = {"timestamp": 0.0, "files": []}
+
+
+def list_recent_capture_files(limit=110, refresh_interval=0.5):
+    now = time.monotonic()
+    if now - _preview_cache["timestamp"] >= refresh_interval:
+        files = sorted(
+            (
+                entry.path
+                for entry in os.scandir(CAPTURE_PATH)
+                if entry.is_file() and entry.name.endswith(CAPTURE_EXT)
+            )
+        )
+        _preview_cache["files"] = files[-limit:]
+        _preview_cache["timestamp"] = now
+    return list(_preview_cache["files"])
+
+
+def clear_capture_dir():
+    removed = 0
+    for entry in os.scandir(CAPTURE_PATH):
+        if entry.is_file() and entry.name.endswith(CAPTURE_EXT):
+            os.remove(entry.path)
+            removed += 1
+    _preview_cache["files"] = []
+    _preview_cache["timestamp"] = 0.0
+    return removed
 
 # --- THREAD: PAINEL DE CONTROLE ---
 
@@ -125,8 +151,8 @@ def painel_controle():
                 modo_gravacao = False; print("PAUSADO.")
             elif cmd == 'r': 
                 contador_perf = frame_count = 0
-                os.system(f"rm -rf {CAPTURE_PATH}/*.jpg")
-                print("ESTATÍSTICAS E RAM DRIVE LIMPOS.")
+                removidos = clear_capture_dir()
+                print(f"ESTATÍSTICAS E RAM DRIVE LIMPOS ({removidos} arquivos).")
         except Exception as e: print(f"Erro: {e}")
 
 # --- THREAD: LÓGICA DO SCANNER ---
@@ -196,16 +222,10 @@ def generate_frames():
             x, y, w, h = item['rect']
             cv2.rectangle(vis_base, (x + ROI_X, y + ROI_Y), (x + w + ROI_X, y + h + ROI_Y), item['color'], 2)
         
-        # Redimensionamento para o navegador
-        altura_alvo = 600 
-        h_orig, w_orig = vis_base.shape[:2]
-        proporcao = w_orig / h_orig
-        largura_final = int(altura_alvo * proporcao)
-        
-        vis_light = cv2.resize(vis_base, (largura_final, altura_alvo), interpolation=cv2.INTER_AREA)
-        ret, buffer = cv2.imencode('.jpg', vis_light, [int(cv2.IMWRITE_JPEG_QUALITY), 40])
-        yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-        time.sleep(0.04) 
+        ret, buffer = cv2.imencode('.jpg', vis_base, [int(cv2.IMWRITE_JPEG_QUALITY), 40])
+        if ret:
+            yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+        time.sleep(0.04)
 
 @app.route('/video_feed')
 def video_feed(): return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
@@ -214,20 +234,19 @@ def video_feed(): return Response(generate_frames(), mimetype='multipart/x-mixed
 def preview_feed():
     def generate_preview():
         while True:
-            files = sorted([f for f in os.listdir(CAPTURE_PATH) if f.endswith('.jpg')])
-            last_frames = files[-110:] if len(files) > 0 else [] 
-            
+            last_frames = list_recent_capture_files(limit=110)
             if not last_frames:
-                time.sleep(0.5); continue
+                time.sleep(0.5)
+                continue
 
-            for frame_file in last_frames:
-                path = os.path.join(CAPTURE_PATH, frame_file)
-                try:
-                    img = cv2.imread(path) # Sem rotação [cite: 2026-02-28]
-                    ret, buffer = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+            for frame_path in last_frames:
+                img = cv2.imread(frame_path) # Sem rotação [cite: 2026-02-28]
+                if img is None:
+                    continue
+                ret, buffer = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                if ret:
                     yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-                    time.sleep(1/24)
-                except: continue
+                time.sleep(1/24)
     return Response(generate_preview(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/status')
