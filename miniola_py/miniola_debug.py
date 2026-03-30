@@ -219,6 +219,7 @@ def logica_scanner():
 
     ESCALA_CV = 0.5 
     skip_ui = 0
+    buffer_pitches = []  # <--- NOVA MEMÓRIA PARA AS 30 AMOSTRAS
 
     while True:
         t_inicio = get_time()
@@ -298,10 +299,21 @@ def logica_scanner():
                                 soma_pitch += (pts[i]['cy_g'] - pts[i-1]['cy_g'])
                             pitch_instantaneo = soma_pitch / (qtd - 1)
                             
-                            # 2. CÁLCULO DE ENCOLHIMENTO (A cada 10 frames gravados)
-                            if frame_count % 10 == 0 and pitch_instantaneo > 0:
-                                calc_pct = (1.0 - (pitch_instantaneo / PITCH_PADRAO_PX)) * 100.0
-                                encolhimento_atual_pct = max(-5.0, min(10.0, calc_pct))
+                            # 2. CÁLCULO DE ENCOLHIMENTO ESTÁTICO (Lotes de 30 amostras)
+                            if pitch_instantaneo > 0:
+                                buffer_pitches.append(pitch_instantaneo)
+                                
+                                # Quando atingir 30 leituras válidas, faz a matemática e zera o ciclo
+                                if len(buffer_pitches) >= 30:
+                                    pitch_medio = sum(buffer_pitches) / len(buffer_pitches)
+                                    
+                                    # Fórmula clássica de Shrinkage baseada no padrão SMPTE calibrado
+                                    calc_pct = (1.0 - (pitch_medio / PITCH_PADRAO_PX)) * 100.0
+                                    
+                                    # Deixei a trava de segurança ativada para evitar os falsos positivos de -110%
+                                    encolhimento_atual_pct = max(-5.0, min(10.0, calc_pct))
+                                    
+                                    buffer_pitches.clear() # Limpa a memória para o próximo lote
                             
                             # 3. Projeção Virtual Geométrica (Crava o centro da tela)
                             soma_centros_y = 0
