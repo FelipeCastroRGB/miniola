@@ -33,33 +33,27 @@ def registrar_log(msg):
 CAPTURE_PATH = "capturas"
 if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
 
-# --- TABELA DE RESOLUÇÕES (Proporção 3:2) ---
+# --- TABELA DE RESOLUÇÕES NATIVAS 16:9 ---
 MODOS_RES = {
-    "VGA": (854, 480),     # Ultraleve (Para testes de velocidade)
-    "HD": (1280, 720),     # Rápido e nítido para monitoramento
-    "FHD": (1920, 1080),   # Padrão Profissional (Otimizado para RPi 4)
-    "2K": (2560, 1440),    # Sweet Spot: Mais que 1080p, menos que o limite
-    "4K": (4608, 2592)     # Limite do Sensor (Pode gargalar a 19 FPS)
+    "VGA": (854, 480),     # Ultraleve
+    "HD": (1280, 720),     # Padrão HD
+    "HIGH": (1536, 864)    # Modo Nativo High (Máxima performance c/ FOV fixo)
 }
-MODO_ATUAL = "HD"
+MODO_ATUAL = "HIGH"
 
-# --- GEOMETRIA DUAL-STREAM (YUV Total para Performance) ---
-RES_W_MAIN, RES_H_MAIN = 1280, 720  # 4K
-RES_W_LORES, RES_H_LORES = 854, 480  # 480p
+# Unificamos as variáveis: Agora o que a visão lê é o que o disco grava
+RES_W, RES_H = MODOS_RES[MODO_ATUAL]
+
+# Fatores de escala tornam-se 1.0 (Visão e Captura são a mesma matriz)
+F_X, F_Y = 1.0, 1.0
+RES_W_LORES, RES_H_LORES = RES_W, RES_H 
 
 picam2 = Picamera2()
-shutter_speed, gain, fps_cam = 600, 1.0, 50
-foco_atual, passo_foco = 14.5, 0.5
-HDR_ATIVO = 0 # 0 = Desligado, 1 = Ativado (V3 IMX708)
+shutter_speed, gain, fps_cam = 600, 1.0, 75 # Subimos para 75 FPS!
 
-
-
-# Fatores de escala
-F_X, F_Y = RES_W_MAIN / RES_W_LORES, RES_H_MAIN / RES_H_LORES
-
+# --- CONFIGURAÇÃO DE STREAM ÚNICO ---
 config = picam2.create_video_configuration(
-    main={"size": (RES_W_MAIN, RES_H_MAIN), "format": "YUV420"}, # <-- YUV aqui também!
-    lores={"size": (RES_W_LORES, RES_H_LORES), "format": "YUV420"}
+    main={"size": (RES_W, RES_H), "format": "YUV420"}
 )
 picam2.configure(config)
 
@@ -68,7 +62,8 @@ picam2.set_controls({
     "AnalogueGain": gain, 
     "FrameRate": fps_cam, 
     "LensPosition": foco_atual,
-    "HdrMode": HDR_ATIVO 
+    "HdrMode": HDR_ATIVO,
+    "ScalerCrop": (0, 0, 4608, 2592) # Trava o FOV Total do sensor V3
 })
 picam2.start()
 
@@ -116,35 +111,32 @@ def processo_escrita_disco(fila_in):
         
         cv2.imwrite(filename, crop, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
 
-def processar_captura(f_lores, cx_g, cy_g, n_f):
-    global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO, F_X, F_Y
-    
-    # 1. O SNIPER: Puxa o 4K bruto da câmera SÓ AGORA (Custo de CPU sob demanda)
-    f_main = picam2.capture_array("main")
-    
-    if f_main is None: return
+def processar_captura(f_yuv, cx_g, cy_g, n_f):
+    global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
 
-    # 2. Geometria 4K (Slice de matriz é instantâneo)
-    fx, fy = (cx_g + OFFSET_X) * F_X, cy_g * F_Y
-    cw_r, ch_r = int(CROP_W * F_X), int(CROP_H * F_Y)
-    x1, y1 = max(0, int(fx - (cw_r // 2))), max(0, int(fy - (ch_r // 2)))
-    x2, y2 = min(RES_W_MAIN, x1 + cw_r), min(RES_H_MAIN, y1 + ch_r)
+    # 1. Geometria Direta (F_X e F_Y são 1.0, então a conta é simples)
+    # cx_g e cy_g já estão na resolução correta!
+    x1 = max(0, int((cx_g + OFFSET_X) - (CROP_W // 2)))
+    y1 = max(0, int(cy_g - (CROP_H // 2)))
+    x2 = min(RES_W, x1 + CROP_W)
+    y2 = min(RES_H, y1 + CROP_H)
     
-    # 3. PREVIEW LEVE: Usamos o lores (que já temos na mão) para não pesar
-    px1, py1 = max(0, int((cx_g + OFFSET_X) - (CROP_W // 2))), max(0, int(cy_g - (CROP_H // 2)))
-    px2, py2 = min(RES_W_LORES, px1 + CROP_W), min(RES_H_LORES, py1 + CROP_H)
-    crop_v = f_lores[py1:py2, px1:px2]
+    # 2. PREVIEW PARA DASHBOARD: Extrai o canal Y (Luma) para o Zebra
+    # f_yuv[:RES_H, :RES_W] é a matriz de brilho
+    crop_v = f_yuv[y1:y2, x1:x2]
     if crop_v.size > 0:
-        ultimo_crop_preview = cv2.resize(crop_v, (400, 280)) 
-    
-    # 4. ENVIO PARA O CORE 2: Mandamos o 4K inteiro para o gravador converter
+        # Redimensiona para o dashboard manter o padrão visual 16:9
+        ultimo_crop_preview = cv2.resize(crop_v, (400, 225)) 
+
+    # 3. ENVIO PARA O CORE 2 (Gravação)
     if GRAVANDO:
         filename = f"{CAPTURE_PATH}/miniola_{n_f:06d}.jpg"
         try:
-            # Enviamos a cópia para a fila de multiprocessamento
-            fila_gravacao.put((f_main.copy(), (x1, y1, x2, y2), filename), block=False)
-        except:
-            pass
+            # Enviamos o frame YUV e as coordenadas do crop
+            # O Core 2 fará a conversão YUV -> BGR e o salvamento em JPEG
+            fila_gravacao.put((f_yuv.copy(), (x1, y1, x2, y2), filename), block=False)
+        except mp.queues.Full:
+            pass # Evita travar o scanner se o disco estiver lento
 
 # --- LÓGICA DO SCANNER OTIMIZADA (MOTORES ISOLADOS) ---
 def logica_scanner():
@@ -166,12 +158,12 @@ def logica_scanner():
     while True:
         t_inicio = get_time()
         
-        # 1. PUXA APENAS O CANAL LEVE (Custo de memória baixíssimo)
-        f_lores = cap_array("lores")
-        if f_lores is None: continue
+        # 1. Puxa o frame único do stream principal
+        f_main = cap_array("main")
+        if f_main is None: continue
         
         # 2. Canal Y (P&B) para o OpenCV
-        frame_gray_completo = f_lores[:RES_H_LORES, :RES_W_LORES]
+        frame_gray_completo = f_main[:RES_H, :RES_W]
         
         # 3. ROI e Binarização
         lx, ly, lw, lh = ROI_X, ROI_Y, ROI_W, ROI_H
@@ -245,9 +237,8 @@ def logica_scanner():
                     else:
                         cy_a = int(pts[0]['cy_g'] + 150) 
                     
-                    processar_captura(f_lores, cx_a, cy_a, frame_count)
+                    processar_captura(f_main, cx_a, cy_a, frame_count)
                     frame_count += 1
-                    contador_perfs_ciclo = 0
 
         # ==========================================================
         # FECHAMENTO DO GATILHO E UI (Comum aos dois motores)
@@ -452,39 +443,41 @@ def api_comando():
             return {"status": "ok", "msg": f"HDR alterado para: {'ON' if HDR_ATIVO else 'OFF'}"}
         
 
-        # --- TROCA DE RESOLUÇÃO (Câmera 16:9 Nativa com FOV Travado) ---
+# --- TROCA DE RESOLUÇÃO (Modo Stream Único Nativo) ---
         elif cmd == 'res':
-            global RES_W_MAIN, RES_H_MAIN, F_X, F_Y, MODO_ATUAL
+            global RES_W, RES_H, RES_W_LORES, RES_H_LORES, F_X, F_Y, MODO_ATUAL
             escolha = dados.get('val_str')
             
             if escolha in MODOS_RES:
                 registrar_log(f"Engatando marcha: {escolha}")
                 MODO_ATUAL = escolha
-                RES_W_MAIN, RES_H_MAIN = MODOS_RES[escolha]
                 
-                # Recalcula as escalas para o Scanner não "derrapar"
-                F_X = RES_W_MAIN / RES_W_LORES
-                F_Y = RES_H_MAIN / RES_H_LORES
+                # 1. Atualizamos a resolução de Captura
+                RES_W, RES_H = MODOS_RES[escolha]
+                
+                # 2. Sincronizamos a "Visão" com a Captura (Essencial para não quebrar o resto do código)
+                RES_W_LORES, RES_H_LORES = RES_W, RES_H
+                
+                # 3. Zeramos o fator de escala (1 pixel na visão = 1 pixel no sensor)
+                F_X, F_Y = 1.0, 1.0 
                 
                 picam2.stop()
-                config = picam2.create_video_configuration(
-                    main={"size": (RES_W_MAIN, RES_H_MAIN), "format": "YUV420"},
-                    lores={"size": (RES_W_LORES, RES_H_LORES), "format": "YUV420"}
+                nova_conf = picam2.create_video_configuration(
+                    main={"size": (RES_W, RES_H), "format": "YUV420"}
                 )
-                picam2.configure(config)
+                picam2.configure(nova_conf)
                 
-                # TRAVA DE FOV: Forçamos o ScalerCrop para o array ativo total (4608x2592)
-                # Como baixamos o FPS para 50, o sensor não vai precisar dar zoom.
+                # Aplicamos o FOV travado e o FrameRate alto
                 picam2.set_controls({
                     "ExposureTime": shutter_speed, 
                     "AnalogueGain": gain, 
                     "FrameRate": fps_cam, 
                     "LensPosition": foco_atual,
-                    "HdrMode": HDR_ATIVO,
-                    "ScalerCrop": (0, 0, 4608, 2592) 
+                    "HdrMode": HDR_ATIVO, 
+                    "ScalerCrop": (0, 0, 4608, 2592)
                 })
                 picam2.start()
-                return {"status": "ok", "msg": f"Resolução {escolha}"}
+                return {"status": "ok", "msg": f"Resolução {escolha} Ativa"}
         
         # --- ÓPTICA ---
         elif cmd == 'foco': 
