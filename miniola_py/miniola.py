@@ -89,7 +89,8 @@ CROP_W, CROP_H = 400, 266
 
 contador_perfs_ciclo = 0
 frame_count = 0
-perfuracao_na_linha = False
+perfuracao_na_linha = False      # trava interna para não contar o mesmo furo várias vezes
+trigger_visual_ate = 0.0         # pulso curto só para indicar o gatilho no dashboard
 ultimo_frame_bruto = None
 ultimo_frame_binario = None
 ultimo_crop_preview = np.zeros((280, 400), dtype=np.uint8)
@@ -151,7 +152,7 @@ def logica_scanner():
     
     global frame_count, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
     global contador_perfs_ciclo, perfuracao_na_linha, fps_real_proc, tempo_ms_ciclo
-    global encolhimento_atual_pct, PITCH_PADRAO_PX, ultimo_pitch_medio
+    global encolhimento_atual_pct, PITCH_PADRAO_PX, ultimo_pitch_medio, trigger_visual_ate
 
     ESCALA_CV = 0.5 
     skip_ui = 0
@@ -161,6 +162,7 @@ def logica_scanner():
     # --- FILTRO DE DEBOUNCE ---
     ultimo_furo_tempo = 0
     MIN_INTERVALO_FURO = 0.05 # 50ms (Evita contar o mesmo furo duas vezes em alta velocidade)
+    PULSO_TRIGGER_S = 0.12    # Mantém o gatilho vermelho por pouco tempo só no evento real
 
     registrar_log("[SISTEMA] Motor de Visão Nativo HIGH em 16:9 iniciado.")
 
@@ -182,35 +184,44 @@ def logica_scanner():
             _, binary_small = cv2.threshold(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY)
             
             furo_detectado_agora = False
-            contours, _ = cv2.findContours(binary_small, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+            contours, _ = cv2.findContours(binary_small, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             
             l_sup, l_inf = LINHA_GATILHO_Y - MARGEM_GATILHO, LINHA_GATILHO_Y + MARGEM_GATILHO
             furos_validos = []
             debug_visual = []
+            h_lim, w_lim = binary_small.shape[:2]
 
             for cnt in contours:
                 x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
+
+                # Ignora contornos grudados nas bordas da ROI, que costumam deixar o gatilho sempre ativo
+                if x_s <= 0 or y_s <= 0 or (x_s + w_s) >= (w_lim - 1) or (y_s + h_s) >= (h_lim - 1):
+                    continue
+
                 area = (w_s * h_s) * 4 # Compensa o resize 0.5
                 if 200 < area < 10000 and 0.3 < (w_s / h_s) < 2.5:
-                    cy_roi = (y_s * 2) + (h_s) # Centro Y na ROI
-                    cx_g = (x_s * 2) + (w_s) + lx
+                    cy_roi = (y_s * 2) + h_s  # Centro Y na ROI
+                    cx_g = (x_s * 2) + w_s + lx
                     cy_g = cy_roi + ly
                     acionou = l_sup <= cy_roi <= l_inf
                     furos_validos.append({'cy_roi': cy_roi, 'cx_g': cx_g, 'cy_g': cy_g, 'acionou': acionou})
                     debug_visual.append({'rect': (x_s*2+lx, y_s*2+ly, w_s*2, h_s*2), 'color': (0,255,0) if acionou else (0,0,255)})
 
             furos_validos.sort(key=lambda p: p['cy_roi'])
+            furos_na_janela = [p for p in furos_validos if p['acionou']]
+            furo_gatilho = min(furos_na_janela, key=lambda p: abs(p['cy_roi'] - LINHA_GATILHO_Y)) if furos_na_janela else None
             
             # --- LÓGICA DE GATILHO + PITCH (METROLOGIA) ---
-            if furos_validos and furos_validos[0]['acionou']:
+            if furo_gatilho is not None:
                 agora = get_time()
                 furo_detectado_agora = True
                 
-                # Só conta o furo se ele for NOVO e respeitar o intervalo mínimo (Debounce)
+                # Só conta quando há transição real de fora -> dentro da janela
                 if not perfuracao_na_linha and (agora - ultimo_furo_tempo) > MIN_INTERVALO_FURO:
                     contador_perfs_ciclo += 1
                     perfuracao_na_linha = True
                     ultimo_furo_tempo = agora
+                    trigger_visual_ate = agora + PULSO_TRIGGER_S
                     
                     # 1. Medição de Pitch (Só fazemos no momento do gatilho para poupar CPU)
                     qtd = len(furos_validos)
@@ -239,9 +250,9 @@ def logica_scanner():
                                 soma_y += (furos_validos[i]['cy_g'] + ((1.5 - i) * pitch_instantaneo))
                             cy_a = int(soma_y / min(4, qtd))
                         else:
-                            cy_a = int(furos_validos[0]['cy_g'] + 150)
+                            cy_a = int(furo_gatilho['cy_g'] + 150)
                         
-                        processar_captura(f_main, furos_validos[0]['cx_g'], cy_a, frame_count)
+                        processar_captura(f_main, furo_gatilho['cx_g'], cy_a, frame_count)
                         frame_count += 1
                         contador_perfs_ciclo = 0
 
@@ -268,7 +279,7 @@ def logica_scanner():
 
 # --- FLASK: DASHBOARD SIMPLIFICADO + HISTOGRAMA + ZEBRA ESTÁTICO ---
 def generate_dashboard():
-    global perfuracao_na_linha
+    global trigger_visual_ate
     while True:
         time.sleep(0.06) 
         if ultimo_frame_bruto is None: continue
@@ -281,7 +292,7 @@ def generate_dashboard():
         
         # Desenhos da Geometria da ROI
         cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
-        cor_gatilho = (0, 0, 255) if perfuracao_na_linha else (0, 255, 0)
+        cor_gatilho = (0, 0, 255) if time.perf_counter() < trigger_visual_ate else (0, 255, 0)
         
         y_gl = ROI_Y + LINHA_GATILHO_Y
         cv2.line(p_live, (int(ROI_X*sx), int(y_gl*sy)), (int((ROI_X+ROI_W)*sx), int(y_gl*sy)), cor_gatilho, 3)
