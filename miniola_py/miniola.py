@@ -569,11 +569,6 @@ def index():
                     <button onclick="enviarCmd('r')" style='background:#444; color:#fff; border:none; padding:6px; cursor:pointer; border-radius:3px;'>Limpar RAM</button>
                     <button onclick="if(confirm('Desligar a Miniola?')) enviarCmd('off')" style='background:#600; color:#fff; border:none; padding:6px; cursor:pointer; border-radius:3px;'>OFF</button>
                     <button onclick="enviarCmd('hdr')" style='width:100%; margin-top:5px; background:#44a; color:#fff; border:none; padding:4px; cursor:pointer; border-radius:3px;'>LIGAR/DESLIGAR HDR (V3)</button>
-                    <button onclick="enviarRes('VGA')" style='flex:1; background:#333; color:#fff; border:none; padding:5px; cursor:pointer; font-size:10px;'>VGA</button>
-                    <button onclick="enviarRes('HD')" style='flex:1; background:#333; color:#fff; border:none; padding:5px; cursor:pointer; font-size:10px;'>HD</button>
-                    <button onclick="enviarRes('FHD')" style='flex:1; background:#333; color:#fff; border:none; padding:5px; cursor:pointer; font-size:10px;'>FHD</button>
-                    <button onclick="enviarRes('2K')" style='flex:1; background:#333; color:#fff; border:none; padding:5px; cursor:pointer; font-size:10px;'>2K</button>
-                    <button onclick="enviarRes('4K')" style='flex:1; background:#44a; color:#fff; border:none; padding:5px; cursor:pointer; font-size:10px;'>4K</button>
                 </div>
                 <div style='display:flex; gap:5px;'>
                     <button onclick="enviarCmd('cal')" style='background:#f90; color:#000; border:none; padding:6px; font-weight:bold; cursor:pointer; border-radius:3px;'>CAL (Óptica)</button>
@@ -582,6 +577,17 @@ def index():
                 </div>
             </div>
 
+            <div style='background:#222; padding:8px; border-radius:5px; border:1px solid #444; margin-top:10px;'>
+                <b style='color:#f90; display:block; margin-bottom:5px; font-size:10px;'>MARCHAS (Resolução Main 3:2)</b>
+                <div style='display:grid; grid-template-columns: repeat(5, 1fr); gap:4px;'>
+                    <button onclick="enviarRes('VGA')" style='background:#333; color:#fff; border:1px solid #555; padding:8px 2px; cursor:pointer; border-radius:3px; font-weight:bold;'>VGA</button>
+                    <button onclick="enviarRes('HD')"  style='background:#333; color:#fff; border:1px solid #555; padding:8px 2px; cursor:pointer; border-radius:3px; font-weight:bold;'>HD</button>
+                    <button onclick="enviarRes('FHD')" style='background:#333; color:#fff; border:1px solid #555; padding:8px 2px; cursor:pointer; border-radius:3px; font-weight:bold;'>FHD</button>
+                    <button onclick="enviarRes('2K')"  style='background:#333; color:#fff; border:1px solid #555; padding:8px 2px; cursor:pointer; border-radius:3px; font-weight:bold;'>2K</button>
+                    <button onclick="enviarRes('4K')"  style='background:#44a; color:#fff; border:1px solid #555; padding:8px 2px; cursor:pointer; border-radius:3px; font-weight:bold;'>4K</button>
+                </div>
+            </div>
+            
             <div style='background:#222; padding:8px; border-radius:5px; border:1px solid #333;'>
                 <b style='color:#aaa; display:block; margin-bottom:5px;'>ÓPTICA (Lente & Sensor)</b>
                 <div style='display:grid; grid-template-columns: 1fr 1fr; gap:5px;'>
@@ -672,6 +678,22 @@ def index():
                 let valor = document.getElementById(id_campo).value;
                 if(valor !== "") enviarCmd(comando, parseFloat(valor));
             }
+
+            function enviarRes(modo) {
+                fetch('/api/comando', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cmd: 'res', val_str: modo }) // Note o val_str aqui!
+                }).then(r => r.json()).then(res => {
+                    if(res.status === 'erro') alert("Erro ao trocar resolução: " + res.msg);
+                    else registrarLogLocal("Sistema: Resolução alterada para " + modo);
+                });
+            }
+
+            // Pequena função para ajudar a ver o feedback na hora
+            function registrarLogLocal(msg) {
+                console.log(msg);
+            }  
 
             window.addEventListener('resize', syncCanvasSize);
             videoImg.addEventListener('load', syncCanvasSize);
