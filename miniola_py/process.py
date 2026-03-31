@@ -126,8 +126,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--input-dir",
-        default=str(Path(__file__).parent / "captura"),
-        help="Diretório com os frames capturados.",
+        default=None,
+        help="Diretório com os frames capturados. Se omitido, tenta ./capturas e depois ./captura.",
     )
     parser.add_argument(
         "--output-dir",
@@ -152,7 +152,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    input_dir = Path(args.input_dir).expanduser().resolve()
+    script_dir = Path(__file__).parent
+    if args.input_dir:
+        input_dir = Path(args.input_dir).expanduser().resolve()
+    else:
+        preferred = script_dir / "capturas"
+        legacy = script_dir / "captura"
+        input_dir = preferred if preferred.exists() else legacy
+        input_dir = input_dir.expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
