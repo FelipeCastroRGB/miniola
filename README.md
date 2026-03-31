@@ -12,9 +12,9 @@ Arquivos principais agora ficam na **raiz do repositorio**:
 
 - `miniola.py`: ponto de entrada principal.
 - `process.py`: pos-processamento (gera MP4/ProRes a partir dos frames).
+- `miniola_debug.py`: variante de depuracao (opcional).
 - `start.sh`: script de boot e atualizacao (`git pull` + execucao).
 - `requirements.txt`: dependencias Python.
-- `miniola_py/`: camada legada de compatibilidade temporaria.
 
 ---
 
@@ -38,6 +38,7 @@ cd ~/miniola
 
 ```bash
 mkdir -p ~/miniola/capturas
+mkdir -p ~/miniola/output
 ```
 
 Edite `sudo nano /etc/fstab` e adicione ao final:
@@ -98,13 +99,6 @@ Por padrao, o script tenta ler frames em:
 2. `./captura` (fallback legado)
 
 As saidas e relatorios sao gravados em `./output`.
-
----
-
-## Compatibilidade legada
-
-- `miniola_py/start.sh` foi mantido como ponte para `~/miniola/start.sh`.
-- `miniola.py` e `process.py` na raiz funcionam como entrada oficial.
 
 ---
 

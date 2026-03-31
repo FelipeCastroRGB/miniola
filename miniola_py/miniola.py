@@ -38,7 +38,6 @@ foco_atual, passo_foco = 14.5, 0.5
 HDR_ATIVO = 0 # 0 = Desligado, 1 = Ativado
 
 # --- TABELA DE RESOLUÇÕES NATIVAS 16:9 ---
-# --- TABELA DE RESOLUÇÕES NATIVAS 16:9 ---
 MODOS_RES = {
     "VGA": (854, 480),     
     "HD": (1280, 720),     
