@@ -33,6 +33,16 @@ def registrar_log(msg):
 CAPTURE_PATH = "capturas"
 if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
 
+# --- TABELA DE RESOLUÇÕES (Proporção 3:2) ---
+MODOS_RES = {
+    "VGA": (720, 480),     # Ultraleve (Para testes de velocidade)
+    "HD": (1280, 854),     # Rápido e nítido para monitoramento
+    "FHD": (1920, 1280),   # Padrão Profissional (Otimizado para RPi 4)
+    "2K": (2304, 1536),    # Sweet Spot: Mais que 1080p, menos que o limite
+    "4K": (3888, 2592)     # Limite do Sensor (Pode gargalar a 19 FPS)
+}
+MODO_ATUAL = "4K"
+
 picam2 = Picamera2()
 shutter_speed, gain, fps_cam = 600, 1.0, 70
 foco_atual, passo_foco = 14.5, 0.5
@@ -438,6 +448,41 @@ def api_comando():
             HDR_ATIVO = 1 if HDR_ATIVO == 0 else 0
             picam2.set_controls({"HdrMode": HDR_ATIVO})
             return {"status": "ok", "msg": f"HDR alterado para: {'ON' if HDR_ATIVO else 'OFF'}"}
+        
+        # --- TROCA DE RESOLUÇÃO DINÂMICA ---
+        elif cmd == 'res':
+            global RES_W_MAIN, RES_H_MAIN, F_X, F_Y, MODO_ATUAL
+            escolha = dados.get('val_str') # Usaremos val_str para o nome do modo
+            
+            if escolha in MODOS_RES:
+                registrar_log(f"Trocando marcha para {escolha}...")
+                MODO_ATUAL = escolha
+                RES_W_MAIN, RES_H_MAIN = MODOS_RES[escolha]
+                
+                # Recalcula as escalas para o Crop 4K funcionar em qualquer modo
+                F_X = RES_W_MAIN / RES_W_LORES
+                F_Y = RES_H_MAIN / RES_H_LORES
+                
+                # Reinicialização a quente da Câmera
+                picam2.stop()
+                nova_conf = picam2.create_video_configuration(
+                    main={"size": (RES_W_MAIN, RES_H_MAIN), "format": "YUV420"},
+                    lores={"size": (RES_W_LORES, RES_H_LORES), "format": "YUV420"}
+                )
+                picam2.configure(nova_conf)
+                
+                # Re-aplica os controles de preservação
+                picam2.set_controls({
+                    "ExposureTime": shutter_speed, 
+                    "AnalogueGain": gain, 
+                    "FrameRate": fps_cam, 
+                    "LensPosition": foco_atual,
+                    "HdrMode": HDR_ATIVO 
+                })
+                picam2.start()
+                registrar_log(f"Marcha {escolha} engatada com sucesso!")
+                return {"status": "ok", "msg": f"Resolução: {escolha}"}
+        
         # --- ÓPTICA ---
         elif cmd == 'foco': 
             foco_atual = val; picam2.set_controls({"LensPosition": foco_atual})
@@ -524,6 +569,11 @@ def index():
                     <button onclick="enviarCmd('r')" style='background:#444; color:#fff; border:none; padding:6px; cursor:pointer; border-radius:3px;'>Limpar RAM</button>
                     <button onclick="if(confirm('Desligar a Miniola?')) enviarCmd('off')" style='background:#600; color:#fff; border:none; padding:6px; cursor:pointer; border-radius:3px;'>OFF</button>
                     <button onclick="enviarCmd('hdr')" style='width:100%; margin-top:5px; background:#44a; color:#fff; border:none; padding:4px; cursor:pointer; border-radius:3px;'>LIGAR/DESLIGAR HDR (V3)</button>
+                    <button onclick="enviarRes('VGA')" style='flex:1; background:#333; color:#fff; border:none; padding:5px; cursor:pointer; font-size:10px;'>VGA</button>
+                    <button onclick="enviarRes('HD')" style='flex:1; background:#333; color:#fff; border:none; padding:5px; cursor:pointer; font-size:10px;'>HD</button>
+                    <button onclick="enviarRes('FHD')" style='flex:1; background:#333; color:#fff; border:none; padding:5px; cursor:pointer; font-size:10px;'>FHD</button>
+                    <button onclick="enviarRes('2K')" style='flex:1; background:#333; color:#fff; border:none; padding:5px; cursor:pointer; font-size:10px;'>2K</button>
+                    <button onclick="enviarRes('4K')" style='flex:1; background:#44a; color:#fff; border:none; padding:5px; cursor:pointer; font-size:10px;'>4K</button>
                 </div>
                 <div style='display:flex; gap:5px;'>
                     <button onclick="enviarCmd('cal')" style='background:#f90; color:#000; border:none; padding:6px; font-weight:bold; cursor:pointer; border-radius:3px;'>CAL (Óptica)</button>
