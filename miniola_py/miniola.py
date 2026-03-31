@@ -38,16 +38,15 @@ shutter_speed, gain, fps_cam = 600, 1.0, 70
 foco_atual, passo_foco = 14.5, 0.5
 HDR_ATIVO = 0 # 0 = Desligado, 1 = Ativado (V3 IMX708)
 
-# --- GEOMETRIA DUAL-STREAM (Proporção 3:2 cravada) ---
-RES_W_MAIN, RES_H_MAIN = 3888, 2592  # 4K para Gravação (Quase 10MP)
-RES_W_LORES, RES_H_LORES = 720, 480  # 480p para Visão Computacional
+# --- GEOMETRIA DUAL-STREAM (YUV Total para Performance) ---
+RES_W_MAIN, RES_H_MAIN = 3888, 2592  # 4K
+RES_W_LORES, RES_H_LORES = 720, 480  # 480p
 
-FATOR_ESCALA_X = RES_W_MAIN / RES_W_LORES
-FATOR_ESCALA_Y = RES_H_MAIN / RES_H_LORES
+# Fatores de escala
+F_X, F_Y = RES_W_MAIN / RES_W_LORES, RES_H_MAIN / RES_H_LORES
 
-# Cria a configuração com os DUAS saídas simultâneas
 config = picam2.create_video_configuration(
-    main={"size": (RES_W_MAIN, RES_H_MAIN), "format": "RGB888"},
+    main={"size": (RES_W_MAIN, RES_H_MAIN), "format": "YUV420"}, # <-- YUV aqui também!
     lores={"size": (RES_W_LORES, RES_H_LORES), "format": "YUV420"}
 )
 picam2.configure(config)
@@ -91,49 +90,46 @@ encolhimento_atual_pct = 0.0
 fila_gravacao = mp.Queue(maxsize=30) 
 
 def processo_escrita_disco(fila_in):
-    """ Este processo roda isolado em outro núcleo da CPU para não travar o Scanner """
-    print("[SISTEMA] Processo de gravação (Núcleo Isolado) iniciado.")
+    print("[SISTEMA] Gravador 4K Ativado no Core 2.")
     while True:
         item = fila_in.get()
         if item is None: break
         
-        img_rgb, filename = item
-        img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
-
-def processar_captura(cx_global, cy_global, n_frame):
-    global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
-    global FATOR_ESCALA_X, FATOR_ESCALA_Y, ultimo_frame_bruto
-    
-    # 1. Puxa a matriz 4K gigante (Operação rápida)
-    frame_high = picam2.capture_array("main")
-    
-    # 2. Transpõe as coordenadas para a escala 4K e "fatia" a matriz (Slice é quase instantâneo)
-    fx = (cx_global + OFFSET_X) * FATOR_ESCALA_X
-    fy = cy_global * FATOR_ESCALA_Y
-    cw_real = int(CROP_W * FATOR_ESCALA_X)
-    ch_real = int(CROP_H * FATOR_ESCALA_Y)
-    
-    x1, y1 = max(0, int(fx - (cw_real // 2))), max(0, int(fy - (ch_real // 2)))
-    x2, y2 = min(frame_high.shape[1], x1 + cw_real), min(frame_high.shape[0], y1 + ch_real)
-    crop_4k = frame_high[y1:y2, x1:x2]
-    
-    # 3. GERA O PREVIEW LEVE PARA O PAINEL WEB (Sem usar o 4K)
-    if ultimo_frame_bruto is not None:
-        px1 = max(0, int((cx_global + OFFSET_X) - (CROP_W // 2)))
-        py1 = max(0, int(cy_global - (CROP_H // 2)))
-        px2 = min(ultimo_frame_bruto.shape[1], px1 + CROP_W)
-        py2 = min(ultimo_frame_bruto.shape[0], py1 + CROP_H)
-        crop_leve = ultimo_frame_bruto[py1:py2, px1:px2]
+        f_yuv, coords, filename = item
+        x1, y1, x2, y2 = coords
         
-        if crop_leve.size > 0:
-            ultimo_crop_preview = cv2.resize(crop_leve, (400, 280))
+        # Converte YUV para BGR (OpenCV faz isso muito rápido no Core isolado)
+        img_bgr = cv2.cvtColor(f_yuv, cv2.COLOR_YUV2BGR_I420)
+        crop = img_bgr[y1:y2, x1:x2]
+        
+        cv2.imwrite(filename, crop, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
 
-    # 4. Envia a matriz pesada para o processo isolado (Core 2) gravar
-    if crop_4k.size > 0 and GRAVANDO:
-        filename = f"{CAPTURE_PATH}/miniola_{n_frame:06d}.jpg"
+def processar_captura(f_main, f_lores, cx_g, cy_g, n_f):
+    global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO, F_X, F_Y
+    
+    # 1. Coordenadas 4K
+    fx, fy = (cx_g + OFFSET_X) * F_X, cy_g * F_Y
+    cw_r, ch_r = int(CROP_W * F_X), int(CROP_H * F_Y)
+    
+    x1, y1 = max(0, int(fx - (cw_r // 2))), max(0, int(fy - (ch_r // 2)))
+    x2, y2 = min(RES_W_MAIN, x1 + cw_r), min(RES_H_MAIN, y1 + ch_r)
+    
+    # 2. PREVIEW: Usamos o f_lores (já é pequeno) para economizar CPU
+    # Pegamos apenas o canal Y (luma) para um preview P&B ultra-veloz
+    px1, py1 = max(0, (cx_g + OFFSET_X) - (CROP_W//2)), max(0, cy_g - (CROP_H//2))
+    px2, py2 = min(RES_W_LORES, px1 + CROP_W), min(RES_H_LORES, py1 + CROP_H)
+    crop_v = f_lores[py1:py2, px1:px2]
+    
+    if crop_v.size > 0:
+        ultimo_crop_preview = cv2.resize(crop_v, (400, 280)) 
+    
+    # 3. FILA: Mandamos o 4K bruto. O Core 2 vai sofrer para converter, 
+    # mas o Core 1 (este aqui) continuará livre!
+    if GRAVANDO:
+        filename = f"{CAPTURE_PATH}/miniola_{n_f:06d}.jpg"
         try:
-            fila_gravacao.put((crop_4k.copy(), filename), block=False)
+            # Mandamos um .copy() para o Core 2 ter sua própria versão da imagem
+            fila_gravacao.put((f_main.copy(), (x1, y1, x2, y2), filename), block=False)
         except:
             pass
 
@@ -158,23 +154,21 @@ def logica_scanner():
     while True:
         t_inicio = get_time()
         
-        # 1. Puxa a matriz bruta em YUV420
-        frame_yuv = cap_array("lores")
-        if frame_yuv is None: continue
+        # 1. Puxa os dois frames sincronizados em uma única chamada (Ultra Rápido)
+        frames = picam2.capture_array() 
+        f_lores = frames["lores"]
+        f_main = frames["main"]
         
-        # 2. A MÁGICA DO YUV: O canal Y (Preto e Branco) é a metade superior da matriz!
-        # Isso custa ZERO ciclos de CPU para o OpenCV.
-        frame_gray_completo = frame_yuv[:RES_H_LORES, :RES_W_LORES]
+        if f_lores is None: continue
         
-        # 3. Recorta a ROI na imagem já em tons de cinza
+        # 2. Extrai o canal Y (Preto e Branco) para o OpenCV (Custo Zero de CPU)
+        frame_gray_completo = f_lores[:RES_H_LORES, :RES_W_LORES]
+        
+        # 3. ROI e Binarização (Mantendo o resto do seu motor 2D...)
         lx, ly, lw, lh = ROI_X, ROI_Y, ROI_W, ROI_H
         roi_gray = frame_gray_completo[ly:ly+lh, lx:lx+lw]
-        
-        # (Opcional) Podemos manter o resize do ESCALA_CV se quiser, ou tirar se o 480p já for pequeno o suficiente
         roi_small = cv_resize(roi_gray, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV) 
-        
-        # 4. Binariza direto
-        _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY) 
+        _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY)
         
         # Variáveis limpas para o quadro atual
         perfs_neste_frame = []
@@ -215,16 +209,14 @@ def logica_scanner():
         furos_validos.sort(key=lambda p: p['cy_roi'])
         
         if furos_validos and furos_validos[0]['acionou']:
-            furo_detectado_agora = True
             if not perfuracao_na_linha:
                 contador_perfs_ciclo += 1
                 perfuracao_na_linha = True
                 
                 if contador_perfs_ciclo >= 4:
-                    # --- PROJEÇÃO MULTI-PONTO PURA + ENCOLHIMENTO ---
+                    # 1. Cálculos de projeção (pts, cx_a, cy_a...)
                     qtd = min(4, len(furos_validos))
                     pts = furos_validos[0:qtd]
-                    
                     cx_a = int(sum(p['cx_g'] for p in pts) / qtd)
                     
                     if qtd > 1:
@@ -258,7 +250,7 @@ def logica_scanner():
                     else:
                         cy_a = int(pts[0]['cy_g'] + 150) 
                     
-                    processar_captura(cx_a, cy_a, frame_count)
+                    processar_captura(f_main, f_lores, cx_a, cy_a, frame_count)
                     frame_count += 1
                     contador_perfs_ciclo = 0
 
@@ -270,8 +262,8 @@ def logica_scanner():
 
         skip_ui += 1
         if skip_ui >= 3:
-            # Só gasta CPU convertendo cor 1 vez a cada 3 frames!
-            ultimo_frame_bruto = cv2.cvtColor(frame_yuv, cv2.COLOR_YUV2RGB_I420) 
+            # Corrigido: usando f_lores em vez de frame_yuv
+            ultimo_frame_bruto = cv2.cvtColor(f_lores, cv2.COLOR_YUV2RGB_I420) 
             ultimo_frame_binario = binary_small
             lista_contornos_debug = debug_visual
             skip_ui = 0
