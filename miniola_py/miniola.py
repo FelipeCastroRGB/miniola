@@ -53,7 +53,7 @@ F_X, F_Y = 1.0, 1.0
 
 # Inicialização de segurança para o Dashboard não abrir em preto
 ultimo_frame_bruto = np.zeros((RES_H, RES_W, 3), dtype=np.uint8)
-ultimo_frame_binario = np.zeros((RES_H//2, ROI_W//2, 1), dtype=np.uint8)
+ultimo_frame_binario = np.zeros((RES_H//2, RES_W//2, 1), dtype=np.uint8)
 
 picam2 = Picamera2()
 
