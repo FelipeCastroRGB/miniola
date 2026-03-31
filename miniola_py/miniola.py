@@ -38,19 +38,22 @@ foco_atual, passo_foco = 14.5, 0.5
 HDR_ATIVO = 0 # 0 = Desligado, 1 = Ativado
 
 # --- TABELA DE RESOLUÇÕES NATIVAS 16:9 ---
+# --- TABELA DE RESOLUÇÕES NATIVAS 16:9 ---
 MODOS_RES = {
-    "VGA": (854, 480),     # Ultraleve
-    "HD": (1280, 720),     # Padrão HD
-    "HIGH": (1536, 864)    # Modo Nativo High (Máxima performance c/ FOV fixo)
+    "VGA": (854, 480),     
+    "HD": (1280, 720),     
+    "HIGH": (1536, 864)    
 }
 MODO_ATUAL = "HIGH"
 
-# Unificamos as variáveis: Agora o que a visão lê é o que o disco grava
+# Unificamos as variáveis: Visão e Gravação agora são o mesmo espelho
 RES_W, RES_H = MODOS_RES[MODO_ATUAL]
-
-# Fatores de escala tornam-se 1.0 (Visão e Captura são a mesma matriz)
-F_X, F_Y = 1.0, 1.0
 RES_W_LORES, RES_H_LORES = RES_W, RES_H 
+F_X, F_Y = 1.0, 1.0 
+
+# Inicialização de segurança para o Dashboard não abrir em preto
+ultimo_frame_bruto = np.zeros((RES_H, RES_W, 3), dtype=np.uint8)
+ultimo_frame_binario = np.zeros((RES_H//2, ROI_W//2, 1), dtype=np.uint8)
 
 picam2 = Picamera2()
 
@@ -141,12 +144,9 @@ def processar_captura(f_yuv, cx_g, cy_g, n_f):
         except mp.queues.Full:
             pass # Evita travar o scanner se o disco estiver lento
 
-# --- LÓGICA DO SCANNER OTIMIZADA (MOTORES ISOLADOS) ---
 def logica_scanner():
+    # Cache de funções para ganho de performance
     cap_array = picam2.capture_array
-    cv_resize = cv2.resize
-    cv_thresh = cv2.threshold
-    cv_find = cv2.findContours
     get_time = time.perf_counter
     
     global frame_count, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
@@ -157,107 +157,114 @@ def logica_scanner():
     skip_ui = 0
     buffer_pitches = []  
     ultimo_pitch_medio = 0.0
+    
+    # --- FILTRO DE DEBOUNCE ---
+    ultimo_furo_tempo = 0
+    MIN_INTERVALO_FURO = 0.05 # 50ms (Evita contar o mesmo furo duas vezes em alta velocidade)
+
+    registrar_log("[SISTEMA] Motor de Visão Nativo HIGH em 16:9 iniciado.")
 
     while True:
-        t_inicio = get_time()
-        
-        # 1. Puxa o frame único do stream principal
-        f_main = cap_array("main")
-        if f_main is None: continue
-        
-        # 2. Canal Y (P&B) para o OpenCV
-        frame_gray_completo = f_main[:RES_H, :RES_W]
-        
-        # 3. ROI e Binarização
-        lx, ly, lw, lh = ROI_X, ROI_Y, ROI_W, ROI_H
-        roi_gray = frame_gray_completo[ly:ly+lh, lx:lx+lw]
-        roi_small = cv_resize(roi_gray, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV) 
-        _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY)
-        
-        furo_detectado_agora = False
-        contours, _ = cv_find(binary_small, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-        
-        limite_superior = LINHA_GATILHO_Y - MARGEM_GATILHO
-        limite_inferior = LINHA_GATILHO_Y + MARGEM_GATILHO
-        furos_validos = []
-        debug_visual = []
-
-        for cnt in contours:
-            x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
-            area_aprox = (w_s * h_s) * 4 
-            if 200 < area_aprox < 10000 and 0.2 < (w_s / h_s) < 2.5:
-                cy_roi = (y_s * 2) + ((h_s * 2) // 2)
-                cx_global = (x_s * 2) + (w_s * 2 // 2) + lx
-                cy_global = cy_roi + ly
-                acionou = limite_superior <= cy_roi <= limite_inferior
-                cor = (0, 0, 255) if acionou else (0, 255, 0)
-                furos_validos.append({'cy_roi': cy_roi, 'cx_g': cx_global, 'cy_g': cy_global, 'acionou': acionou})
-                debug_visual.append({'rect': (x_s*2+lx, y_s*2+ly, w_s*2, h_s*2), 'color': cor})
-
-        furos_validos.sort(key=lambda p: p['cy_roi'])
-        
-        # --- LÓGICA DE GATILHO + PITCH (METROLOGIA) ---
-        furo_detectado_agora = False
-        
-        if furos_validos and furos_validos[0]['acionou']:
-            furo_detectado_agora = True
+        try:
+            t_inicio = get_time()
             
-            # Trava de Borda (Leading Edge): Só entra aqui uma vez por furo
-            if not perfuracao_na_linha:
-                contador_perfs_ciclo += 1
-                perfuracao_na_linha = True
+            # 1. Puxa o frame único (1536x864)
+            f_main = cap_array("main")
+            if f_main is None: continue
+            
+            # 2. Canal Y (P&B) para o OpenCV
+            frame_gray_completo = f_main[:RES_H, :RES_W]
+            
+            # 3. ROI e Binarização
+            lx, ly, lw, lh = ROI_X, ROI_Y, ROI_W, ROI_H
+            roi_gray = frame_gray_completo[ly:ly+lh, lx:lx+lw]
+            roi_small = cv2.resize(roi_gray, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV) 
+            _, binary_small = cv2.threshold(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY)
+            
+            furo_detectado_agora = False
+            contours, _ = cv2.findContours(binary_small, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+            
+            l_sup, l_inf = LINHA_GATILHO_Y - MARGEM_GATILHO, LINHA_GATILHO_Y + MARGEM_GATILHO
+            furos_validos = []
+            debug_visual = []
+
+            for cnt in contours:
+                x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
+                area = (w_s * h_s) * 4 # Compensa o resize 0.5
+                if 200 < area < 10000 and 0.3 < (w_s / h_s) < 2.5:
+                    cy_roi = (y_s * 2) + (h_s) # Centro Y na ROI
+                    cx_g = (x_s * 2) + (w_s) + lx
+                    cy_g = cy_roi + ly
+                    acionou = l_sup <= cy_roi <= l_inf
+                    furos_validos.append({'cy_roi': cy_roi, 'cx_g': cx_g, 'cy_g': cy_g, 'acionou': acionou})
+                    debug_visual.append({'rect': (x_s*2+lx, y_s*2+ly, w_s*2, h_s*2), 'color': (0,255,0) if acionou else (0,0,255)})
+
+            furos_validos.sort(key=lambda p: p['cy_roi'])
+            
+            # --- LÓGICA DE GATILHO + PITCH (METROLOGIA) ---
+            if furos_validos and furos_validos[0]['acionou']:
+                agora = get_time()
+                furo_detectado_agora = True
                 
-                # 1. CÁLCULO DE PITCH E ENCOLHIMENTO (SHRINKAGE)
-                qtd = len(furos_validos)
-                pitch_instantaneo = 0
-                
-                if qtd > 1:
-                    # Mede a distância entre os furos visíveis no momento
-                    soma_distancias = 0
-                    for i in range(1, qtd):
-                        soma_distancias += (furos_validos[i]['cy_g'] - furos_validos[i-1]['cy_g'])
-                    pitch_instantaneo = soma_distancias / (qtd - 1)
+                # Só conta o furo se ele for NOVO e respeitar o intervalo mínimo (Debounce)
+                if not perfuracao_na_linha and (agora - ultimo_furo_tempo) > MIN_INTERVALO_FURO:
+                    contador_perfs_ciclo += 1
+                    perfuracao_na_linha = True
+                    ultimo_furo_tempo = agora
                     
-                    if pitch_instantaneo > 0:
-                        buffer_pitches.append(pitch_instantaneo)
+                    # 1. Medição de Pitch (Só fazemos no momento do gatilho para poupar CPU)
+                    qtd = len(furos_validos)
+                    pitch_instantaneo = 0
+                    if qtd > 1:
+                        soma_dist = 0
+                        for i in range(1, qtd):
+                            soma_dist += (furos_validos[i]['cy_g'] - furos_validos[i-1]['cy_g'])
+                        pitch_instantaneo = soma_dist / (qtd - 1)
                         
-                        # A cada 10 amostras, atualizamos a média de preservação
-                        if len(buffer_pitches) >= 10:
-                            pitch_medio = sum(buffer_pitches) / 10
-                            ultimo_pitch_medio = pitch_medio
-                            
-                            # Fórmula de Encolhimento (Shrinkage)
-                            calc_pct = (1.0 - (pitch_medio / PITCH_PADRAO_PX)) * 100.0
-                            encolhimento_atual_pct = max(-5.0, min(10.0, calc_pct))
-                            buffer_pitches.clear()
+                        if pitch_instantaneo > 0:
+                            buffer_pitches.append(pitch_instantaneo)
+                            if len(buffer_pitches) >= 10:
+                                pitch_medio = sum(buffer_pitches) / 10
+                                ultimo_pitch_medio = pitch_medio
+                                calc_pct = (1.0 - (pitch_medio / PITCH_PADRAO_PX)) * 100.0
+                                encolhimento_atual_pct = max(-5.0, min(10.0, calc_pct))
+                                buffer_pitches.clear()
 
-                # 2. DISPARO DO FOTOGRAMA (A cada 4 furos)
-                if contador_perfs_ciclo >= 4:
-                    # Centralização Geométrica (Projeção Virtual)
-                    # Usamos o pitch para cravar o centro exato entre o 2º e 3º furo
-                    if pitch_instantaneo > 0:
-                        soma_centros_y = 0
-                        pontos_uso = min(4, qtd)
-                        for i in range(pontos_uso):
-                            multiplicador = 1.5 - i 
-                            soma_centros_y += (furos_validos[i]['cy_g'] + (multiplicador * pitch_instantaneo))
-                        cy_a = int(soma_centros_y / pontos_uso)
-                    else:
-                        # Fallback caso só veja um furo
-                        cy_a = int(furos_validos[0]['cy_g'] + 150) 
-                    
-                    cx_a = int(sum(p['cx_g'] for p in furos_validos[0:min(4, qtd)]) / min(4, qtd))
-                    
-                    # Captura o fotograma usando o frame que já está no buffer
-                    processar_captura(f_main, cx_a, cy_a, frame_count)
-                    
-                    frame_count += 1
-                    contador_perfs_ciclo = 0 # Reseta o ciclo de 4 furos
-                    registrar_log(f"Fotograma {frame_count} capturado (Shrink: {encolhimento_atual_pct:.2f}%)")
+                    # 2. Disparo da Captura (Ciclo de 4)
+                    if contador_perfs_ciclo >= 4:
+                        # Projeção geométrica para centralizar o frame
+                        if pitch_instantaneo > 0:
+                            soma_y = 0
+                            for i in range(min(4, qtd)):
+                                soma_y += (furos_validos[i]['cy_g'] + ((1.5 - i) * pitch_instantaneo))
+                            cy_a = int(soma_y / min(4, qtd))
+                        else:
+                            cy_a = int(furos_validos[0]['cy_g'] + 150)
+                        
+                        processar_captura(f_main, furos_validos[0]['cx_g'], cy_a, frame_count)
+                        frame_count += 1
+                        contador_perfs_ciclo = 0
 
-        # 3. RESET DA TRAVA (Quando sai do furo)
-        if not furo_detectado_agora:
-            perfuracao_na_linha = False
+            if not furo_detectado_agora:
+                perfuracao_na_linha = False
+
+            # --- ATUALIZAÇÃO DA UI (ESSENCIAL PARA NÃO FICAR PRETO) ---
+            skip_ui += 1
+            if skip_ui >= 3:
+                # Converte o frame atual para RGB para o Dashboard
+                ultimo_frame_bruto = cv2.cvtColor(f_main, cv2.COLOR_YUV2RGB_I420) 
+                ultimo_frame_binario = binary_small
+                lista_contornos_debug = debug_visual
+                skip_ui = 0
+            
+            t_fim = get_time()
+            fps_real_proc = 1.0 / (t_fim - t_inicio)
+            tempo_ms_ciclo = (t_fim - t_inicio) * 1000.0
+
+        except Exception as e:
+            # Se der erro, registra mas não deixa a thread morrer
+            registrar_log(f"ERRO SCANNER: {str(e)}")
+            time.sleep(0.1)
 
 # --- FLASK: DASHBOARD SIMPLIFICADO + HISTOGRAMA + ZEBRA ESTÁTICO ---
 def generate_dashboard():
@@ -269,8 +276,8 @@ def generate_dashboard():
         # --- PAINEL ESQUERDO (p_live): LIVE VIEW LIMPO ---
         p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 360)) # 360 mantém o 16:9
         
-        # Escala dinâmica baseada na nova resolução LORES
-        sx, sy = 640/RES_W_LORES, 360/RES_H_LORES
+        
+        sx, sy = 640/RES_W, 360/RES_H # Agora que é 1:1, RES_W é 1536
         
         # Desenhos da Geometria da ROI
         cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
