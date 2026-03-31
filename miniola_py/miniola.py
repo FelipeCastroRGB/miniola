@@ -48,7 +48,7 @@ RES_W_MAIN, RES_H_MAIN = 1280, 720  # 4K
 RES_W_LORES, RES_H_LORES = 854, 480  # 480p
 
 picam2 = Picamera2()
-shutter_speed, gain, fps_cam = 600, 1.0, 70
+shutter_speed, gain, fps_cam = 600, 1.0, 50
 foco_atual, passo_foco = 14.5, 0.5
 HDR_ATIVO = 0 # 0 = Desligado, 1 = Ativado (V3 IMX708)
 
@@ -275,10 +275,10 @@ def generate_dashboard():
         if ultimo_frame_bruto is None: continue
         
         # --- PAINEL ESQUERDO (p_live): LIVE VIEW LIMPO ---
-        p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
+        p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 360)) # 360 mantém o 16:9
         
         # Escala dinâmica baseada na nova resolução LORES
-        sx, sy = 640/RES_W_LORES, 420/RES_H_LORES
+        sx, sy = 640/RES_W_LORES, 360/RES_H_LORES
         
         # Desenhos da Geometria da ROI
         cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
@@ -452,16 +452,17 @@ def api_comando():
             return {"status": "ok", "msg": f"HDR alterado para: {'ON' if HDR_ATIVO else 'OFF'}"}
         
 
-        # --- TROCA DE RESOLUÇÃO COM FOV FIXO ---
+        # --- TROCA DE RESOLUÇÃO (Câmera 16:9 Nativa com FOV Travado) ---
         elif cmd == 'res':
             global RES_W_MAIN, RES_H_MAIN, F_X, F_Y, MODO_ATUAL
             escolha = dados.get('val_str')
             
             if escolha in MODOS_RES:
+                registrar_log(f"Engatando marcha: {escolha}")
                 MODO_ATUAL = escolha
                 RES_W_MAIN, RES_H_MAIN = MODOS_RES[escolha]
                 
-                # Recalcula escalas (Importante para o Scanner não se perder)
+                # Recalcula as escalas para o Scanner não "derrapar"
                 F_X = RES_W_MAIN / RES_W_LORES
                 F_Y = RES_H_MAIN / RES_H_LORES
                 
@@ -472,7 +473,8 @@ def api_comando():
                 )
                 picam2.configure(config)
                 
-                # Reseta para FOV total (Sem Crop, sem achatamento)
+                # TRAVA DE FOV: Forçamos o ScalerCrop para o array ativo total (4608x2592)
+                # Como baixamos o FPS para 50, o sensor não vai precisar dar zoom.
                 picam2.set_controls({
                     "ExposureTime": shutter_speed, 
                     "AnalogueGain": gain, 
@@ -482,8 +484,7 @@ def api_comando():
                     "ScalerCrop": (0, 0, 4608, 2592) 
                 })
                 picam2.start()
-                registrar_log(f"Sensor Nativo: {escolha}")
-                return {"status": "ok"}
+                return {"status": "ok", "msg": f"Resolução {escolha}"}
         
         # --- ÓPTICA ---
         elif cmd == 'foco': 
