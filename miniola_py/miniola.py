@@ -262,7 +262,7 @@ def generate_dashboard():
         time.sleep(0.06) 
         if ultimo_frame_bruto is None: continue
         
-# --- PAINEL ESQUERDO (p_live): LIVE VIEW LIMPO ---
+        # --- PAINEL ESQUERDO (p_live): LIVE VIEW LIMPO ---
         p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
         
         # Escala dinâmica baseada na nova resolução LORES
@@ -288,7 +288,12 @@ def generate_dashboard():
             p_bin[0:420, 50:290] = bin_res
             
             if ultimo_crop_preview is not None and ultimo_crop_preview.size > 0:
-                gray_crop = cv2.cvtColor(ultimo_crop_preview, cv2.COLOR_RGB2GRAY)
+                # Se a imagem já for cinza (1 canal), não precisamos converter!
+                if len(ultimo_crop_preview.shape) == 2:
+                    gray_crop = ultimo_crop_preview
+                else:
+                    gray_crop = cv2.cvtColor(ultimo_crop_preview, cv2.COLOR_RGB2GRAY)
+                
                 hist = cv2.calcHist([gray_crop], [0], None, [256], [0, 256])
                 cv2.normalize(hist, hist, 0, 150, cv2.NORM_MINMAX)
                 
@@ -312,12 +317,15 @@ def generate_dashboard():
         p_inf = np.zeros((300, 1280, 3), dtype=np.uint8)
         
         if ultimo_crop_preview is not None and ultimo_crop_preview.size > 0:
-            crop_preview = cv2.resize(ultimo_crop_preview.copy(), (400, 280))
-            luma = cv2.cvtColor(crop_preview, cv2.COLOR_RGB2GRAY)
+            # luma já é o nosso preview em cinza
+            luma = ultimo_crop_preview 
             
-            zebra_overlay = crop_preview.copy()
-            zebra_overlay[luma > 245] = [0, 0, 255] # Estouro = Vermelho
-            zebra_overlay[luma < 10] = [255, 0, 0]  # Crush = Azul
+            # Criamos uma versão colorida apenas para o overlay visual
+            zebra_overlay = cv2.cvtColor(luma, cv2.COLOR_GRAY2RGB)
+            
+            # Pintamos os estouros (Vermelho) e sombras (Azul)
+            zebra_overlay[luma > 245] = [255, 0, 0] 
+            zebra_overlay[luma < 10]  = [0, 0, 255]
             
             # Centralizando a foto (1280 / 2) - (400 / 2) = 440
             pos_y_zebra = 10
