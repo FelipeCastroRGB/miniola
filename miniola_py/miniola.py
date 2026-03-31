@@ -196,69 +196,68 @@ def logica_scanner():
 
         furos_validos.sort(key=lambda p: p['cy_roi'])
         
-        # --- LÓGICA DE GATILHO ---
+        # --- LÓGICA DE GATILHO + PITCH (METROLOGIA) ---
+        furo_detectado_agora = False
+        
         if furos_validos and furos_validos[0]['acionou']:
             furo_detectado_agora = True
+            
+            # Trava de Borda (Leading Edge): Só entra aqui uma vez por furo
             if not perfuracao_na_linha:
                 contador_perfs_ciclo += 1
                 perfuracao_na_linha = True
                 
-                if contador_perfs_ciclo >= 4:
-                    # SÓ AGORA calculamos as coordenadas...
-                    qtd = min(4, len(furos_validos))
-                    pts = furos_validos[0:qtd]
-                    cx_a = int(sum(p['cx_g'] for p in pts) / qtd)
+                # 1. CÁLCULO DE PITCH E ENCOLHIMENTO (SHRINKAGE)
+                qtd = len(furos_validos)
+                pitch_instantaneo = 0
+                
+                if qtd > 1:
+                    # Mede a distância entre os furos visíveis no momento
+                    soma_distancias = 0
+                    for i in range(1, qtd):
+                        soma_distancias += (furos_validos[i]['cy_g'] - furos_validos[i-1]['cy_g'])
+                    pitch_instantaneo = soma_distancias / (qtd - 1)
                     
-                    if qtd > 1:
-                        # 1. Mede o Pitch instantâneo
-                        soma_pitch = 0
-                        for i in range(1, qtd):
-                            soma_pitch += (pts[i]['cy_g'] - pts[i-1]['cy_g'])
-                        pitch_instantaneo = soma_pitch / (qtd - 1)
+                    if pitch_instantaneo > 0:
+                        buffer_pitches.append(pitch_instantaneo)
                         
-                        # 2. CÁLCULO DE ENCOLHIMENTO (Lotes de 10 amostras)
-                        if pitch_instantaneo > 0:
-                            buffer_pitches.append(pitch_instantaneo)
+                        # A cada 10 amostras, atualizamos a média de preservação
+                        if len(buffer_pitches) >= 10:
+                            pitch_medio = sum(buffer_pitches) / 10
+                            ultimo_pitch_medio = pitch_medio
                             
-                            # Quando atingir 10 leituras válidas (Resposta rápida e estável)
-                            if len(buffer_pitches) >= 10:
-                                pitch_medio = sum(buffer_pitches) / len(buffer_pitches)
-                                ultimo_pitch_medio = pitch_medio # Salva para o comando setcal
-                                
-                                calc_pct = (1.0 - (pitch_medio / PITCH_PADRAO_PX)) * 100.0
-                                encolhimento_atual_pct = max(-5.0, min(10.0, calc_pct))
-                                
-                                buffer_pitches.clear() # Limpa a memória para o próximo lote    
-                        
-                        # 3. Projeção Virtual Geométrica (Crava o centro da tela)
-                        soma_centros_y = 0
-                        for i in range(qtd):
-                            multiplicador = 1.5 - i 
-                            soma_centros_y += (pts[i]['cy_g'] + (multiplicador * pitch_instantaneo))
-                            
-                        cy_a = int(soma_centros_y / qtd)
-                    else:
-                        cy_a = int(pts[0]['cy_g'] + 150) 
-                    
-                    processar_captura(f_main, cx_a, cy_a, frame_count)
-                    frame_count += 1
+                            # Fórmula de Encolhimento (Shrinkage)
+                            calc_pct = (1.0 - (pitch_medio / PITCH_PADRAO_PX)) * 100.0
+                            encolhimento_atual_pct = max(-5.0, min(10.0, calc_pct))
+                            buffer_pitches.clear()
 
-        # ==========================================================
-        # FECHAMENTO DO GATILHO E UI (Comum aos dois motores)
-        # ==========================================================
+                # 2. DISPARO DO FOTOGRAMA (A cada 4 furos)
+                if contador_perfs_ciclo >= 4:
+                    # Centralização Geométrica (Projeção Virtual)
+                    # Usamos o pitch para cravar o centro exato entre o 2º e 3º furo
+                    if pitch_instantaneo > 0:
+                        soma_centros_y = 0
+                        pontos_uso = min(4, qtd)
+                        for i in range(pontos_uso):
+                            multiplicador = 1.5 - i 
+                            soma_centros_y += (furos_validos[i]['cy_g'] + (multiplicador * pitch_instantaneo))
+                        cy_a = int(soma_centros_y / pontos_uso)
+                    else:
+                        # Fallback caso só veja um furo
+                        cy_a = int(furos_validos[0]['cy_g'] + 150) 
+                    
+                    cx_a = int(sum(p['cx_g'] for p in furos_validos[0:min(4, qtd)]) / min(4, qtd))
+                    
+                    # Captura o fotograma usando o frame que já está no buffer
+                    processar_captura(f_main, cx_a, cy_a, frame_count)
+                    
+                    frame_count += 1
+                    contador_perfs_ciclo = 0 # Reseta o ciclo de 4 furos
+                    registrar_log(f"Fotograma {frame_count} capturado (Shrink: {encolhimento_atual_pct:.2f}%)")
+
+        # 3. RESET DA TRAVA (Quando sai do furo)
         if not furo_detectado_agora:
             perfuracao_na_linha = False
-
-        skip_ui += 1
-        if skip_ui >= 3:
-            ultimo_frame_bruto = cv2.cvtColor(f_main, cv2.COLOR_YUV2RGB_I420) 
-            ultimo_frame_binario = binary_small
-            lista_contornos_debug = debug_visual
-            skip_ui = 0
-        
-        t_fim = get_time()
-        tempo_ms_ciclo = (t_fim - t_inicio) * 1000.0
-        fps_real_proc = 1.0 / (t_fim - t_inicio) if (t_fim - t_inicio) > 0 else 0
 
 # --- FLASK: DASHBOARD SIMPLIFICADO + HISTOGRAMA + ZEBRA ESTÁTICO ---
 def generate_dashboard():
@@ -541,13 +540,12 @@ def index():
     return """
     <html><body style='background:#0a0a0a; color:#eee; font-family:monospace; margin:0; overflow-x:hidden;'>
         
-        <div style='display:flex; background:#111; padding:10px; border-bottom:1px solid #333; justify-content:space-around; font-size:16px;'>
-            <span id='m'>--</span> | 
-            CICLO: <b id='c'>0/4</b> |
-            DISCO: <b id='arq' style='color:#0f0'>0</b> imgs (<b id='esp' style='color:#0aa'>-</b> livres) | 
-            FRAMES: <b id='f'>0</b> | 
-            PROC: <b id='fps_proc' style='color:#0ff'>0.0 FPS</b> (<b id='ms_ciclo' style='color:#ff0'>0.0 ms</b>) | 
-            TEMP: <b id='t_cpu' style='color:#f90'>0.0 °C</b>
+        <div style='display:flex; background:#111; padding:10px; border-bottom:1px solid #333; justify-content:space-between; font-size:14px; font-weight:bold;'>
+            <div style='flex:1; text-align:left;'> STATUS: <span id='m' style='color:#0f0'>--</span></div>
+            <div style='flex:1; text-align:center;'> CICLO: <span id='c' style='color:#fff'>0/4</span></div>
+            <div style='flex:1; text-align:center;'> DISCO: <span id='arq' style='color:#0f0'>0</span> imgs</div>
+            <div style='flex:1; text-align:center;'> LIVRE: <span id='esp' style='color:#0aa'>-</span></div>
+            <div style='flex:1; text-align:right;'> PROC: <span id='fps_proc' style='color:#0ff'>0.0</span> | <span id='t_cpu' style='color:#f90'>0.0°C</span></div>
         </div>
         
         <div style='display:flex; background:#1a1a1a; padding:6px 10px; border-bottom:1px solid #444; justify-content:space-between; font-size:12px; color:#aaa;'>
