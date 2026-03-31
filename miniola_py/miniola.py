@@ -104,31 +104,32 @@ def processo_escrita_disco(fila_in):
         
         cv2.imwrite(filename, crop, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
 
-def processar_captura(f_main, f_lores, cx_g, cy_g, n_f):
+def processar_captura(f_lores, cx_g, cy_g, n_f):
     global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO, F_X, F_Y
     
-    # 1. Coordenadas 4K
+    # 1. O SNIPER: Puxa o 4K bruto da câmera SÓ AGORA (Custo de CPU sob demanda)
+    f_main = picam2.capture_array("main")
+    
+    if f_main is None: return
+
+    # 2. Geometria 4K (Slice de matriz é instantâneo)
     fx, fy = (cx_g + OFFSET_X) * F_X, cy_g * F_Y
     cw_r, ch_r = int(CROP_W * F_X), int(CROP_H * F_Y)
-    
     x1, y1 = max(0, int(fx - (cw_r // 2))), max(0, int(fy - (ch_r // 2)))
     x2, y2 = min(RES_W_MAIN, x1 + cw_r), min(RES_H_MAIN, y1 + ch_r)
     
-    # 2. PREVIEW: Usamos o f_lores (já é pequeno) para economizar CPU
-    # Pegamos apenas o canal Y (luma) para um preview P&B ultra-veloz
-    px1, py1 = max(0, (cx_g + OFFSET_X) - (CROP_W//2)), max(0, cy_g - (CROP_H//2))
+    # 3. PREVIEW LEVE: Usamos o lores (que já temos na mão) para não pesar
+    px1, py1 = max(0, int((cx_g + OFFSET_X) - (CROP_W // 2))), max(0, int(cy_g - (CROP_H // 2)))
     px2, py2 = min(RES_W_LORES, px1 + CROP_W), min(RES_H_LORES, py1 + CROP_H)
     crop_v = f_lores[py1:py2, px1:px2]
-    
     if crop_v.size > 0:
         ultimo_crop_preview = cv2.resize(crop_v, (400, 280)) 
     
-    # 3. FILA: Mandamos o 4K bruto. O Core 2 vai sofrer para converter, 
-    # mas o Core 1 (este aqui) continuará livre!
+    # 4. ENVIO PARA O CORE 2: Mandamos o 4K inteiro para o gravador converter
     if GRAVANDO:
         filename = f"{CAPTURE_PATH}/miniola_{n_f:06d}.jpg"
         try:
-            # Mandamos um .copy() para o Core 2 ter sua própria versão da imagem
+            # Enviamos a cópia para a fila de multiprocessamento
             fila_gravacao.put((f_main.copy(), (x1, y1, x2, y2), filename), block=False)
         except:
             pass
