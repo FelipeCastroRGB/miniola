@@ -72,8 +72,8 @@ MARGEM_GATILHO = 23    # Margem de disparo (px para cima e para baixo)
 THRESH_VAL = 239 # Valor do threshold para binarização
 PITCH_PADRAO_PX = 85.0  # CALIBRE AQUI: Quantos pixels tem o pitch de um filme NOVO na sua lente?
 # --- PARÂMETROS DO CROP ---
-OFFSET_X = 470 
-CROP_W, CROP_H = 918, 612 
+OFFSET_X = 220 
+CROP_W, CROP_H = 400, 266 
 
 contador_perfs_ciclo = 0
 frame_count = 0
@@ -103,34 +103,39 @@ def processo_escrita_disco(fila_in):
 
 def processar_captura(cx_global, cy_global, n_frame):
     global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
-    global FATOR_ESCALA_X, FATOR_ESCALA_Y 
+    global FATOR_ESCALA_X, FATOR_ESCALA_Y, ultimo_frame_bruto
     
-    # 1. Captura o quadro 4K da matriz no momento do gatilho
+    # 1. Puxa a matriz 4K gigante (Operação rápida)
     frame_high = picam2.capture_array("main")
     
-    # 2. Transpõe a geometria da tela pequena para o quadro 4K
+    # 2. Transpõe as coordenadas para a escala 4K e "fatia" a matriz (Slice é quase instantâneo)
     fx = (cx_global + OFFSET_X) * FATOR_ESCALA_X
     fy = cy_global * FATOR_ESCALA_Y
-    
-    # O Crop que você digitar no painel (ex: 900px) vai virar 4860px no mundo real
     cw_real = int(CROP_W * FATOR_ESCALA_X)
     ch_real = int(CROP_H * FATOR_ESCALA_Y)
     
     x1, y1 = max(0, int(fx - (cw_real // 2))), max(0, int(fy - (ch_real // 2)))
     x2, y2 = min(frame_high.shape[1], x1 + cw_real), min(frame_high.shape[0], y1 + ch_real)
+    crop_4k = frame_high[y1:y2, x1:x2]
     
-    crop = frame_high[y1:y2, x1:x2]
-    
-    if crop.size > 0:
-        # Apenas para o preview do painel não travar, reduzimos uma cópia do 4K
-        ultimo_crop_preview = cv2.resize(crop, (400, 280)) 
+    # 3. GERA O PREVIEW LEVE PARA O PAINEL WEB (Sem usar o 4K)
+    if ultimo_frame_bruto is not None:
+        px1 = max(0, int((cx_global + OFFSET_X) - (CROP_W // 2)))
+        py1 = max(0, int(cy_global - (CROP_H // 2)))
+        px2 = min(ultimo_frame_bruto.shape[1], px1 + CROP_W)
+        py2 = min(ultimo_frame_bruto.shape[0], py1 + CROP_H)
+        crop_leve = ultimo_frame_bruto[py1:py2, px1:px2]
         
-        if GRAVANDO:
-            filename = f"{CAPTURE_PATH}/miniola_{n_frame:06d}.jpg"
-            try:
-                fila_gravacao.put((crop.copy(), filename), block=False)
-            except:
-                pass # Se a fila estiver cheia, simplesmente pula a gravação deste frame para não travar o scanner
+        if crop_leve.size > 0:
+            ultimo_crop_preview = cv2.resize(crop_leve, (400, 280))
+
+    # 4. Envia a matriz pesada para o processo isolado (Core 2) gravar
+    if crop_4k.size > 0 and GRAVANDO:
+        filename = f"{CAPTURE_PATH}/miniola_{n_frame:06d}.jpg"
+        try:
+            fila_gravacao.put((crop_4k.copy(), filename), block=False)
+        except:
+            pass
 
 # --- LÓGICA DO SCANNER OTIMIZADA (MOTORES ISOLADOS) ---
 def logica_scanner():
@@ -170,11 +175,6 @@ def logica_scanner():
         
         # 4. Binariza direto
         _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY) 
-        
-        # --- PREPARANDO O PREVIEW PARA O PAINEL WEB ---
-        # Como o painel precisa de cores para desenhar as linhas verdes/vermelhas, 
-        # nós convertemos a matriz inteira para RGB apenas no final, antes de mandar pro Flask
-        frame_raw = cv2.cvtColor(frame_yuv, cv2.COLOR_YUV2RGB_I420)
         
         # Variáveis limpas para o quadro atual
         perfs_neste_frame = []
@@ -270,7 +270,8 @@ def logica_scanner():
 
         skip_ui += 1
         if skip_ui >= 3:
-            ultimo_frame_bruto = frame_raw 
+            # Só gasta CPU convertendo cor 1 vez a cada 3 frames!
+            ultimo_frame_bruto = cv2.cvtColor(frame_yuv, cv2.COLOR_YUV2RGB_I420) 
             ultimo_frame_binario = binary_small
             lista_contornos_debug = debug_visual
             skip_ui = 0
