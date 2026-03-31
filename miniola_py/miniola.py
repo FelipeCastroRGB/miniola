@@ -33,6 +33,10 @@ def registrar_log(msg):
 CAPTURE_PATH = "capturas"
 if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
 
+shutter_speed, gain, fps_cam = 600, 1.0, 75
+foco_atual, passo_foco = 14.5, 0.5
+HDR_ATIVO = 0 # 0 = Desligado, 1 = Ativado
+
 # --- TABELA DE RESOLUÇÕES NATIVAS 16:9 ---
 MODOS_RES = {
     "VGA": (854, 480),     # Ultraleve
@@ -49,7 +53,6 @@ F_X, F_Y = 1.0, 1.0
 RES_W_LORES, RES_H_LORES = RES_W, RES_H 
 
 picam2 = Picamera2()
-shutter_speed, gain, fps_cam = 600, 1.0, 75 # Subimos para 75 FPS!
 
 # --- CONFIGURAÇÃO DE STREAM ÚNICO ---
 config = picam2.create_video_configuration(
