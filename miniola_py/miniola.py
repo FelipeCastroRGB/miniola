@@ -293,11 +293,11 @@ def generate_dashboard():
             x, y, w, h = item['rect']; cv2.rectangle(p_live, (int(x*sx), int(y*sy)), (int((x+w)*sx), int((y+h)*sy)), item['color'], 2)
         
         # --- PAINEL DIREITO (p_bin): BINÁRIO E HISTOGRAMA ---
-        p_bin = np.zeros((420, 640, 3), dtype=np.uint8)
+        p_bin = np.zeros((360, 640, 3), dtype=np.uint8)
         
         if ultimo_frame_binario is not None:
-            bin_res = cv2.resize(cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB), (240, 420))
-            p_bin[0:420, 50:290] = bin_res
+            bin_res = cv2.resize(cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB), (240, 360))
+            p_bin[0:360, 50:290] = bin_res
             
             if ultimo_crop_preview is not None and ultimo_crop_preview.size > 0:
                 # --- DETECTOR DE CANAIS ---
