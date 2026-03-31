@@ -251,8 +251,7 @@ def logica_scanner():
 
         skip_ui += 1
         if skip_ui >= 3:
-            # Corrigido: usando f_lores em vez de frame_yuv
-            ultimo_frame_bruto = cv2.cvtColor(f_lores, cv2.COLOR_YUV2RGB_I420) 
+            ultimo_frame_bruto = cv2.cvtColor(f_main, cv2.COLOR_YUV2RGB_I420) 
             ultimo_frame_binario = binary_small
             lista_contornos_debug = debug_visual
             skip_ui = 0
