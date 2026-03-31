@@ -136,7 +136,6 @@ def processar_captura(f_main, f_lores, cx_g, cy_g, n_f):
 # --- LÓGICA DO SCANNER OTIMIZADA (MOTORES ISOLADOS) ---
 def logica_scanner():
     cap_array = picam2.capture_array
-    cv_cvt = cv2.cvtColor
     cv_resize = cv2.resize
     cv_thresh = cv2.threshold
     cv_find = cv2.findContours
@@ -149,72 +148,55 @@ def logica_scanner():
     ESCALA_CV = 0.5 
     skip_ui = 0
     buffer_pitches = []  
-    ultimo_pitch_medio = 0.0 # <-- INICIALIZADO AQUI
+    ultimo_pitch_medio = 0.0
 
     while True:
         t_inicio = get_time()
         
-        # 1. Puxa os dois frames sincronizados em uma única chamada (Ultra Rápido)
-        frames = picam2.capture_array() 
-        f_lores = frames["lores"]
-        f_main = frames["main"]
-        
+        # 1. PUXA APENAS O CANAL LEVE (Custo de memória baixíssimo)
+        f_lores = cap_array("lores")
         if f_lores is None: continue
         
-        # 2. Extrai o canal Y (Preto e Branco) para o OpenCV (Custo Zero de CPU)
+        # 2. Canal Y (P&B) para o OpenCV
         frame_gray_completo = f_lores[:RES_H_LORES, :RES_W_LORES]
         
-        # 3. ROI e Binarização (Mantendo o resto do seu motor 2D...)
+        # 3. ROI e Binarização
         lx, ly, lw, lh = ROI_X, ROI_Y, ROI_W, ROI_H
         roi_gray = frame_gray_completo[ly:ly+lh, lx:lx+lw]
         roi_small = cv_resize(roi_gray, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV) 
         _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY)
         
-        # Variáveis limpas para o quadro atual
-        perfs_neste_frame = []
-        debug_visual = []
         furo_detectado_agora = False
         contours, _ = cv_find(binary_small, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
         
         limite_superior = LINHA_GATILHO_Y - MARGEM_GATILHO
         limite_inferior = LINHA_GATILHO_Y + MARGEM_GATILHO
-        
-        # Voltamos a guardar todos os furos válidos do frame para fazer a média
         furos_validos = []
-        
+        debug_visual = []
+
         for cnt in contours:
             x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
-            
-            # Cálculo rápido de área para não pesar a CPU
             area_aprox = (w_s * h_s) * 4 
-            
             if 200 < area_aprox < 10000 and 0.2 < (w_s / h_s) < 2.5:
                 cy_roi = (y_s * 2) + ((h_s * 2) // 2)
                 cx_global = (x_s * 2) + (w_s * 2 // 2) + lx
                 cy_global = cy_roi + ly
-                
                 acionou = limite_superior <= cy_roi <= limite_inferior
                 cor = (0, 0, 255) if acionou else (0, 255, 0)
-                
-                furos_validos.append({
-                    'cy_roi': cy_roi, 
-                    'cx_g': cx_global, 
-                    'cy_g': cy_global, 
-                    'acionou': acionou
-                })
-                
+                furos_validos.append({'cy_roi': cy_roi, 'cx_g': cx_global, 'cy_g': cy_global, 'acionou': acionou})
                 debug_visual.append({'rect': (x_s*2+lx, y_s*2+ly, w_s*2, h_s*2), 'color': cor})
 
-        # Ordena os furos de cima para baixo
         furos_validos.sort(key=lambda p: p['cy_roi'])
         
+        # --- LÓGICA DE GATILHO ---
         if furos_validos and furos_validos[0]['acionou']:
+            furo_detectado_agora = True
             if not perfuracao_na_linha:
                 contador_perfs_ciclo += 1
                 perfuracao_na_linha = True
                 
                 if contador_perfs_ciclo >= 4:
-                    # 1. Cálculos de projeção (pts, cx_a, cy_a...)
+                    # SÓ AGORA calculamos as coordenadas...
                     qtd = min(4, len(furos_validos))
                     pts = furos_validos[0:qtd]
                     cx_a = int(sum(p['cx_g'] for p in pts) / qtd)
