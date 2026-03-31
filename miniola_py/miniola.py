@@ -450,38 +450,40 @@ def api_comando():
             return {"status": "ok", "msg": f"HDR alterado para: {'ON' if HDR_ATIVO else 'OFF'}"}
         
         # --- TROCA DE RESOLUÇÃO DINÂMICA ---
+# --- TROCA DE RESOLUÇÃO COM FOV FIXO ---
         elif cmd == 'res':
             global RES_W_MAIN, RES_H_MAIN, F_X, F_Y, MODO_ATUAL
-            escolha = dados.get('val_str') # Usaremos val_str para o nome do modo
+            escolha = dados.get('val_str')
             
             if escolha in MODOS_RES:
-                registrar_log(f"Trocando marcha para {escolha}...")
+                registrar_log(f"Marcha: {escolha}")
                 MODO_ATUAL = escolha
                 RES_W_MAIN, RES_H_MAIN = MODOS_RES[escolha]
                 
-                # Recalcula as escalas para o Crop 4K funcionar em qualquer modo
+                # Recalcula escalas
                 F_X = RES_W_MAIN / RES_W_LORES
                 F_Y = RES_H_MAIN / RES_H_LORES
                 
-                # Reinicialização a quente da Câmera
                 picam2.stop()
-                nova_conf = picam2.create_video_configuration(
+                # A mágica: Picamera2 tenta manter o FOV se a proporção for a mesma
+                config = picam2.create_video_configuration(
                     main={"size": (RES_W_MAIN, RES_H_MAIN), "format": "YUV420"},
                     lores={"size": (RES_W_LORES, RES_H_LORES), "format": "YUV420"}
                 )
-                picam2.configure(nova_conf)
+                picam2.configure(config)
                 
-                # Re-aplica os controles de preservação
+                # Forçamos o scaler para evitar o "zoom" automático do sensor
+                # Isso mantém o enquadramento do 4K em todas as resoluções
                 picam2.set_controls({
                     "ExposureTime": shutter_speed, 
                     "AnalogueGain": gain, 
                     "FrameRate": fps_cam, 
                     "LensPosition": foco_atual,
-                    "HdrMode": HDR_ATIVO 
+                    "HdrMode": HDR_ATIVO,
+                    "ScalerCrop": (0, 0, 4608, 2592) # FOV Máximo do Sensor V3
                 })
                 picam2.start()
-                registrar_log(f"Marcha {escolha} engatada com sucesso!")
-                return {"status": "ok", "msg": f"Resolução: {escolha}"}
+                return {"status": "ok", "msg": f"Modo {escolha} Ativo"}
         
         # --- ÓPTICA ---
         elif cmd == 'foco': 
