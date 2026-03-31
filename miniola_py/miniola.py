@@ -48,7 +48,7 @@ FATOR_ESCALA_Y = RES_H_MAIN / RES_H_LORES
 # Cria a configuração com os DUAS saídas simultâneas
 config = picam2.create_video_configuration(
     main={"size": (RES_W_MAIN, RES_H_MAIN), "format": "RGB888"},
-    lores={"size": (RES_W_LORES, RES_H_LORES), "format": "RGB888"}
+    lores={"size": (RES_W_LORES, RES_H_LORES), "format": "YUV420"}
 )
 picam2.configure(config)
 
@@ -276,17 +276,28 @@ def logica_scanner():
     while True:
         t_inicio = get_time()
         
-        # Puxa APENAS o canal leve (480p) para a matemática
-        frame_raw = cap_array("lores")
-        if frame_raw is None: continue
+        # 1. Puxa a matriz bruta em YUV420
+        frame_yuv = cap_array("lores")
+        if frame_yuv is None: continue
         
+        # 2. A MÁGICA DO YUV: O canal Y (Preto e Branco) é a metade superior da matriz!
+        # Isso custa ZERO ciclos de CPU para o OpenCV.
+        frame_gray_completo = frame_yuv[:RES_H_LORES, :RES_W_LORES]
+        
+        # 3. Recorta a ROI na imagem já em tons de cinza
         lx, ly, lw, lh = ROI_X, ROI_Y, ROI_W, ROI_H
-        roi_color = frame_raw[ly:ly+lh, lx:lx+lw]
+        roi_gray = frame_gray_completo[ly:ly+lh, lx:lx+lw]
         
-        roi_gray = cv_cvt(roi_color, cv2.COLOR_RGB2GRAY)
+        # (Opcional) Podemos manter o resize do ESCALA_CV se quiser, ou tirar se o 480p já for pequeno o suficiente
         roi_small = cv_resize(roi_gray, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV) 
-
+        
+        # 4. Binariza direto
         _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY) 
+        
+        # --- PREPARANDO O PREVIEW PARA O PAINEL WEB ---
+        # Como o painel precisa de cores para desenhar as linhas verdes/vermelhas, 
+        # nós convertemos a matriz inteira para RGB apenas no final, antes de mandar pro Flask
+        frame_raw = cv2.cvtColor(frame_yuv, cv2.COLOR_YUV2RGB_I420)
         
         # Variáveis limpas para o quadro atual
         perfs_neste_frame = []
