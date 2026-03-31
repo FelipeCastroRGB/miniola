@@ -232,7 +232,7 @@ def logica_scanner():
                     else:
                         cy_a = int(pts[0]['cy_g'] + 150) 
                     
-                    processar_captura(f_main, f_lores, cx_a, cy_a, frame_count)
+                    processar_captura(f_lores, cx_a, cy_a, frame_count)
                     frame_count += 1
                     contador_perfs_ciclo = 0
 
