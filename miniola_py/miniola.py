@@ -540,12 +540,13 @@ def index():
     return """
     <html><body style='background:#0a0a0a; color:#eee; font-family:monospace; margin:0; overflow-x:hidden;'>
         
-        <div style='display:flex; background:#111; padding:10px; border-bottom:1px solid #333; justify-content:space-between; font-size:14px; font-weight:bold;'>
-            <div style='flex:1; text-align:left;'> STATUS: <span id='m' style='color:#0f0'>--</span></div>
-            <div style='flex:1; text-align:center;'> CICLO: <span id='c' style='color:#fff'>0/4</span></div>
-            <div style='flex:1; text-align:center;'> DISCO: <span id='arq' style='color:#0f0'>0</span> imgs</div>
-            <div style='flex:1; text-align:center;'> LIVRE: <span id='esp' style='color:#0aa'>-</span></div>
-            <div style='flex:1; text-align:right;'> PROC: <span id='fps_proc' style='color:#0ff'>0.0</span> | <span id='t_cpu' style='color:#f90'>0.0°C</span></div>
+        <div style='display:flex; background:#111; padding:10px; border-bottom:1px solid #333; justify-content:space-around; font-size:16px;'>
+            <span id='m'>--</span> | 
+            CICLO: <b id='c'>0/4</b> |
+            DISCO: <b id='arq' style='color:#0f0'>0</b> imgs (<b id='esp' style='color:#0aa'>-</b> livres) | 
+            FRAMES: <b id='f'>0</b> | 
+            PROC: <b id='fps_proc' style='color:#0ff'>0.0 FPS</b> (<b id='ms_ciclo' style='color:#ff0'>0.0 ms</b>) | 
+            TEMP: <b id='t_cpu' style='color:#f90'>0.0 °C</b>
         </div>
         
         <div style='display:flex; background:#1a1a1a; padding:6px 10px; border-bottom:1px solid #444; justify-content:space-between; font-size:12px; color:#aaa;'>
