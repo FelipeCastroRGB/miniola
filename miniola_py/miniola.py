@@ -36,9 +36,29 @@ if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
 picam2 = Picamera2()
 shutter_speed, gain, fps_cam = 600, 1.0, 70
 foco_atual, passo_foco = 14.5, 0.5
-config = picam2.create_video_configuration(main={"size": (1080, 720), "format": "RGB888"})
+HDR_ATIVO = 0 # 0 = Desligado, 1 = Ativado (V3 IMX708)
+
+# --- GEOMETRIA DUAL-STREAM (Proporção 3:2 cravada) ---
+RES_W_MAIN, RES_H_MAIN = 3888, 2592  # 4K para Gravação (Quase 10MP)
+RES_W_LORES, RES_H_LORES = 720, 480  # 480p para Visão Computacional
+
+FATOR_ESCALA_X = RES_W_MAIN / RES_W_LORES
+FATOR_ESCALA_Y = RES_H_MAIN / RES_H_LORES
+
+# Cria a configuração com os DUAS saídas simultâneas
+config = picam2.create_video_configuration(
+    main={"size": (RES_W_MAIN, RES_H_MAIN), "format": "RGB888"},
+    lores={"size": (RES_W_LORES, RES_H_LORES), "format": "RGB888"}
+)
 picam2.configure(config)
-picam2.set_controls({"ExposureTime": shutter_speed, "AnalogueGain": gain, "FrameRate": fps_cam, "LensPosition": foco_atual})
+
+picam2.set_controls({
+    "ExposureTime": shutter_speed, 
+    "AnalogueGain": gain, 
+    "FrameRate": fps_cam, 
+    "LensPosition": foco_atual,
+    "HdrMode": HDR_ATIVO 
+})
 picam2.start()
 
 # --- GEOMETRIA DO ROI E ESTADO ---
@@ -81,25 +101,36 @@ def processo_escrita_disco(fila_in):
         img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
         cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
 
-def processar_captura(frame, cx_global, cy_global, n_frame):
+def processar_captura(cx_global, cy_global, n_frame):
     global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
+    global FATOR_ESCALA_X, FATOR_ESCALA_Y 
     
-    # Cálculo rápido de coordenadas usando o centro global calculado
-    fx, fy = cx_global + OFFSET_X, cy_global
-    x1, y1 = max(0, int(fx - (CROP_W // 2))), max(0, int(fy - (CROP_H // 2)))
-    x2, y2 = min(frame.shape[1], x1 + CROP_W), min(frame.shape[0], y1 + CROP_H)
+    # 1. Captura o quadro 4K da matriz no momento do gatilho
+    frame_high = picam2.capture_array("main")
     
-    crop = frame[y1:y2, x1:x2]
+    # 2. Transpõe a geometria da tela pequena para o quadro 4K
+    fx = (cx_global + OFFSET_X) * FATOR_ESCALA_X
+    fy = cy_global * FATOR_ESCALA_Y
+    
+    # O Crop que você digitar no painel (ex: 900px) vai virar 4860px no mundo real
+    cw_real = int(CROP_W * FATOR_ESCALA_X)
+    ch_real = int(CROP_H * FATOR_ESCALA_Y)
+    
+    x1, y1 = max(0, int(fx - (cw_real // 2))), max(0, int(fy - (ch_real // 2)))
+    x2, y2 = min(frame_high.shape[1], x1 + cw_real), min(frame_high.shape[0], y1 + ch_real)
+    
+    crop = frame_high[y1:y2, x1:x2]
     
     if crop.size > 0:
-        ultimo_crop_preview = crop
+        # Apenas para o preview do painel não travar, reduzimos uma cópia do 4K
+        ultimo_crop_preview = cv2.resize(crop, (400, 280)) 
+        
         if GRAVANDO:
             filename = f"{CAPTURE_PATH}/miniola_{n_frame:06d}.jpg"
             try:
-                # Envia para o processo isolado
                 fila_gravacao.put((crop.copy(), filename), block=False)
             except:
-                pass # Fila cheia, pula o frame silenciosamente para não travar
+                pass # Se a fila estiver cheia, simplesmente pula a gravação deste frame para não travar o scanner
 
 # --- PAINEL DE CONTROLE ---
 def painel_controle():
@@ -245,7 +276,8 @@ def logica_scanner():
     while True:
         t_inicio = get_time()
         
-        frame_raw = cap_array()
+        # Puxa APENAS o canal leve (480p) para a matemática
+        frame_raw = cap_array("lores")
         if frame_raw is None: continue
         
         lx, ly, lw, lh = ROI_X, ROI_Y, ROI_W, ROI_H
@@ -338,7 +370,7 @@ def logica_scanner():
                     else:
                         cy_a = int(pts[0]['cy_g'] + 150) 
                     
-                    processar_captura(frame_raw, cx_a, cy_a, frame_count)
+                    processar_captura(cx_a, cy_a, frame_count)
                     frame_count += 1
                     contador_perfs_ciclo = 0
 
@@ -366,9 +398,11 @@ def generate_dashboard():
         time.sleep(0.06) 
         if ultimo_frame_bruto is None: continue
         
-        # --- PAINEL ESQUERDO (p_live): LIVE VIEW LIMPO ---
+# --- PAINEL ESQUERDO (p_live): LIVE VIEW LIMPO ---
         p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
-        sx, sy = 640/1080, 420/720
+        
+        # Escala dinâmica baseada na nova resolução LORES
+        sx, sy = 640/RES_W_LORES, 420/RES_H_LORES
         
         # Desenhos da Geometria da ROI
         cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
@@ -478,7 +512,6 @@ def get_status():
         "gatilho_y": LINHA_GATILHO_Y, "margem": MARGEM_GATILHO
     }
 
-
 # --- ROTA DE CALIBRAÇÃO ÓPTICA ---
 @app.route('/calibrar')
 def calibrar():
@@ -507,7 +540,7 @@ def api_logs():
 def api_comando():
     global GRAVANDO, foco_atual, passo_foco, shutter_speed, gain, fps_cam, THRESH_VAL
     global ROI_X, ROI_Y, ROI_W, ROI_H, CROP_W, CROP_H, OFFSET_X, LINHA_GATILHO_Y, MARGEM_GATILHO
-    global PITCH_PADRAO_PX, ultimo_pitch_medio, contador_perfs_ciclo, frame_count, CALIBRANDO
+    global PITCH_PADRAO_PX, ultimo_pitch_medio, contador_perfs_ciclo, frame_count, CALIBRANDO, HDR_ATIVO
     
     try:
         dados = request.get_json()
@@ -521,7 +554,12 @@ def api_comando():
             frame_count = 0
             for f in os.listdir(CAPTURE_PATH): os.remove(os.path.join(CAPTURE_PATH, f))
         elif cmd == 'off': os.system("sudo poweroff")
-        
+        # (Dentro da def api_comando, adicione isso junto com a ÓPTICA)
+        elif cmd == 'hdr':
+            global HDR_ATIVO
+            HDR_ATIVO = 1 if HDR_ATIVO == 0 else 0
+            picam2.set_controls({"HdrMode": HDR_ATIVO})
+            return {"status": "ok", "msg": f"HDR alterado para: {'ON' if HDR_ATIVO else 'OFF'}"}
         # --- ÓPTICA ---
         elif cmd == 'foco': 
             foco_atual = val; picam2.set_controls({"LensPosition": foco_atual})
@@ -607,6 +645,7 @@ def index():
                     <button onclick="enviarCmd('rc')" style='background:#444; color:#fff; border:none; padding:6px; cursor:pointer; border-radius:3px;'>Realinhar Ciclo</button>
                     <button onclick="enviarCmd('r')" style='background:#444; color:#fff; border:none; padding:6px; cursor:pointer; border-radius:3px;'>Limpar RAM</button>
                     <button onclick="if(confirm('Desligar a Miniola?')) enviarCmd('off')" style='background:#600; color:#fff; border:none; padding:6px; cursor:pointer; border-radius:3px;'>OFF</button>
+                    <button onclick="enviarCmd('hdr')" style='width:100%; margin-top:5px; background:#44a; color:#fff; border:none; padding:4px; cursor:pointer; border-radius:3px;'>LIGAR/DESLIGAR HDR (V3)</button>
                 </div>
                 <div style='display:flex; gap:5px;'>
                     <button onclick="enviarCmd('cal')" style='background:#f90; color:#000; border:none; padding:6px; font-weight:bold; cursor:pointer; border-radius:3px;'>CAL (Óptica)</button>
