@@ -35,22 +35,24 @@ if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
 
 # --- TABELA DE RESOLUÇÕES (Proporção 3:2) ---
 MODOS_RES = {
-    "VGA": (720, 480),     # Ultraleve (Para testes de velocidade)
-    "HD": (1280, 854),     # Rápido e nítido para monitoramento
-    "FHD": (1920, 1280),   # Padrão Profissional (Otimizado para RPi 4)
-    "2K": (2304, 1536),    # Sweet Spot: Mais que 1080p, menos que o limite
-    "4K": (3888, 2592)     # Limite do Sensor (Pode gargalar a 19 FPS)
+    "VGA": (854, 480),     # Ultraleve (Para testes de velocidade)
+    "HD": (1280, 720),     # Rápido e nítido para monitoramento
+    "FHD": (1920, 1080),   # Padrão Profissional (Otimizado para RPi 4)
+    "2K": (2560, 1440),    # Sweet Spot: Mais que 1080p, menos que o limite
+    "4K": (4608, 2592)     # Limite do Sensor (Pode gargalar a 19 FPS)
 }
-MODO_ATUAL = "4K"
+MODO_ATUAL = "HD"
+
+# --- GEOMETRIA DUAL-STREAM (YUV Total para Performance) ---
+RES_W_MAIN, RES_H_MAIN = 1280, 720  # 4K
+RES_W_LORES, RES_H_LORES = 854, 480  # 480p
 
 picam2 = Picamera2()
 shutter_speed, gain, fps_cam = 600, 1.0, 70
 foco_atual, passo_foco = 14.5, 0.5
 HDR_ATIVO = 0 # 0 = Desligado, 1 = Ativado (V3 IMX708)
 
-# --- GEOMETRIA DUAL-STREAM (YUV Total para Performance) ---
-RES_W_MAIN, RES_H_MAIN = 3888, 2592  # 4K
-RES_W_LORES, RES_H_LORES = 720, 480  # 480p
+
 
 # Fatores de escala
 F_X, F_Y = RES_W_MAIN / RES_W_LORES, RES_H_MAIN / RES_H_LORES
@@ -336,8 +338,8 @@ def generate_dashboard():
             else:
                 luma = ultimo_crop_preview 
             
-            # 2. Redimensiona para o tamanho do painel se necessário
-            luma_res = cv2.resize(luma, (400, 280))
+            # Redimensiona para 16:9 (400x225 é o par de 16:9)
+            luma_res = cv2.resize(luma, (400, 225))
             
             # 3. Cria a base colorida para o Zebra (converte 1 canal -> 3 canais)
             zebra_overlay = cv2.cvtColor(luma_res, cv2.COLOR_GRAY2RGB)
@@ -346,12 +348,12 @@ def generate_dashboard():
             zebra_overlay[luma_res > 245] = [255, 0, 0] # Vermelho (High)
             zebra_overlay[luma_res < 10]  = [0, 0, 255] # Azul (Low)
             
-            pos_y_zebra, pos_x_zebra = 10, 50 
-            p_inf[pos_y_zebra : pos_y_zebra+280, pos_x_zebra : pos_x_zebra+400] = zebra_overlay
+            pos_y_z, pos_x_z = 40, 50 
+            p_inf[pos_y_z : pos_y_z+225, pos_x_z : pos_x_z+400] = zebra_overlay
             
             # Fundo preto semi-transparente para o texto ficar legível
-            cv2.rectangle(p_inf, (pos_x_zebra, pos_y_zebra), (pos_x_zebra + 370, pos_y_zebra + 25), (0, 0, 0), -1)
-            cv2.putText(p_inf, "ZEBRA (VERMELHO=ALTAS / AZUL=BAIXAS)", (pos_x_zebra + 5, pos_y_zebra + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+            cv2.rectangle(p_inf, (pos_x_z, pos_y_z), (pos_x_z + 370, pos_y_z + 25), (0, 0, 0), -1)
+            cv2.putText(p_inf, "ZEBRA (VERMELHO=ALTAS / AZUL=BAIXAS)", (pos_x_z + 5, pos_y_z + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
         
         # Monta a imagem final (restaurando o vstack)
         dashboard = np.vstack((np.hstack((p_live, p_bin)), p_inf))
@@ -449,41 +451,39 @@ def api_comando():
             picam2.set_controls({"HdrMode": HDR_ATIVO})
             return {"status": "ok", "msg": f"HDR alterado para: {'ON' if HDR_ATIVO else 'OFF'}"}
         
-        # --- TROCA DE RESOLUÇÃO DINÂMICA ---
-# --- TROCA DE RESOLUÇÃO COM FOV FIXO ---
+
+        # --- TROCA DE RESOLUÇÃO COM FOV FIXO ---
         elif cmd == 'res':
             global RES_W_MAIN, RES_H_MAIN, F_X, F_Y, MODO_ATUAL
             escolha = dados.get('val_str')
             
             if escolha in MODOS_RES:
-                registrar_log(f"Marcha: {escolha}")
                 MODO_ATUAL = escolha
                 RES_W_MAIN, RES_H_MAIN = MODOS_RES[escolha]
                 
-                # Recalcula escalas
+                # Recalcula escalas (Importante para o Scanner não se perder)
                 F_X = RES_W_MAIN / RES_W_LORES
                 F_Y = RES_H_MAIN / RES_H_LORES
                 
                 picam2.stop()
-                # A mágica: Picamera2 tenta manter o FOV se a proporção for a mesma
                 config = picam2.create_video_configuration(
                     main={"size": (RES_W_MAIN, RES_H_MAIN), "format": "YUV420"},
                     lores={"size": (RES_W_LORES, RES_H_LORES), "format": "YUV420"}
                 )
                 picam2.configure(config)
                 
-                # Forçamos o scaler para evitar o "zoom" automático do sensor
-                # Isso mantém o enquadramento do 4K em todas as resoluções
+                # Reseta para FOV total (Sem Crop, sem achatamento)
                 picam2.set_controls({
                     "ExposureTime": shutter_speed, 
                     "AnalogueGain": gain, 
                     "FrameRate": fps_cam, 
                     "LensPosition": foco_atual,
                     "HdrMode": HDR_ATIVO,
-                    "ScalerCrop": (0, 0, 4608, 2592) # FOV Máximo do Sensor V3
+                    "ScalerCrop": (0, 0, 4608, 2592) 
                 })
                 picam2.start()
-                return {"status": "ok", "msg": f"Modo {escolha} Ativo"}
+                registrar_log(f"Sensor Nativo: {escolha}")
+                return {"status": "ok"}
         
         # --- ÓPTICA ---
         elif cmd == 'foco': 
