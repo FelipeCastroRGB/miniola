@@ -79,7 +79,7 @@ frame_count = 0
 perfuracao_na_linha = False
 ultimo_frame_bruto = None
 ultimo_frame_binario = None
-ultimo_crop_preview = np.zeros((CROP_H, CROP_W, 3), dtype=np.uint8)
+ultimo_crop_preview = np.zeros((280, 400), dtype=np.uint8)
 lista_contornos_debug = []
 fps_real_proc = 0.0
 tempo_ms_ciclo = 0.0
@@ -288,11 +288,13 @@ def generate_dashboard():
             p_bin[0:420, 50:290] = bin_res
             
             if ultimo_crop_preview is not None and ultimo_crop_preview.size > 0:
-                # Se a imagem já for cinza (1 canal), não precisamos converter!
-                if len(ultimo_crop_preview.shape) == 2:
-                    gray_crop = ultimo_crop_preview
-                else:
+                # --- DETECTOR DE CANAIS ---
+                if len(ultimo_crop_preview.shape) == 3:
+                    # Se for RGB (3 canais), converte para cinza
                     gray_crop = cv2.cvtColor(ultimo_crop_preview, cv2.COLOR_RGB2GRAY)
+                else:
+                    # Se já for Cinza/YUV-Y (1 canal), usa direto!
+                    gray_crop = ultimo_crop_preview
                 
                 hist = cv2.calcHist([gray_crop], [0], None, [256], [0, 256])
                 cv2.normalize(hist, hist, 0, 150, cv2.NORM_MINMAX)
@@ -316,21 +318,25 @@ def generate_dashboard():
         # --- PAINEL INFERIOR (p_inf): FOTOGRAMA ESTÁTICO COM ZEBRA ---
         p_inf = np.zeros((300, 1280, 3), dtype=np.uint8)
         
+        # --- PAINEL INFERIOR (p_inf): FOTOGRAMA ESTÁTICO COM ZEBRA ---
         if ultimo_crop_preview is not None and ultimo_crop_preview.size > 0:
-            # luma já é o nosso preview em cinza
-            luma = ultimo_crop_preview 
+            # 1. Normaliza a entrada para Cinza (1 canal)
+            if len(ultimo_crop_preview.shape) == 3:
+                luma = cv2.cvtColor(ultimo_crop_preview, cv2.COLOR_RGB2GRAY)
+            else:
+                luma = ultimo_crop_preview 
             
-            # Criamos uma versão colorida apenas para o overlay visual
-            zebra_overlay = cv2.cvtColor(luma, cv2.COLOR_GRAY2RGB)
+            # 2. Redimensiona para o tamanho do painel se necessário
+            luma_res = cv2.resize(luma, (400, 280))
             
-            # Pintamos os estouros (Vermelho) e sombras (Azul)
-            zebra_overlay[luma > 245] = [255, 0, 0] 
-            zebra_overlay[luma < 10]  = [0, 0, 255]
+            # 3. Cria a base colorida para o Zebra (converte 1 canal -> 3 canais)
+            zebra_overlay = cv2.cvtColor(luma_res, cv2.COLOR_GRAY2RGB)
             
-            # Centralizando a foto (1280 / 2) - (400 / 2) = 440
-            pos_y_zebra = 10
-            pos_x_zebra = 50 
+            # 4. Aplica as cores de aviso (Estouro/Sombras)
+            zebra_overlay[luma_res > 245] = [255, 0, 0] # Vermelho (High)
+            zebra_overlay[luma_res < 10]  = [0, 0, 255] # Azul (Low)
             
+            pos_y_zebra, pos_x_zebra = 10, 50 
             p_inf[pos_y_zebra : pos_y_zebra+280, pos_x_zebra : pos_x_zebra+400] = zebra_overlay
             
             # Fundo preto semi-transparente para o texto ficar legível
