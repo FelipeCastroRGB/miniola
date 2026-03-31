@@ -132,129 +132,6 @@ def processar_captura(cx_global, cy_global, n_frame):
             except:
                 pass # Se a fila estiver cheia, simplesmente pula a gravação deste frame para não travar o scanner
 
-# --- PAINEL DE CONTROLE ---
-def painel_controle():
-    global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, CROP_H, CROP_W, ROI_Y, ROI_W, ROI_H, THRESH_VAL
-    global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo, CALIBRANDO
-    global ultimo_pitch_medio, PITCH_PADRAO_PX  # <-- ADICIONADO AQUI
-    time.sleep(2)
-    print("\n" + "═"*45)
-    print("   MINIOLA - PAINEL DE CONTROLE")
-    print("═"*45)
-    print("   GATILHO:   ly (Linha na ROI)| mg (Margem)")
-    print("   SISTEMA:   rec (Gravar)| r (Reset Tudo)| rc (Realinhar Ciclo)")
-    print("   ÓPTICA:    k/l (Foco Manual)| j [val] (Passo)| af (Auto Foco)")
-    print("   EXPOSIÇÃO: e [val] (Shutter Speed)| g [val] (Gain)| fps [val] (Frame Rate)")
-    print("   CROP:   ch (Altura)| cw (Largura)")
-    print("   SISTEMA:   rec (Gravar)| r (Reset)| rc (Realinhar) | off (Desligar) | cal (Calibrar) | setcal (Cal. Dinâmica)")
-    print("   TRESHOLD:   t")
-    print("   ROI: w, a, s, d (Move ROI)| rx, ry, rw, rh [val] (Ajuste direto da ROI)")
-    print("═"*45)
-    while True:
-        try:
-            entrada = input("\n>> ").split()
-            if not entrada: continue
-            cmd = entrada[0].lower()
-            val = float(entrada[1]) if len(entrada) > 1 else 0
-            
-            if cmd == 'w': ROI_Y = max(0, ROI_Y - 5)
-            elif cmd == 's': ROI_Y = min(720 - ROI_H, ROI_Y + 5)
-            elif cmd == 'a': ROI_X = max(0, ROI_X - 5)
-            elif cmd == 'd': ROI_X = min(1080 - ROI_W, ROI_X + 5)
-            elif cmd == 'rx': ROI_X = int(val)
-            elif cmd == 'ry': ROI_Y = int(val)
-            elif cmd == 'rw': ROI_W = int(val)
-            elif cmd == 'rh': ROI_H = int(val)
-            elif cmd == 'ch': CROP_H = int(val)
-            elif cmd == 'cw': CROP_W = int(val)
-            elif cmd == 'ly': 
-                LINHA_GATILHO_Y = int(val)
-                print(f"[GATILHO] Linha ajustada para: {LINHA_GATILHO_Y}px dentro da ROI")
-            elif cmd == 'mg':
-                MARGEM_GATILHO = int(val)
-                print(f"[GATILHO] Margem ajustada para: +-{MARGEM_GATILHO}px")
-            elif cmd == 'ox': OFFSET_X = int(val)
-            elif cmd == 'l':
-                foco_atual = round(foco_atual + passo_foco, 2)
-                picam2.set_controls({"LensPosition": foco_atual})
-            elif cmd == 'k':
-                foco_atual = max(0.0, round(foco_atual - passo_foco, 2))
-                picam2.set_controls({"LensPosition": foco_atual})
-            # --- NOVO: AUTOFOCO DE TIRO ÚNICO (MODO MACRO / FULL RANGE) ---
-            elif cmd == 'af':
-                print("[ÓPTICA] Destravando lente e ativando Modo Macro... (Aguarde)")
-                try:
-                    # 1. AfMode: 1 (Auto). 
-                    # AfRange: 2 (Full). Isso diz ao algoritmo para ignorar o limite de 12.0 
-                    # e empurrar o motor até o limite físico do Macro (perto de 15.0).
-                    picam2.set_controls({"AfMode": 1, "AfRange": 2})
-                    
-                    # Dá 0.5 segundos para o ISP processar e energizar o motor
-                    time.sleep(0.5) 
-                    
-                    print("[ÓPTICA] Iniciando varredura profunda...")
-                    picam2.autofocus_cycle()
-                    
-                    # Lê os metadados do exato momento pós-foco
-                    metadados = picam2.capture_metadata()
-                    
-                    if "LensPosition" in metadados:
-                        foco_atual = round(metadados["LensPosition"], 2)
-                        
-                        # 4. Tranca a lente de volta no modo Manual (0) e ancora na nova posição.
-                        # (O AfRange volta para 0 por segurança, já que estamos em manual).
-                        picam2.set_controls({"AfMode": 0, "LensPosition": foco_atual, "AfRange": 0})
-                        
-                        print(f"[ÓPTICA] Sucesso! Foco Macro cravado em: {foco_atual}")
-                    else:
-                        print("[ÓPTICA] Varredura concluída, mas posição não relatada pelo sensor.")
-                        picam2.set_controls({"AfMode": 0, "AfRange": 0}) 
-                        
-                except Exception as e:
-                    print(f"[ÓPTICA] Erro no Autofoco nativo: {e}")
-                    picam2.set_controls({"AfMode": 0, "AfRange": 0}) 
-            # -----------------------------------------------------------------
-            elif cmd == 'e': 
-                shutter_speed = int(val); picam2.set_controls({"ExposureTime": shutter_speed})
-            elif cmd == 'cal':
-                CALIBRANDO = True
-                print("[SISTEMA] MODO DE CALIBRAÇÃO ATIVADO!")
-                print("Vá para o navegador, clique no Live View e arraste para desenhar a linha do Pitch.")
-            elif cmd == 'off':
-                print("[SISTEMA] Encerrando processos e desligando a Raspberry Pi de forma segura...")
-                time.sleep(1)
-                os.system("sudo poweroff")
-            # --- NOVO: AFERIÇÃO ESTRUTURAL (CALIBRAÇÃO COM REFERÊNCIA) ---
-            elif cmd == 'setcal':
-                if 'ultimo_pitch_medio' in globals() and ultimo_pitch_medio > 0:
-                    encolhimento_referencia = float(val) if len(entrada) > 1 else 0.0
-                    
-                    # Calcula o fator de escala real do filme de teste
-                    fator_escala = 1.0 - (encolhimento_referencia / 100.0)
-                    
-                    # Projeta o novo Padrão (0%) cravado na óptica atual
-                    PITCH_PADRAO_PX = ultimo_pitch_medio / fator_escala
-                    
-                    print(f"\n[METROLOGIA] CALIBRAÇÃO DINÂMICA CONCLUÍDA!")
-                    print(f"-> Filme Referência utilizado: {encolhimento_referencia}% de encolhimento.")
-                    print(f"-> Novo Padrão (0%): {PITCH_PADRAO_PX:.2f}px")
-                else:
-                    print("[ERRO] Deixe o filme de referência rodar e estabilizar no dashboard antes de calibrar.")
-            elif cmd == 'g': 
-                gain = val; picam2.set_controls({"AnalogueGain": gain})
-            elif cmd == 'fps':
-                fps_cam = int(val); picam2.set_controls({"FrameRate": fps_cam})
-            elif cmd == 't': THRESH_VAL = int(val)
-            elif cmd == 'rec': GRAVANDO = not GRAVANDO
-            elif cmd == 'rc': 
-                contador_perfs_ciclo = 0
-                print("[SISTEMA] Fase realinhada! Ciclo forçado para 0/4.")
-            elif cmd == 'r': 
-                frame_count = 0
-                for f in os.listdir(CAPTURE_PATH): os.remove(os.path.join(CAPTURE_PATH, f))
-                print("RAM DRIVE LIMPO.")
-        except Exception as e: print(f"Erro: {e}")
-
 # --- LÓGICA DO SCANNER OTIMIZADA (MOTORES ISOLADOS) ---
 def logica_scanner():
     cap_array = picam2.capture_array
@@ -887,12 +764,11 @@ def preview_feed():
 def video_feed(): return Response(generate_dashboard(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == '__main__':
-    # 1. Inicia o Processo Isolado para Gravação (Ocupa o Core 2)
+    # 1. ARQUIVISTA: Processo Isolado para gravação pesada
     mp.Process(target=processo_escrita_disco, args=(fila_gravacao,), daemon=True).start()
     
-    # 2. Inicia as Threads principais
-    threading.Thread(target=painel_controle, daemon=True).start()
+    # 2. MOTOR ÓPTICO: Thread de Visão ininterrupta
     threading.Thread(target=logica_scanner, daemon=True).start()
     
-    # 3. Roda o Flask
+    # 3. COMUNICADOR: Roda o Flask na Thread Principal
     app.run(host='0.0.0.0', port=5000, threaded=True, use_reloader=False)
