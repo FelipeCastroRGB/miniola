@@ -13,7 +13,7 @@ except ImportError:
     CV_ENGINE = "Python [Nativo]"
     scanner_cv = None
 
-from flask import Flask, Response, request, render_template
+from flask import Flask, Response, request, render_template, send_from_directory, jsonify
 from picamera2 import Picamera2 
 import cv2 
 import numpy as np 
