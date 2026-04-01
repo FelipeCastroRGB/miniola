@@ -104,4 +104,4 @@ As saidas e relatorios sao gravados em `./output`.
 
 ## Nota de manutencao
 
-Foi aplicado mock para `sys.modules["pykms"]` em `miniola.py` para evitar erro `ModuleNotFoundError` em ambiente headless.
+**Resiliencia headless:** foi implementado um mock para `sys.modules["pykms"]` no topo do `miniola.py`, evitando `ModuleNotFoundError` em ambientes sem monitor fisico no Raspberry Pi OS (Bookworm).
