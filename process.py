@@ -8,7 +8,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
+from concurrent.futures import ThreadPoolExecutor
 
+from PIL import Image
 import cv2
 
 
@@ -47,10 +49,33 @@ def detect_missing_indices(frames: Iterable[Path]) -> list[int]:
 def build_concat_manifest(frames: list[Path], fps: float, manifest_path: Path) -> None:
     frame_duration = 1.0 / fps
     lines: list[str] = []
-    for frame in frames:
-        lines.append(f"file {shlex.quote(str(frame.resolve()))}")
-        lines.append(f"duration {frame_duration:.10f}")
-    # O concat demuxer recomenda repetir o último frame sem "duration".
+    
+    if not frames: return
+
+    # [AEO-Light] Metadata Headers (Futuro módulo de extração via área ótica do filme)
+    lines.append("; [AEO_SYNC_INFO] Mode=Constant_LipSync")
+    
+    for i in range(len(frames) - 1):
+        current_frame = frames[i]
+        next_frame = frames[i+1]
+        
+        idx_curr = extract_last_number(current_frame)
+        idx_next = extract_last_number(next_frame)
+        
+        duration = frame_duration
+        if idx_curr is not None and idx_next is not None:
+            diff = idx_next - idx_curr
+            if diff > 1:
+                # Compensação Cinematográfica: Gap detectado! 
+                # Congele este frame multiplicando sua duração na tela para não dessincronizar o áudio ótico futuro.
+                duration = frame_duration * diff
+                
+        lines.append(f"file {shlex.quote(str(current_frame.resolve()))}")
+        lines.append(f"duration {duration:.10f}")
+
+    # O concat demuxer recomenda repetir o último frame sem "duration" no encerramento.
+    lines.append(f"file {shlex.quote(str(frames[-1].resolve()))}")
+    lines.append(f"duration {frame_duration:.10f}")
     lines.append(f"file {shlex.quote(str(frames[-1].resolve()))}")
     manifest_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -113,11 +138,12 @@ def build_ffmpeg_command(
 
 
 def probe_first_frame(path: Path) -> tuple[int, int]:
-    first = cv2.imread(str(path))
-    if first is None:
-        raise RuntimeError(f"Não foi possível abrir o primeiro frame: {path}")
-    height, width = first.shape[:2]
-    return width, height
+    try:
+        # Abertura extremamente rápida sem decodificar a bagagem do JPEG no O(N) de tempo.
+        with Image.open(path) as img:
+            return img.size
+    except Exception as e:
+        raise RuntimeError(f"Não foi possível ler as dimensões do primeiro frame: {path}") from e
 
 
 def parse_args() -> argparse.Namespace:
@@ -177,13 +203,22 @@ def main() -> int:
         return 1
 
     if args.verify_frames:
+        print("[INFO] Verificação minuciosa multi-thread ativada (isso examina o miolo dos JPEGs)...")
         valid_frames: list[Path] = []
         dropped = 0
-        for frame in frames:
-            if cv2.imread(str(frame)) is None:
+        
+        def is_valid_frame(p: Path) -> bool:
+            return cv2.imread(str(p)) is not None
+
+        with ThreadPoolExecutor() as executor:
+            results = list(executor.map(is_valid_frame, frames))
+            
+        for frame, is_valid in zip(frames, results):
+            if is_valid:
+                valid_frames.append(frame)
+            else:
                 dropped += 1
-                continue
-            valid_frames.append(frame)
+                
         frames = valid_frames
         print(f"[INFO] Verificação concluída: {len(frames)} frames válidos, {dropped} descartados.")
         if not frames:
