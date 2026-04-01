@@ -62,6 +62,7 @@ picam2.start()
 GRAVANDO = False
 CALIBRANDO = False           # Trava de segurança da tela
 PROCESSANDO_VIDEO = False    # Alerta o scanner para hibernar
+FPS_PROJECAO = 24.0          # FPS de reprodução do filme (independente do fps_cam do sensor!)
 ROI_X, ROI_Y = 25, 10
 ROI_W, ROI_H = 80, 700
 # --- LÓGICA DE GATILHO SIMPLIFICADA ---
@@ -125,7 +126,7 @@ def disparar_processamento():
     PROCESSANDO_VIDEO = True
     print("\n[LABORATÓRIO] 🧪 Injetando químicos! Compilador FFmpeg iniciado e Scanner adormecido...")
     try:
-        proc = subprocess.run([sys.executable, "process.py", "--fps", str(fps_cam)], capture_output=True, text=True)
+        proc = subprocess.run([sys.executable, "process.py", "--fps", str(FPS_PROJECAO)], capture_output=True, text=True)
         if proc.returncode != 0:
             print(f"[LABORATÓRIO] 💥 FFFmpeg abortou ou frames estão faltando!\nLOG DE ERRO:\n{proc.stderr}\n{proc.stdout}")
         else:
@@ -140,13 +141,13 @@ def disparar_processamento():
 def painel_controle():
     global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, CROP_H, CROP_W, ROI_Y, ROI_W, ROI_H, THRESH_VAL
     global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo, CALIBRANDO
-    global ultimo_pitch_medio, PITCH_PADRAO_PX, CV_ENGINE
+    global ultimo_pitch_medio, PITCH_PADRAO_PX, CV_ENGINE, FPS_PROJECAO
     time.sleep(2)
     print("\n" + "═"*45)
     print(f"   MINIOLA - PAINEL DE CONTROLE  |  MOTOR DE VISÃO: {CV_ENGINE}")
     print("═"*45)
     print("   GATILHO:   ly (Linha na ROI)| mg (Margem)")
-    print("   SISTEMA:   rec (Gravar)| r (Reset Capturas)| rc (Realinhar Ciclo)| proc (Gerar MP4)| rout (Limpar Vídeos)")
+    print("   SISTEMA:   rec (Gravar)| r (Reset Capturas)| rc (Realinhar Ciclo)| proc (Gerar MP4)| rout (Limpar Vídeos)| pfps [val] (FPS Projeção)")
     print("   ÓPTICA:    k/l (Foco Manual)| j [val] (Passo)| af (Auto Foco)")
     print("   EXPOSIÇÃO: e [val] (Shutter Speed)| g [val] (Gain)| fps [val] (Frame Rate)")
     print("   CROP:   ch (Altura)| cw (Largura)")
@@ -303,6 +304,9 @@ def painel_controle():
                     for f in os.listdir('output'): 
                         if f.endswith('.mp4'): os.remove(os.path.join('output', f))
                 print("-> GALERIA DE MP4 LIMPA.")
+            elif cmd == 'pfps':
+                FPS_PROJECAO = float(val)
+                print(f"[LABORATÓRIO] FPS de Projeção definido para {FPS_PROJECAO} fps.")
             elif cmd == 'r': 
                 frame_count = 0
                 for f in os.listdir(CAPTURE_PATH): os.remove(os.path.join(CAPTURE_PATH, f))
@@ -579,7 +583,8 @@ def get_status():
         "roi_x": ROI_X, "roi_y": ROI_Y, "roi_w": ROI_W, "roi_h": ROI_H,
         "crop_w": CROP_W, "crop_h": CROP_H, "ox": OFFSET_X,
         "gatilho_y": LINHA_GATILHO_Y, "margem": MARGEM_GATILHO,
-        "res_w": RES_W, "res_h": RES_H
+        "res_w": RES_W, "res_h": RES_H,
+        "fps_projecao": FPS_PROJECAO
     }
 
 
