@@ -4,8 +4,8 @@ echo "========================================"
 echo " INICIANDO SISTEMA MINIOLA"
 echo "========================================"
 
-# Navega até a pasta de execução
-cd /home/felipe/miniola/miniola_py
+# Navega até a pasta raiz do projeto
+cd /home/felipe/miniola
 
 # Atualiza os arquivos diretamente da branch de trabalho
 echo "[SISTEMA] Sincronizando código fonte..."
