@@ -23,6 +23,8 @@ import time
 import logging 
 import shutil
 import os
+import subprocess
+import glob
 
 app = Flask(__name__) # Flask para o Dashboard (Roda no Core 0)
 log = logging.getLogger('werkzeug') # Desativa os logs de requisição do Flask para não poluir o console
@@ -59,6 +61,8 @@ picam2.start()
 # --- GEOMETRIA DO ROI E ESTADO ---
 GRAVANDO = False
 CALIBRANDO = False           # Trava de segurança da tela
+PROCESSANDO_VIDEO = False    # Alerta o scanner para hibernar
+ULTIMO_VIDEO_GERADO = ""
 ROI_X, ROI_Y = 25, 10
 ROI_W, ROI_H = 80, 700
 # --- LÓGICA DE GATILHO SIMPLIFICADA ---
@@ -116,6 +120,25 @@ def processar_captura(frame, cx_global, cy_global, n_frame):
             except:
                 pass # Fila cheia, pula o frame silenciosamente para não travar
 
+# --- LABORATÓRIO BACKGROUND ---
+def disparar_processamento():
+    global PROCESSANDO_VIDEO, ULTIMO_VIDEO_GERADO
+    PROCESSANDO_VIDEO = True
+    print("\n[LABORATÓRIO] 🧪 Injetando químicos! Compilador FFmpeg iniciado e Scanner adormecido...")
+    try:
+        proc = subprocess.run([sys.executable, "process.py", "--fps", str(fps_cam)], capture_output=True, text=True)
+        
+        lista = glob.glob("output/*.mp4")
+        if lista:
+            caminho_mp4 = max(lista, key=os.path.getctime).replace("\\", "/") 
+            ULTIMO_VIDEO_GERADO = os.path.basename(caminho_mp4)
+            print(f"[LABORATÓRIO] 🎬 Rolo finalizado! Disponível no navegador: {ULTIMO_VIDEO_GERADO}")
+    except Exception as e:
+        print(f"[LABORATÓRIO] 💥 ERRO FATAL no processamento: {e}")
+    
+    PROCESSANDO_VIDEO = False
+    print("[SISTEMA] ⚙️ Scanner acordado de volta à vida.")
+
 # --- PAINEL DE CONTROLE ---
 def painel_controle():
     global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, CROP_H, CROP_W, ROI_Y, ROI_W, ROI_H, THRESH_VAL
@@ -126,7 +149,7 @@ def painel_controle():
     print(f"   MINIOLA - PAINEL DE CONTROLE  |  MOTOR DE VISÃO: {CV_ENGINE}")
     print("═"*45)
     print("   GATILHO:   ly (Linha na ROI)| mg (Margem)")
-    print("   SISTEMA:   rec (Gravar)| r (Reset Tudo)| rc (Realinhar Ciclo)")
+    print("   SISTEMA:   rec (Gravar)| r (Reset Tudo)| rc (Realinhar Ciclo)| proc (Gerar MP4)")
     print("   ÓPTICA:    k/l (Foco Manual)| j [val] (Passo)| af (Auto Foco)")
     print("   EXPOSIÇÃO: e [val] (Shutter Speed)| g [val] (Gain)| fps [val] (Frame Rate)")
     print("   CROP:   ch (Altura)| cw (Largura)")
@@ -268,6 +291,10 @@ def painel_controle():
                 fps_cam = int(val); picam2.set_controls({"FrameRate": fps_cam})
             elif cmd == 't': THRESH_VAL = int(val)
             elif cmd == 'rec': GRAVANDO = not GRAVANDO
+            elif cmd == 'proc': 
+                if not PROCESSANDO_VIDEO:
+                    threading.Thread(target=disparar_processamento, daemon=True).start()
+                else: print("[ERRO] FFmpeg já está encodando no núcleo adjacente.")
             elif cmd == 'rc': 
                 contador_perfs_ciclo = 0
                 if CV_ENGINE == "C++ [Pybind11]" and scanner_cv is not None:
@@ -299,6 +326,10 @@ def logica_scanner():
     buffer_tempos = []
 
     while True:
+        if PROCESSANDO_VIDEO:
+            time.sleep(1.0)
+            continue
+            
         t_inicio = get_time()
         
         frame_raw = cap_array()
@@ -524,6 +555,8 @@ def get_status():
     espaco_total_mb = uso_disco.total / (1024 * 1024)
     
     return {
+        "processando": PROCESSANDO_VIDEO, # Flag pra UI carregar barra
+        "video_url": f"/output/{ULTIMO_VIDEO_GERADO}" if ULTIMO_VIDEO_GERADO else "",
         "rec": "GRAVANDO" if GRAVANDO else "PARADO", 
         "cor": "#ff0000" if GRAVANDO else "#00ff00",
         "ciclo": f"{contador_perfs_ciclo}/4", 
@@ -566,6 +599,17 @@ def calibrar():
     except Exception as e:
         CALIBRANDO = False
         return f"Erro: {e}"
+
+@app.route('/api/process', methods=['POST'])
+def api_process():
+    if not PROCESSANDO_VIDEO:
+        threading.Thread(target=disparar_processamento, daemon=True).start()
+        return jsonify({"status": "started"})
+    return jsonify({"status": "already_running"}), 400
+
+@app.route('/output/<path:filename>')
+def serve_video(filename):
+    return send_from_directory('output', filename)
 
 @app.route('/')
 def index():

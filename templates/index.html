@@ -30,8 +30,26 @@
             </div>
         </div>
         
-        <div style='flex:3; background:#050505; border-left:1px solid #333; display:flex; align-items:center;'>
-            <img src="/preview_feed" style="width:100%; border:1px solid #0f0;">
+        <div style='flex:3; background:#050505; border-left:1px solid #333; display:flex; flex-direction:column; justify-content:space-between;'>
+            <div style="flex:1; display:flex; align-items:center; overflow:hidden;">
+                <img src="/preview_feed" style="width:100%; border-bottom:1px solid #444;">
+            </div>
+            
+            <!-- LABORATÓRIO DIGITAL -->
+            <div style="background:#111; padding:20px; border-top:1px solid #444; text-align:center;">
+                <h3 style="margin-top:0; color:#0aa;">LABORATÓRIO DIGITAL</h3>
+                
+                <button id="btn_processar" onclick="dispararProcessamento()" style="background:#800; color:#fff; border:1px solid #f00; padding:12px 20px; font-size:16px; font-weight:bold; cursor:pointer; width:100%; border-radius:5px; transition:0.3s;">GERAR MP4 (FFMPEG)</button>
+                
+                <div id="status_lab" style="margin-top:10px; font-size:14px; color:#ff0; display:none; border: 1px dashed #ff0; padding: 10px;">
+                    <b>Compilador em Andamento!</b><br>Scanner suspenso temporariamente...
+                </div>
+                
+                <div id="player_container" style="margin-top:15px; display:none;">
+                    <video id="player_video" controls style="width:100%; border:1px solid #555; background:#000; border-radius:4px;"></video>
+                    <a id="download_link" href="#" download style="display:inline-block; margin-top:10px; color:#0f0; text-decoration:none; border:1px solid #0f0; padding:5px 15px; border-radius:3px;">Baixar Original</a>
+                </div>
+            </div>
         </div>
     </div>
     
@@ -52,6 +70,22 @@
         }
         window.addEventListener('resize', syncCanvasSize);
         videoImg.addEventListener('load', syncCanvasSize);
+
+        function dispararProcessamento() {
+            if(!confirm("Tem certeza? Esta máquina vai direcionar todos os recursos para a compilação do MP4 agora e suspenderá a varredura visual até terminar.")) return;
+            
+            fetch('/api/process', {method: 'POST'})
+                .then(r => r.json())
+                .then(d => {
+                    if(d.status === 'started') {
+                        document.getElementById('btn_processar').style.display = 'none';
+                        document.getElementById('status_lab').style.display = 'block';
+                        document.getElementById('player_container').style.display = 'none';
+                    } else {
+                        alert("Processador já está ocupado com um trabalho!");
+                    }
+                });
+        }
 
         // Atualização contínua de status via Flask
         setInterval(() => {
@@ -96,6 +130,33 @@
                     canvas.style.pointerEvents = 'none'; // Trava o clique
                     wrapper.style.outline = 'none';
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
+                }
+
+                // --- GESTÃO UI DE LABORATÓRIO ---
+                const btnProc = document.getElementById('btn_processar');
+                const statLab = document.getElementById('status_lab');
+                const playerCont = document.getElementById('player_container');
+                const playerVid = document.getElementById('player_video');
+                const dLink = document.getElementById('download_link');
+
+                if (d.processando) {
+                    btnProc.style.display = 'none';
+                    statLab.style.display = 'block';
+                    window._estavaProcessando = true;
+                } else {
+                    btnProc.style.display = 'block';
+                    statLab.style.display = 'none';
+                    
+                    if (window._estavaProcessando && d.video_url) {
+                        window._estavaProcessando = false;
+                        playerVid.src = d.video_url;
+                        dLink.href = d.video_url;
+                        playerCont.style.display = 'block';
+                    } else if (!window._estavaProcessando && d.video_url && playerVid.getAttribute('src') !== d.video_url) {
+                        playerVid.src = d.video_url;
+                        dLink.href = d.video_url;
+                        playerCont.style.display = 'block';
+                    }
                 }
             });
         }, 250);

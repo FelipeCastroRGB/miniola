@@ -5,14 +5,6 @@ from unittest.mock import MagicMock
 sys.modules["pykms"] = MagicMock()
 sys.modules["kms"] = MagicMock()
 
-try:
-    import miniola_cv
-    CV_ENGINE = "C++ [Pybind11]"
-    scanner_cv = miniola_cv.ScannerVision()
-except ImportError:
-    CV_ENGINE = "Python [Nativo]"
-    scanner_cv = None
-
 from flask import Flask, Response, request 
 from picamera2 import Picamera2 
 import cv2 
@@ -34,24 +26,9 @@ if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
 picam2 = Picamera2()
 shutter_speed, gain, fps_cam = 600, 1.0, 70
 foco_atual, passo_foco = 14.5, 0.5
-
-MODOS_RES = {
-    "VGA": (854, 480),     
-    "HD": (1280, 720),     
-    "HIGH": (1536, 864)    
-}
-MODO_ATUAL = "HIGH"
-RES_W, RES_H = MODOS_RES[MODO_ATUAL]
-
-config = picam2.create_video_configuration(main={"size": (RES_W, RES_H), "format": "RGB888"})
+config = picam2.create_video_configuration(main={"size": (1080, 720), "format": "RGB888"})
 picam2.configure(config)
-picam2.set_controls({
-    "ExposureTime": shutter_speed, 
-    "AnalogueGain": gain, 
-    "FrameRate": fps_cam, 
-    "LensPosition": foco_atual,
-    "ScalerCrop": (0, 0, 4608, 2592) # Trava o FOV Total
-})
+picam2.set_controls({"ExposureTime": shutter_speed, "AnalogueGain": gain, "FrameRate": fps_cam, "LensPosition": foco_atual})
 picam2.start()
 
 # --- GEOMETRIA DO ROI E ESTADO ---
@@ -118,10 +95,10 @@ def processar_captura(frame, cx_global, cy_global, n_frame):
 def painel_controle():
     global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, CROP_H, CROP_W, ROI_Y, ROI_W, ROI_H, THRESH_VAL
     global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo, CALIBRANDO
-    global ultimo_pitch_medio, PITCH_PADRAO_PX, CV_ENGINE
+    global ultimo_pitch_medio, PITCH_PADRAO_PX  # <-- ADICIONADO AQUI
     time.sleep(2)
     print("\n" + "═"*45)
-    print(f"   MINIOLA - PAINEL DE CONTROLE  |  MOTOR DE VISÃO: {CV_ENGINE}")
+    print("   MINIOLA - PAINEL DE CONTROLE")
     print("═"*45)
     print("   GATILHO:   ly (Linha na ROI)| mg (Margem)")
     print("   SISTEMA:   rec (Gravar)| r (Reset Tudo)| rc (Realinhar Ciclo)")
@@ -129,8 +106,6 @@ def painel_controle():
     print("   EXPOSIÇÃO: e [val] (Shutter Speed)| g [val] (Gain)| fps [val] (Frame Rate)")
     print("   CROP:   ch (Altura)| cw (Largura)")
     print("   SISTEMA:   rec (Gravar)| r (Reset)| rc (Realinhar) | off (Desligar) | cal (Calibrar) | setcal (Cal. Dinâmica)")
-    print("   RES:       res VGA | res HD | res HIGH")
-    print("   MOTOR:     motor (Alterna C++ <-> Python)")
     print("   TRESHOLD:   t")
     print("   ROI: w, a, s, d (Move ROI)| rx, ry, rw, rh [val] (Ajuste direto da ROI)")
     print("═"*45)
@@ -139,45 +114,9 @@ def painel_controle():
             entrada = input("\n>> ").split()
             if not entrada: continue
             cmd = entrada[0].lower()
+            val = float(entrada[1]) if len(entrada) > 1 else 0
             
-            val = 0
-            if len(entrada) > 1:
-                try: val = float(entrada[1])
-                except ValueError: pass
-            
-            if cmd == 'motor':
-                if scanner_cv is None:
-                    print("[MOTOR] Módulo C++ não está compilado. Impossível alternar.")
-                elif CV_ENGINE == "C++ [Pybind11]":
-                    CV_ENGINE = "Python [Nativo]"
-                    print(f"[MOTOR] ⚡ Motor alternado para: {CV_ENGINE}")
-                else:
-                    CV_ENGINE = "C++ [Pybind11]"
-                    scanner_cv.reset_ciclo()
-                    print(f"[MOTOR] ⚡ Motor alternado para: {CV_ENGINE}")
-            elif cmd == 'res':
-                global RES_W, RES_H, MODO_ATUAL
-                escolha = entrada[1].upper() if len(entrada) > 1 else ""
-                if escolha in MODOS_RES:
-                    print(f"[SISTEMA] Trocando resolução para {escolha} {MODOS_RES[escolha]}...")
-                    MODO_ATUAL = escolha
-                    RES_W, RES_H = MODOS_RES[escolha]
-                    
-                    picam2.stop()
-                    nova_conf = picam2.create_video_configuration(main={"size": (RES_W, RES_H), "format": "RGB888"})
-                    picam2.configure(nova_conf)
-                    picam2.set_controls({
-                        "ExposureTime": shutter_speed, 
-                        "AnalogueGain": gain, 
-                        "FrameRate": fps_cam, 
-                        "LensPosition": foco_atual,
-                        "ScalerCrop": (0, 0, 4608, 2592)
-                    })
-                    picam2.start()
-                    print(f"[SISTEMA] Câmera reiniciada em {escolha}. REAJUSTE A ROI E O CROP SE NECESSÁRIO.")
-                else:
-                    print(f"[ERRO] Resolução inválida. Modos disponíveis: {list(MODOS_RES.keys())}")
-            elif cmd == 'w': ROI_Y = max(0, ROI_Y - 5)
+            if cmd == 'w': ROI_Y = max(0, ROI_Y - 5)
             elif cmd == 's': ROI_Y = min(720 - ROI_H, ROI_Y + 5)
             elif cmd == 'a': ROI_X = max(0, ROI_X - 5)
             elif cmd == 'd': ROI_X = min(1080 - ROI_W, ROI_X + 5)
@@ -268,8 +207,6 @@ def painel_controle():
             elif cmd == 'rec': GRAVANDO = not GRAVANDO
             elif cmd == 'rc': 
                 contador_perfs_ciclo = 0
-                if CV_ENGINE == "C++ [Pybind11]" and scanner_cv is not None:
-                    scanner_cv.reset_ciclo()
                 print("[SISTEMA] Fase realinhada! Ciclo forçado para 0/4.")
             elif cmd == 'r': 
                 frame_count = 0
@@ -302,103 +239,98 @@ def logica_scanner():
         if frame_raw is None: continue
         
         lx, ly, lw, lh = ROI_X, ROI_Y, ROI_W, ROI_H
+        roi_color = frame_raw[ly:ly+lh, lx:lx+lw]
         
-        if CV_ENGINE == "C++ [Pybind11]":
-            ret = scanner_cv.process_frame(
-                frame_raw, lx, ly, lw, lh,
-                THRESH_VAL, LINHA_GATILHO_Y, MARGEM_GATILHO, PITCH_PADRAO_PX
-            )
-            binary_small = ret["binary_small"]
-            
-            # C++ retorna uma lista de arrays, precisamos normalizar num format dict pra UI python funcionar sem quebrar
-            debug_visual = []
-            for item in ret["debug_visual"]:
-                debug_visual.append({'rect': item['rect'], 'color': item['color']})
-            
-            perfuracao_na_linha = ret["perfuracao_na_linha"]
-            contador_perfs_ciclo = ret["contador_perfs_ciclo"]
-            encolhimento_atual_pct = ret["encolhimento_atual_pct"]
-            
-            if ret["ultimo_pitch_medio"] > 0:
-                ultimo_pitch_medio = ret["ultimo_pitch_medio"]
-            
-            furo_detectado_agora = ret["achou_furo"]
+        roi_gray = cv_cvt(roi_color, cv2.COLOR_RGB2GRAY)
+        roi_small = cv_resize(roi_gray, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV) 
 
-            if ret["capturar"]:
-                processar_captura(frame_raw, ret["cx_a"], ret["cy_a"], frame_count)
-                frame_count += 1
+        _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY) 
+        
+        # Variáveis limpas para o quadro atual
+        perfs_neste_frame = []
+        debug_visual = []
+        furo_detectado_agora = False
+        contours, _ = cv_find(binary_small, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        
+        limite_superior = LINHA_GATILHO_Y - MARGEM_GATILHO
+        limite_inferior = LINHA_GATILHO_Y + MARGEM_GATILHO
+        
+        # Voltamos a guardar todos os furos válidos do frame para fazer a média
+        furos_validos = []
+        
+        for cnt in contours:
+            x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
+            
+            # Cálculo rápido de área para não pesar a CPU
+            area_aprox = (w_s * h_s) * 4 
+            
+            if 200 < area_aprox < 10000 and 0.2 < (w_s / h_s) < 2.5:
+                cy_roi = (y_s * 2) + ((h_s * 2) // 2)
+                cx_global = (x_s * 2) + (w_s * 2 // 2) + lx
+                cy_global = cy_roi + ly
                 
-        else:
-            roi_color = frame_raw[ly:ly+lh, lx:lx+lw]
-            roi_gray = cv_cvt(roi_color, cv2.COLOR_RGB2GRAY)
-            roi_small = cv_resize(roi_gray, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV) 
-            _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY) 
-            
-            perfs_neste_frame = []
-            debug_visual = []
-            furo_detectado_agora = False
-            contours, _ = cv_find(binary_small, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-            
-            limite_superior = LINHA_GATILHO_Y - MARGEM_GATILHO
-            limite_inferior = LINHA_GATILHO_Y + MARGEM_GATILHO
-            
-            furos_validos = []
-            
-            for cnt in contours:
-                x_s, y_s, w_s, h_s = cv2.boundingRect(cnt)
-                area_aprox = (w_s * h_s) * 4 
+                acionou = limite_superior <= cy_roi <= limite_inferior
+                cor = (0, 0, 255) if acionou else (0, 255, 0)
                 
-                if 200 < area_aprox < 10000 and 0.2 < (w_s / h_s) < 2.5:
-                    cy_roi = (y_s * 2) + ((h_s * 2) // 2)
-                    cx_global = (x_s * 2) + (w_s * 2 // 2) + lx
-                    cy_global = cy_roi + ly
-                    
-                    acionou = limite_superior <= cy_roi <= limite_inferior
-                    cor = (0, 0, 255) if acionou else (0, 255, 0)
-                    
-                    furos_validos.append({'cy_roi': cy_roi, 'cx_g': cx_global, 'cy_g': cy_global, 'acionou': acionou})
-                    debug_visual.append({'rect': (x_s*2+lx, y_s*2+ly, w_s*2, h_s*2), 'color': cor})
+                furos_validos.append({
+                    'cy_roi': cy_roi, 
+                    'cx_g': cx_global, 
+                    'cy_g': cy_global, 
+                    'acionou': acionou
+                })
+                
+                debug_visual.append({'rect': (x_s*2+lx, y_s*2+ly, w_s*2, h_s*2), 'color': cor})
 
-            furos_validos.sort(key=lambda p: p['cy_roi'])
-            
-            if furos_validos and furos_validos[0]['acionou']:
-                furo_detectado_agora = True
-                if not perfuracao_na_linha:
-                    contador_perfs_ciclo += 1
-                    perfuracao_na_linha = True
+        # Ordena os furos de cima para baixo
+        furos_validos.sort(key=lambda p: p['cy_roi'])
+        
+        if furos_validos and furos_validos[0]['acionou']:
+            furo_detectado_agora = True
+            if not perfuracao_na_linha:
+                contador_perfs_ciclo += 1
+                perfuracao_na_linha = True
+                
+                if contador_perfs_ciclo >= 4:
+                    # --- PROJEÇÃO MULTI-PONTO PURA + ENCOLHIMENTO ---
+                    qtd = min(4, len(furos_validos))
+                    pts = furos_validos[0:qtd]
                     
-                    if contador_perfs_ciclo >= 4:
-                        qtd = min(4, len(furos_validos))
-                        pts = furos_validos[0:qtd]
-                        cx_a = int(sum(p['cx_g'] for p in pts) / qtd)
+                    cx_a = int(sum(p['cx_g'] for p in pts) / qtd)
+                    
+                    if qtd > 1:
+                        # 1. Mede o Pitch instantâneo
+                        soma_pitch = 0
+                        for i in range(1, qtd):
+                            soma_pitch += (pts[i]['cy_g'] - pts[i-1]['cy_g'])
+                        pitch_instantaneo = soma_pitch / (qtd - 1)
                         
-                        if qtd > 1:
-                            soma_pitch = 0
-                            for i in range(1, qtd):
-                                soma_pitch += (pts[i]['cy_g'] - pts[i-1]['cy_g'])
-                            pitch_instantaneo = soma_pitch / (qtd - 1)
+                        # 2. CÁLCULO DE ENCOLHIMENTO (Lotes de 10 amostras)
+                        if pitch_instantaneo > 0:
+                            buffer_pitches.append(pitch_instantaneo)
                             
-                            if pitch_instantaneo > 0:
-                                buffer_pitches.append(pitch_instantaneo)
-                                if len(buffer_pitches) >= 10:
-                                    pitch_medio = sum(buffer_pitches) / len(buffer_pitches)
-                                    ultimo_pitch_medio = pitch_medio 
-                                    calc_pct = (1.0 - (pitch_medio / PITCH_PADRAO_PX)) * 100.0
-                                    encolhimento_atual_pct = max(-5.0, min(10.0, calc_pct))
-                                    buffer_pitches.clear()    
-                            
-                            soma_centros_y = 0
-                            for i in range(qtd):
-                                multiplicador = 1.5 - i 
-                                soma_centros_y += (pts[i]['cy_g'] + (multiplicador * pitch_instantaneo))
+                            # Quando atingir 10 leituras válidas (Resposta rápida e estável)
+                            if len(buffer_pitches) >= 10:
+                                pitch_medio = sum(buffer_pitches) / len(buffer_pitches)
+                                ultimo_pitch_medio = pitch_medio # Salva para o comando setcal
                                 
-                            cy_a = int(soma_centros_y / qtd)
-                        else:
-                            cy_a = int(pts[0]['cy_g'] + 150) 
+                                calc_pct = (1.0 - (pitch_medio / PITCH_PADRAO_PX)) * 100.0
+                                encolhimento_atual_pct = max(-5.0, min(10.0, calc_pct))
+                                
+                                buffer_pitches.clear() # Limpa a memória para o próximo lote    
                         
-                        processar_captura(frame_raw, cx_a, cy_a, frame_count)
-                        frame_count += 1
-                        contador_perfs_ciclo = 0
+                        # 3. Projeção Virtual Geométrica (Crava o centro da tela)
+                        soma_centros_y = 0
+                        for i in range(qtd):
+                            multiplicador = 1.5 - i 
+                            soma_centros_y += (pts[i]['cy_g'] + (multiplicador * pitch_instantaneo))
+                            
+                        cy_a = int(soma_centros_y / qtd)
+                    else:
+                        cy_a = int(pts[0]['cy_g'] + 150) 
+                    
+                    processar_captura(frame_raw, cx_a, cy_a, frame_count)
+                    frame_count += 1
+                    contador_perfs_ciclo = 0
 
         # ==========================================================
         # FECHAMENTO DO GATILHO E UI (Comum aos dois motores)
@@ -414,12 +346,8 @@ def logica_scanner():
             skip_ui = 0
         
         t_fim = get_time()
-        inst_ms = (t_fim - t_inicio) * 1000.0
-        inst_fps = 1.0 / (t_fim - t_inicio) if (t_fim - t_inicio) > 0 else 0
-        
-        # Média Móvel Exponencial (EMA) para suavização de telemetria
-        tempo_ms_ciclo = (tempo_ms_ciclo * 0.9) + (inst_ms * 0.1)
-        fps_real_proc = (fps_real_proc * 0.9) + (inst_fps * 0.1)
+        tempo_ms_ciclo = (t_fim - t_inicio) * 1000.0
+        fps_real_proc = 1.0 / (t_fim - t_inicio) if (t_fim - t_inicio) > 0 else 0
 
 # --- FLASK: DASHBOARD SIMPLIFICADO + HISTOGRAMA + ZEBRA ESTÁTICO ---
 def generate_dashboard():
@@ -430,7 +358,7 @@ def generate_dashboard():
         
         # --- PAINEL ESQUERDO (p_live): LIVE VIEW LIMPO ---
         p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
-        sx, sy = 640/RES_W, 420/RES_H
+        sx, sy = 640/1080, 420/720
         
         # Desenhos da Geometria da ROI
         cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
@@ -537,8 +465,7 @@ def get_status():
         "thresh": THRESH_VAL,
         "roi_x": ROI_X, "roi_y": ROI_Y, "roi_w": ROI_W, "roi_h": ROI_H,
         "crop_w": CROP_W, "crop_h": CROP_H, "ox": OFFSET_X,
-        "gatilho_y": LINHA_GATILHO_Y, "margem": MARGEM_GATILHO,
-        "res_w": RES_W, "res_h": RES_H
+        "gatilho_y": LINHA_GATILHO_Y, "margem": MARGEM_GATILHO
     }
 
 
@@ -640,9 +567,6 @@ def index():
                     document.getElementById('v_ox').innerText = d.ox;
                     
                     if(d.shrink) document.getElementById('v_shrink').innerText = d.shrink;
-                    
-                    window.currentResW = d.res_w;
-                    window.currentResH = d.res_h;
 
                     // Gatilho do Terminal: Libera a tela para o clique
                     if (d.calibrando && !modoCalibracao) {
@@ -699,9 +623,9 @@ def index():
                 const distY_mosaico = Math.abs(endY - startY) * ratioY;
                 
                 // 2. O Live View Colorido (onde você deve desenhar) ocupa um bloco de 640x420,
-                // que é um redimensionamento do sensor original.
-                const escalaReversaX = (window.currentResW || 1080) / 640;
-                const escalaReversaY = (window.currentResH || 720) / 420;
+                // que é um redimensionamento do sensor original de 1080x720.
+                const escalaReversaX = 1080 / 640;
+                const escalaReversaY = 720 / 420;
                 
                 const distX_camera = distX_mosaico * escalaReversaX;
                 const distY_camera = distY_mosaico * escalaReversaY;
