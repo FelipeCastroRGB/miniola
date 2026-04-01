@@ -46,8 +46,9 @@
                 </div>
                 
                 <div id="player_container" style="margin-top:15px; display:none;">
-                    <video id="player_video" controls style="width:100%; border:1px solid #555; background:#000; border-radius:4px;"></video>
-                    <a id="download_link" href="#" download style="display:inline-block; margin-top:10px; color:#0f0; text-decoration:none; border:1px solid #0f0; padding:5px 15px; border-radius:3px;">Baixar Original</a>
+                    <select id="galeria_videos" onchange="selecionarFilme()" style="width:100%; padding:8px; margin-bottom:10px; background:#222; color:#fff; border:1px solid #555; border-radius:4px;"></select>
+                    <video id="player_video" controls style="width:100%; border:1px solid #555; background:#000; border-radius:4px; box-shadow: 0px 4px 10px rgba(0,0,0,0.8);"></video>
+                    <a id="download_link" href="#" download style="display:inline-block; margin-top:10px; color:#0f0; text-decoration:none; border:1px solid #0f0; padding:5px 15px; border-radius:3px;">Transferir Rolo p/ PC</a>
                 </div>
             </div>
         </div>
@@ -80,12 +81,64 @@
                     if(d.status === 'started') {
                         document.getElementById('btn_processar').style.display = 'none';
                         document.getElementById('status_lab').style.display = 'block';
-                        document.getElementById('player_container').style.display = 'none';
+                        document.getElementById('player_container').style.opacity = '0.3'; // Diminui o foco
                     } else {
                         alert("Processador já está ocupado com um trabalho!");
                     }
                 });
         }
+
+        // --- SISTEMA DE ACERVO E QUEBRA DE CACHE ---
+        function selecionarFilme() {
+            const select = document.getElementById('galeria_videos');
+            if (select.value) {
+                const playerVid = document.getElementById('player_video');
+                const dLink = document.getElementById('download_link');
+                const novaUrl = '/output/' + select.value;
+                
+                playerVid.src = novaUrl;
+                dLink.href = novaUrl;
+                
+                // MÁGICA ANTICACHE: Obriga o buffer nativo do navegador a rasgar a memória do vídeo passado!
+                playerVid.load(); 
+                
+                document.getElementById('player_container').style.display = 'block';
+                document.getElementById('player_container').style.opacity = '1.0';
+            }
+        }
+
+        function atualizarGaleria(selecionarMaisNovo = false) {
+            fetch('/api/videos')
+                .then(r => r.json())
+                .then(arquivos => {
+                    const select = document.getElementById('galeria_videos');
+                    select.innerHTML = ''; // Limpa a dropdown
+                    
+                    if (arquivos.length === 0) {
+                        document.getElementById('player_container').style.display = 'none';
+                        return;
+                    }
+
+                    // Popula do mais novo pro mais velho
+                    arquivos.forEach(arq => {
+                        let opt = document.createElement('option');
+                        opt.value = arq;
+                        opt.innerHTML = '🎬 ' + arq;
+                        select.appendChild(opt);
+                    });
+
+                    // Auto-load UI logic
+                    if (selecionarMaisNovo) {
+                        // O browser vai pegar o Index 0 (o recém criado)
+                        selecionarFilme(); 
+                    } else if (document.getElementById('player_container').style.display === 'none') {
+                        selecionarFilme(); // Mostra se estava escondido na primeira carga
+                    }
+                });
+        }
+        
+        // Boot: Puxa o acervo quando a página inteira termina de carregar
+        atualizarGaleria(false);
 
         // Atualização contínua de status via Flask
         setInterval(() => {
@@ -132,30 +185,21 @@
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                 }
 
-                // --- GESTÃO UI DE LABORATÓRIO ---
+                // --- GESTÃO UI DE LABORATÓRIO E ACERVO ---
                 const btnProc = document.getElementById('btn_processar');
                 const statLab = document.getElementById('status_lab');
-                const playerCont = document.getElementById('player_container');
-                const playerVid = document.getElementById('player_video');
-                const dLink = document.getElementById('download_link');
 
                 if (d.processando) {
                     btnProc.style.display = 'none';
                     statLab.style.display = 'block';
                     window._estavaProcessando = true;
                 } else {
-                    btnProc.style.display = 'block';
+                    btnProc.style.display = 'inline-block';
                     statLab.style.display = 'none';
                     
-                    if (window._estavaProcessando && d.video_url) {
+                    if (window._estavaProcessando) { // Acabou de terminar de injetar!
                         window._estavaProcessando = false;
-                        playerVid.src = d.video_url;
-                        dLink.href = d.video_url;
-                        playerCont.style.display = 'block';
-                    } else if (!window._estavaProcessando && d.video_url && playerVid.getAttribute('src') !== d.video_url) {
-                        playerVid.src = d.video_url;
-                        dLink.href = d.video_url;
-                        playerCont.style.display = 'block';
+                        atualizarGaleria(true); // Engatilha o download pro select e chama player.load()
                     }
                 }
             });

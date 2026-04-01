@@ -62,7 +62,6 @@ picam2.start()
 GRAVANDO = False
 CALIBRANDO = False           # Trava de segurança da tela
 PROCESSANDO_VIDEO = False    # Alerta o scanner para hibernar
-ULTIMO_VIDEO_GERADO = ""
 ROI_X, ROI_Y = 25, 10
 ROI_W, ROI_H = 80, 700
 # --- LÓGICA DE GATILHO SIMPLIFICADA ---
@@ -122,17 +121,12 @@ def processar_captura(frame, cx_global, cy_global, n_frame):
 
 # --- LABORATÓRIO BACKGROUND ---
 def disparar_processamento():
-    global PROCESSANDO_VIDEO, ULTIMO_VIDEO_GERADO
+    global PROCESSANDO_VIDEO
     PROCESSANDO_VIDEO = True
     print("\n[LABORATÓRIO] 🧪 Injetando químicos! Compilador FFmpeg iniciado e Scanner adormecido...")
     try:
         proc = subprocess.run([sys.executable, "process.py", "--fps", str(fps_cam)], capture_output=True, text=True)
-        
-        lista = glob.glob("output/*.mp4")
-        if lista:
-            caminho_mp4 = max(lista, key=os.path.getctime).replace("\\", "/") 
-            ULTIMO_VIDEO_GERADO = os.path.basename(caminho_mp4)
-            print(f"[LABORATÓRIO] 🎬 Rolo finalizado! Disponível no navegador: {ULTIMO_VIDEO_GERADO}")
+        print(f"[LABORATÓRIO] 🎬 Rolo finalizado! Disponível na Galeria Web.")
     except Exception as e:
         print(f"[LABORATÓRIO] 💥 ERRO FATAL no processamento: {e}")
     
@@ -149,7 +143,7 @@ def painel_controle():
     print(f"   MINIOLA - PAINEL DE CONTROLE  |  MOTOR DE VISÃO: {CV_ENGINE}")
     print("═"*45)
     print("   GATILHO:   ly (Linha na ROI)| mg (Margem)")
-    print("   SISTEMA:   rec (Gravar)| r (Reset Tudo)| rc (Realinhar Ciclo)| proc (Gerar MP4)")
+    print("   SISTEMA:   rec (Gravar)| r (Reset Capturas)| rc (Realinhar Ciclo)| proc (Gerar MP4)| rout (Limpar Vídeos)")
     print("   ÓPTICA:    k/l (Foco Manual)| j [val] (Passo)| af (Auto Foco)")
     print("   EXPOSIÇÃO: e [val] (Shutter Speed)| g [val] (Gain)| fps [val] (Frame Rate)")
     print("   CROP:   ch (Altura)| cw (Largura)")
@@ -300,6 +294,12 @@ def painel_controle():
                 if CV_ENGINE == "C++ [Pybind11]" and scanner_cv is not None:
                     scanner_cv.reset_ciclo()
                 print("[SISTEMA] Fase realinhada! Ciclo forçado para 0/4.")
+            elif cmd == 'rout': 
+                print("[SISTEMA] Queimando os acetatos da prateleira (Limpeza de Filmes Renderizados)...")
+                if os.path.exists('output'):
+                    for f in os.listdir('output'): 
+                        if f.endswith('.mp4'): os.remove(os.path.join('output', f))
+                print("-> GALERIA DE MP4 LIMPA.")
             elif cmd == 'r': 
                 frame_count = 0
                 for f in os.listdir(CAPTURE_PATH): os.remove(os.path.join(CAPTURE_PATH, f))
@@ -556,7 +556,6 @@ def get_status():
     
     return {
         "processando": PROCESSANDO_VIDEO, # Flag pra UI carregar barra
-        "video_url": f"/output/{ULTIMO_VIDEO_GERADO}" if ULTIMO_VIDEO_GERADO else "",
         "rec": "GRAVANDO" if GRAVANDO else "PARADO", 
         "cor": "#ff0000" if GRAVANDO else "#00ff00",
         "ciclo": f"{contador_perfs_ciclo}/4", 
@@ -606,6 +605,14 @@ def api_process():
         threading.Thread(target=disparar_processamento, daemon=True).start()
         return jsonify({"status": "started"})
     return jsonify({"status": "already_running"}), 400
+
+@app.route('/api/videos', methods=['GET'])
+def api_videos():
+    if not os.path.exists('output'): return jsonify([])
+    # Varre a pasta de renderizados e ordena do mais novo para o mais antigo
+    arquivos = glob.glob('output/*.mp4')
+    arquivos.sort(key=os.path.getctime, reverse=True)
+    return jsonify([os.path.basename(f) for f in arquivos])
 
 @app.route('/output/<path:filename>')
 def serve_video(filename):
