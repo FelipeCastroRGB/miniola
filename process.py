@@ -53,7 +53,7 @@ def build_concat_manifest(frames: list[Path], fps: float, manifest_path: Path) -
     if not frames: return
 
     # [AEO-Light] Metadata Headers (Futuro módulo de extração via área ótica do filme)
-    lines.append("; [AEO_SYNC_INFO] Mode=Constant_LipSync")
+    lines.append("# [AEO_SYNC_INFO] Mode=Constant_LipSync")
     
     for i in range(len(frames) - 1):
         current_frame = frames[i]
