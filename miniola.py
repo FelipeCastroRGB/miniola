@@ -401,8 +401,12 @@ def logica_scanner():
             skip_ui = 0
         
         t_fim = get_time()
-        tempo_ms_ciclo = (t_fim - t_inicio) * 1000.0
-        fps_real_proc = 1.0 / (t_fim - t_inicio) if (t_fim - t_inicio) > 0 else 0
+        inst_ms = (t_fim - t_inicio) * 1000.0
+        inst_fps = 1.0 / (t_fim - t_inicio) if (t_fim - t_inicio) > 0 else 0
+        
+        # Média Móvel Exponencial (EMA) para suavização de telemetria
+        tempo_ms_ciclo = (tempo_ms_ciclo * 0.9) + (inst_ms * 0.1)
+        fps_real_proc = (fps_real_proc * 0.9) + (inst_fps * 0.1)
 
 # --- FLASK: DASHBOARD SIMPLIFICADO + HISTOGRAMA + ZEBRA ESTÁTICO ---
 def generate_dashboard():
