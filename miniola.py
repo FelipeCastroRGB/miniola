@@ -130,6 +130,7 @@ def painel_controle():
     print("   CROP:   ch (Altura)| cw (Largura)")
     print("   SISTEMA:   rec (Gravar)| r (Reset)| rc (Realinhar) | off (Desligar) | cal (Calibrar) | setcal (Cal. Dinâmica)")
     print("   RES:       res VGA | res HD | res HIGH")
+    print("   MOTOR:     motor (Alterna C++ <-> Python)")
     print("   TRESHOLD:   t")
     print("   ROI: w, a, s, d (Move ROI)| rx, ry, rw, rh [val] (Ajuste direto da ROI)")
     print("═"*45)
@@ -144,7 +145,18 @@ def painel_controle():
                 try: val = float(entrada[1])
                 except ValueError: pass
             
-            if cmd == 'res':
+            if cmd == 'motor':
+                global CV_ENGINE
+                if scanner_cv is None:
+                    print("[MOTOR] Módulo C++ não está compilado. Impossível alternar.")
+                elif CV_ENGINE == "C++ [Pybind11]":
+                    CV_ENGINE = "Python [Nativo]"
+                    print(f"[MOTOR] ⚡ Motor alternado para: {CV_ENGINE}")
+                else:
+                    CV_ENGINE = "C++ [Pybind11]"
+                    scanner_cv.reset_ciclo()
+                    print(f"[MOTOR] ⚡ Motor alternado para: {CV_ENGINE}")
+            elif cmd == 'res':
                 global RES_W, RES_H, MODO_ATUAL
                 escolha = entrada[1].upper() if len(entrada) > 1 else ""
                 if escolha in MODOS_RES:
