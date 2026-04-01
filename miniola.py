@@ -34,18 +34,11 @@ CAPTURE_PATH = "capturas"
 if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
 
 picam2 = Picamera2()
-shutter_speed, gain, fps_cam = 600, 1.0, 70
+shutter_speed, gain, fps_cam = 600, 1.0, 90
 foco_atual, passo_foco = 14.5, 0.5
 
-MODOS_RES = {
-    "VGA": (854, 480),     
-    "HD": (1280, 720),     
-    "HIGH": (1536, 864),
-    "FHD": (1920, 1080),
-    "QHD": (2560, 1440)
-}
-MODO_ATUAL = "HIGH"
-RES_W, RES_H = MODOS_RES[MODO_ATUAL]
+# Resolução única: HIGH (1536x864) — recalibrar ROI/CROP no hardware
+RES_W, RES_H = 1536, 864
 
 config = picam2.create_video_configuration(main={"size": (RES_W, RES_H), "format": "RGB888"})
 picam2.configure(config)
@@ -150,12 +143,11 @@ def painel_controle():
     print("   SISTEMA:   rec (Gravar)| r (Reset Capturas)| rc (Realinhar Ciclo)| proc (Gerar MP4)| rout (Limpar Vídeos)| pfps [val] (FPS Projeção)")
     print("   ÓPTICA:    k/l (Foco Manual)| j [val] (Passo)| af (Auto Foco)")
     print("   EXPOSIÇÃO: e [val] (Shutter Speed)| g [val] (Gain)| fps [val] (Frame Rate)")
-    print("   CROP:   ch (Altura)| cw (Largura)")
-    print("   SISTEMA:   rec (Gravar)| r (Reset)| rc (Realinhar) | off (Desligar) | cal (Calibrar) | setcal (Cal. Dinâmica)")
-    print("   RES:       res VGA | res HD | res HIGH | res FHD | res QHD")
-    print("   MOTOR:     motor (Alterna C++ <-> Python)")
-    print("   TRESHOLD:   t")
-    print("   ROI: w, a, s, d (Move ROI)| rx, ry, rw, rh [val] (Ajuste direto da ROI)")
+    print("   CROP:      ch (Altura)| cw (Largura)| ox [val] (Offset X)")
+    print("   ROI:       w/a/s/d (Move ROI)| rx/ry/rw/rh [val] (Ajuste direto)")
+    print("   MEDIÇÃO:   cal (Calibrar)| setcal [val] (Cal. Dinâmica)")
+    print("   MOTOR:     motor (Alterna C++ <-> Python)| t [val] (Threshold)")
+    print("   OUTROS:    off (Desligar)")
     print("═"*45)
     while True:
         try:
@@ -178,32 +170,10 @@ def painel_controle():
                     CV_ENGINE = "C++ [Pybind11]"
                     scanner_cv.reset_ciclo()
                     print(f"[MOTOR] ⚡ Motor alternado para: {CV_ENGINE}")
-            elif cmd == 'res':
-                global RES_W, RES_H, MODO_ATUAL
-                escolha = entrada[1].upper() if len(entrada) > 1 else ""
-                if escolha in MODOS_RES:
-                    print(f"[SISTEMA] Trocando resolução para {escolha} {MODOS_RES[escolha]}...")
-                    MODO_ATUAL = escolha
-                    RES_W, RES_H = MODOS_RES[escolha]
-                    
-                    picam2.stop()
-                    nova_conf = picam2.create_video_configuration(main={"size": (RES_W, RES_H), "format": "RGB888"})
-                    picam2.configure(nova_conf)
-                    picam2.set_controls({
-                        "ExposureTime": shutter_speed, 
-                        "AnalogueGain": gain, 
-                        "FrameRate": fps_cam, 
-                        "LensPosition": foco_atual,
-                        "ScalerCrop": (0, 0, 4608, 2592)
-                    })
-                    picam2.start()
-                    print(f"[SISTEMA] Câmera reiniciada em {escolha}. REAJUSTE A ROI E O CROP SE NECESSÁRIO.")
-                else:
-                    print(f"[ERRO] Resolução inválida. Modos disponíveis: {list(MODOS_RES.keys())}")
             elif cmd == 'w': ROI_Y = max(0, ROI_Y - 5)
-            elif cmd == 's': ROI_Y = min(720 - ROI_H, ROI_Y + 5)
+            elif cmd == 's': ROI_Y = min(RES_H - ROI_H, ROI_Y + 5)
             elif cmd == 'a': ROI_X = max(0, ROI_X - 5)
-            elif cmd == 'd': ROI_X = min(1080 - ROI_W, ROI_X + 5)
+            elif cmd == 'd': ROI_X = min(RES_W - ROI_W, ROI_X + 5)
             elif cmd == 'rx': ROI_X = int(val)
             elif cmd == 'ry': ROI_Y = int(val)
             elif cmd == 'rw': ROI_W = int(val)
