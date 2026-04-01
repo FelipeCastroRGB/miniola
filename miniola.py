@@ -118,7 +118,7 @@ def processar_captura(frame, cx_global, cy_global, n_frame):
 def painel_controle():
     global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, CROP_H, CROP_W, ROI_Y, ROI_W, ROI_H, THRESH_VAL
     global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo, CALIBRANDO
-    global ultimo_pitch_medio, PITCH_PADRAO_PX  # <-- ADICIONADO AQUI
+    global ultimo_pitch_medio, PITCH_PADRAO_PX, CV_ENGINE
     time.sleep(2)
     print("\n" + "═"*45)
     print(f"   MINIOLA - PAINEL DE CONTROLE  |  MOTOR DE VISÃO: {CV_ENGINE}")
@@ -146,7 +146,6 @@ def painel_controle():
                 except ValueError: pass
             
             if cmd == 'motor':
-                global CV_ENGINE
                 if scanner_cv is None:
                     print("[MOTOR] Módulo C++ não está compilado. Impossível alternar.")
                 elif CV_ENGINE == "C++ [Pybind11]":
