@@ -126,7 +126,10 @@ def disparar_processamento():
     print("\n[LABORATÓRIO] 🧪 Injetando químicos! Compilador FFmpeg iniciado e Scanner adormecido...")
     try:
         proc = subprocess.run([sys.executable, "process.py", "--fps", str(fps_cam)], capture_output=True, text=True)
-        print(f"[LABORATÓRIO] 🎬 Rolo finalizado! Disponível na Galeria Web.")
+        if proc.returncode != 0:
+            print(f"[LABORATÓRIO] 💥 FFFmpeg abortou ou frames estão faltando!\nLOG DE ERRO:\n{proc.stderr}\n{proc.stdout}")
+        else:
+            print(f"[LABORATÓRIO] 🎬 Rolo finalizado! Disponível na Galeria Web.")
     except Exception as e:
         print(f"[LABORATÓRIO] 💥 ERRO FATAL no processamento: {e}")
     
