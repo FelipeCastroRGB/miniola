@@ -161,11 +161,16 @@ public:
         
         return result;
     }
+
+    void reset_ciclo() {
+        contador_perfs_ciclo = 0;
+    }
 };
 
 PYBIND11_MODULE(miniola_cv, m) {
     m.doc() = "Miniola CV Extension using OpenCV and Pybind11";
     py::class_<ScannerVision>(m, "ScannerVision")
         .def(py::init<>())
-        .def("process_frame", &ScannerVision::process_frame);
+        .def("process_frame", &ScannerVision::process_frame)
+        .def("reset_ciclo", &ScannerVision::reset_ciclo);
 }

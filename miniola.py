@@ -257,6 +257,8 @@ def painel_controle():
             elif cmd == 'rec': GRAVANDO = not GRAVANDO
             elif cmd == 'rc': 
                 contador_perfs_ciclo = 0
+                if CV_ENGINE == "C++ [Pybind11]" and scanner_cv is not None:
+                    scanner_cv.reset_ciclo()
                 print("[SISTEMA] Fase realinhada! Ciclo forçado para 0/4.")
             elif cmd == 'r': 
                 frame_count = 0
