@@ -38,7 +38,9 @@ foco_atual, passo_foco = 14.5, 0.5
 MODOS_RES = {
     "VGA": (854, 480),     
     "HD": (1280, 720),     
-    "HIGH": (1536, 864)    
+    "HIGH": (1536, 864),
+    "FHD": (1920, 1080),
+    "QHD": (2560, 1440)
 }
 MODO_ATUAL = "HIGH"
 RES_W, RES_H = MODOS_RES[MODO_ATUAL]
@@ -129,7 +131,7 @@ def painel_controle():
     print("   EXPOSIÇÃO: e [val] (Shutter Speed)| g [val] (Gain)| fps [val] (Frame Rate)")
     print("   CROP:   ch (Altura)| cw (Largura)")
     print("   SISTEMA:   rec (Gravar)| r (Reset)| rc (Realinhar) | off (Desligar) | cal (Calibrar) | setcal (Cal. Dinâmica)")
-    print("   RES:       res VGA | res HD | res HIGH")
+    print("   RES:       res VGA | res HD | res HIGH | res FHD | res QHD")
     print("   MOTOR:     motor (Alterna C++ <-> Python)")
     print("   TRESHOLD:   t")
     print("   ROI: w, a, s, d (Move ROI)| rx, ry, rw, rh [val] (Ajuste direto da ROI)")
