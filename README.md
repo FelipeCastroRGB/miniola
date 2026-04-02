@@ -1,6 +1,6 @@
 # Miniola - Scanner de Preservacao Audiovisual (35mm)
 
-O **Miniola** e uma estacao de baixo custo para digitalizacao e inspecao de peliculas cinematograficas. O projeto utiliza Raspberry Pi + Camera Module 3 para capturar quadros sincronizados por deteccao de perfuracoes.
+O **Miniola** e um dispositivo de baixo custo para digitalizacao e inspecao de peliculas cinematograficas. O projeto utiliza Raspberry Pi + Camera Module para capturar quadros sincronizados por deteccao de perfuracoes.
 
 > Estado atual de hardware: migrado para **Raspberry Pi 4 B (1 GB)** para maior desempenho de OpenCV.
 
@@ -24,7 +24,7 @@ Arquivos principais agora ficam na **raiz do repositorio**:
 
 ```bash
 sudo apt update
-sudo apt install libcap-dev libgnutls28-dev python3-libcamera git python3-dev build-essential ffmpeg -y
+sudo apt install libcap-dev libgnutls28-dev python3-libcamera git python3-dev build-essential ffmpeg libopencv-dev pkg-config -y
 ```
 
 ### 2) Clonagem
@@ -60,6 +60,7 @@ python3 -m venv --system-site-packages venv
 source venv/bin/activate
 pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
+pip install .
 ```
 
 ### 5) Atalho de execucao
@@ -105,3 +106,5 @@ As saidas e relatorios sao gravados em `./output`.
 ## Nota de manutencao
 
 **Resiliencia headless:** foi implementado um mock para `sys.modules["pykms"]` no topo do `miniola.py`, evitando `ModuleNotFoundError` em ambientes sem monitor fisico no Raspberry Pi OS (Bookworm).
+
+**Fallback de motor de visao:** se `miniola_cv` falhar na compilacao (por ex., dependencias nativas ausentes), o `miniola.py` entra automaticamente em modo Python nativo. O sistema funciona, porem com menor desempenho de processamento.

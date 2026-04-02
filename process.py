@@ -5,6 +5,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import wave
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -12,9 +13,92 @@ from concurrent.futures import ThreadPoolExecutor
 
 from PIL import Image
 import cv2
+import numpy as np
 
 
 SUPPORTED_EXTENSIONS = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp")
+
+
+def read_frame_as_grayscale(path: Path) -> np.ndarray | None:
+    try:
+        frame = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+        return frame
+    except Exception:
+        pass
+    try:
+        img = Image.open(path).convert("L")
+        return np.array(img)
+    except Exception:
+        return None
+
+
+def extract_audio_from_frames(
+    frames: list[Path],
+    roi: tuple[int, int, int, int],
+    audio_mode: str,
+    sample_rate: int,
+    frame_rate: float,
+) -> tuple[np.ndarray, dict]:
+    roi_x, roi_y, roi_w, roi_h = roi
+    samples_per_frame = int(sample_rate / frame_rate)
+    total_samples = len(frames) * samples_per_frame
+    audio_signal = np.zeros(total_samples, dtype=np.float32)
+    processed = 0
+
+    for i, frame_path in enumerate(frames):
+        gray = read_frame_as_grayscale(frame_path)
+        if gray is None:
+            processed += samples_per_frame
+            continue
+
+        h, w = gray.shape
+        rx = max(0, min(roi_x, w - 1))
+        ry = max(0, min(roi_y, h - 1))
+        rw = max(1, min(roi_w, w - rx))
+        rh = max(1, min(roi_h, h - ry))
+
+        strip = gray[ry : ry + rh, rx : rx + rw]
+
+        if strip.size == 0:
+            processed += samples_per_frame
+            continue
+
+        if audio_mode == "variable_density":
+            row = np.mean(strip, axis=0).astype(np.float32)
+            row = (255 - row) / 255.0
+        else:
+            row = np.mean(strip, axis=1).astype(np.float32)
+            row = (255 - row) / 255.0
+
+        interpolated = np.interp(
+            np.linspace(0, len(row) - 1, samples_per_frame),
+            np.arange(len(row)),
+            row,
+        )
+        audio_signal[processed : processed + samples_per_frame] = interpolated
+        processed += samples_per_frame
+
+    audio_signal = np.clip(audio_signal, -1.0, 1.0)
+    normalized = (audio_signal * 32767).astype(np.int16)
+
+    stats = {
+        "total_frames": len(frames),
+        "processed_frames": processed // samples_per_frame,
+        "total_samples": total_samples,
+        "sample_rate": sample_rate,
+        "frame_rate": frame_rate,
+        "audio_mode": audio_mode,
+        "roi": {"x": roi_x, "y": roi_y, "w": roi_w, "h": roi_h},
+    }
+    return normalized, stats
+
+
+def write_wav(path: Path, audio_data: np.ndarray, sample_rate: int) -> None:
+    with wave.open(str(path), "w") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(audio_data.tobytes())
 
 
 def natural_sort_key(path: Path) -> tuple:
@@ -173,6 +257,28 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Lê cada frame com OpenCV e descarta arquivos corrompidos.",
     )
+    parser.add_argument(
+        "--extract-audio",
+        action="store_true",
+        help="Extrai áudio da trilha ótica dos frames e salva como WAV.",
+    )
+    parser.add_argument(
+        "--audio-roi",
+        default="0,0,0,0",
+        help="ROI da trilha ótica no frame (x,y,w,h). Ex: 1200,100,150,600. Usa auto-detect se omitido.",
+    )
+    parser.add_argument(
+        "--audio-mode",
+        choices=("variable_density", "variable_area"),
+        default="variable_density",
+        help="Modo de trilha ótica: variable_density (DFFF) ou variable_area (VA).",
+    )
+    parser.add_argument(
+        "--audio-sample-rate",
+        type=int,
+        default=48000,
+        help="Taxa de amostragem do WAV gerado (padrão: 48000).",
+    )
     return parser.parse_args()
 
 
@@ -226,12 +332,34 @@ def main() -> int:
             return 1
 
     width, height = probe_first_frame(frames[0])
+
+    ffmpeg = ensure_ffmpeg()
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+    audio_output_path: Path | None = None
+    audio_stats: dict = {}
+    if args.extract_audio:
+        print("[INFO] Extraindo trilha ótica...")
+        roi_parts = [int(x.strip()) for x in args.audio_roi.split(",")]
+        if len(roi_parts) == 4 and all(v > 0 for v in roi_parts):
+            roi: tuple[int, int, int, int] = (roi_parts[0], roi_parts[1], roi_parts[2], roi_parts[3])
+            print(f"[INFO] ROI configurada: {roi}")
+        else:
+            auto_x = max(0, width - 200)
+            roi = (auto_x, 0, 180, height)
+            print(f"[INFO] ROI auto-detectada (lateral direita): {roi}")
+        audio_data, audio_stats = extract_audio_from_frames(
+            frames, roi, args.audio_mode, args.audio_sample_rate, args.fps
+        )
+        wav_path = output_dir / f"{args.name}_{timestamp}.wav"
+        write_wav(wav_path, audio_data, args.audio_sample_rate)
+        audio_output_path = wav_path
+        print(f"[INFO] WAV salvo: {wav_path.name} ({len(audio_data)} samples)")
+
     missing_indices = detect_missing_indices(frames)
     if missing_indices:
         print(f"[WARN] Detectados {len(missing_indices)} índices ausentes na sequência numérica.")
 
-    ffmpeg = ensure_ffmpeg()
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     manifest_path = output_dir / f".{args.name}_{timestamp}.frames.txt"
     build_concat_manifest(frames, args.fps, manifest_path)
 
@@ -250,7 +378,7 @@ def main() -> int:
         if manifest_path.exists():
             manifest_path.unlink()
 
-    report = {
+    report: dict = {
         "created_at_utc": timestamp,
         "input_dir": str(input_dir),
         "output_dir": str(output_dir),
@@ -262,6 +390,11 @@ def main() -> int:
         "missing_indices_preview": missing_indices[:50],
         "outputs": [str(path) for path in outputs],
     }
+    if audio_output_path:
+        report["audio"] = {
+            "wav_path": str(audio_output_path),
+            "stats": audio_stats,
+        }
     report_path = output_dir / f"{args.name}_{timestamp}.report.json"
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
