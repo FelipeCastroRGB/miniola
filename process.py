@@ -38,59 +38,123 @@ def extract_audio_from_frames(
     audio_mode: str,
     sample_rate: int,
     frame_rate: float,
+    debug_dir: Path | None = None,
 ) -> tuple[np.ndarray, dict]:
     roi_x, roi_y, roi_w, roi_h = roi
-    samples_per_frame = int(sample_rate / frame_rate)
-    total_samples = len(frames) * samples_per_frame
-    audio_signal = np.zeros(total_samples, dtype=np.float32)
-    processed = 0
+    raw_rate = int(frame_rate * roi_h)
+    total_raw = len(frames) * roi_h
+    raw_signal = np.zeros(total_raw, dtype=np.float32)
 
-    for i, frame_path in enumerate(frames):
+    debug_strips: list[np.ndarray] = []
+    processed_frames = 0
+
+    for frame_path in frames:
         gray = read_frame_as_grayscale(frame_path)
         if gray is None:
-            processed += samples_per_frame
             continue
 
         h, w = gray.shape
-        rx = max(0, min(roi_x, w - 1))
-        ry = max(0, min(roi_y, h - 1))
+
+        if roi_x >= w or roi_y >= h or roi_x + roi_w <= 0 or roi_y + roi_h <= 0:
+            continue
+
+        rx = max(0, roi_x)
+        ry = max(0, roi_y)
         rw = max(1, min(roi_w, w - rx))
         rh = max(1, min(roi_h, h - ry))
 
         strip = gray[ry : ry + rh, rx : rx + rw]
 
         if strip.size == 0:
-            processed += samples_per_frame
             continue
 
-        if audio_mode == "variable_density":
+        if audio_mode == "variable_area":
+            block_size = max(3, rw // 8)
+            block_size = block_size if block_size % 2 == 1 else block_size + 1
+            binary = cv2.adaptiveThreshold(
+                strip, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
+                cv2.THRESH_BINARY_INV, block_size, 15
+            )
+            row_widths = np.zeros(rh, dtype=np.float32)
+            for y in range(rh):
+                row = binary[y]
+                dark_cols = np.where(row > 0)[0]
+                if dark_cols.size > 0:
+                    row_widths[y] = dark_cols[-1] - dark_cols[0] + 1
+                else:
+                    row_widths[y] = 0.0
+            max_w = rw
+            row_widths = np.clip(row_widths, 0, max_w)
+            signal_row = (row_widths / max_w) * 2.0 - 1.0
+            debug_strips.append(binary)
+        else:
             row = np.mean(strip, axis=0).astype(np.float32)
             row = (255 - row) / 255.0
-        else:
-            row = np.mean(strip, axis=1).astype(np.float32)
-            row = (255 - row) / 255.0
+            target = int(rh)
+            signal_row = np.interp(
+                np.linspace(0, 1, target),
+                np.arange(len(row)) / max(1, len(row) - 1),
+                row,
+            ).astype(np.float32)
 
-        interpolated = np.interp(
-            np.linspace(0, len(row) - 1, samples_per_frame),
-            np.arange(len(row)),
-            row,
-        )
-        audio_signal[processed : processed + samples_per_frame] = interpolated
-        processed += samples_per_frame
+        raw_signal[processed_frames * roi_h : processed_frames * roi_h + rh] = signal_row
+        processed_frames += 1
 
-    audio_signal = np.clip(audio_signal, -1.0, 1.0)
-    normalized = (audio_signal * 32767).astype(np.int16)
+    if processed_frames == 0:
+        return np.zeros(sample_rate, dtype=np.int16), {}
 
-    stats = {
+    actual_len = processed_frames * roi_h
+    raw_signal = raw_signal[:actual_len]
+
+    if debug_dir and debug_strips:
+        max_rows = min(len(debug_strips), 500)
+        dbg_chunks = []
+        for s in debug_strips[:max_rows]:
+            dbg_chunks.append(s.reshape(-1, roi_w))
+        dbg_strip = np.concatenate(dbg_chunks, axis=0)
+        dbg_path = debug_dir / "debug_audio_strip.png"
+        cv2.imwrite(str(dbg_path), dbg_strip)
+
+    signal = raw_signal.copy()
+    signal -= np.mean(signal)
+
+    alpha = 0.99
+    for i in range(1, len(signal)):
+        signal[i] = signal[i] - alpha * signal[i - 1]
+
+    rms = np.sqrt(np.mean(signal ** 2))
+    if rms > 1e-6:
+        signal = signal / (rms * 3.5)
+
+    signal = np.clip(signal, -1.0, 1.0)
+
+    duration_s = actual_len / raw_rate
+    target_samples = int(duration_s * sample_rate)
+    final = np.interp(
+        np.linspace(0, actual_len - 1, target_samples),
+        np.arange(actual_len),
+        signal,
+    )
+
+    final_int = (final * 32767).astype(np.int16)
+
+    stats: dict = {
         "total_frames": len(frames),
-        "processed_frames": processed // samples_per_frame,
-        "total_samples": total_samples,
+        "processed_frames": processed_frames,
+        "total_samples": len(final_int),
         "sample_rate": sample_rate,
         "frame_rate": frame_rate,
         "audio_mode": audio_mode,
         "roi": {"x": roi_x, "y": roi_y, "w": roi_w, "h": roi_h},
+        "raw_rate": raw_rate,
+        "dc_removed": True,
+        "highpass_applied": True,
+        "rms_normalized": True,
     }
-    return normalized, stats
+    if debug_dir:
+        stats["debug_strip_path"] = str(debug_dir / "debug_audio_strip.png")
+
+    return final_int, stats
 
 
 def write_wav(path: Path, audio_data: np.ndarray, sample_rate: int) -> None:
@@ -279,6 +343,11 @@ def parse_args() -> argparse.Namespace:
         default=48000,
         help="Taxa de amostragem do WAV gerado (padrão: 48000).",
     )
+    parser.add_argument(
+        "--debug-audio",
+        action="store_true",
+        help="Salva debug_audio_strip.png (trilha binarizada) no output para calibrar a ROI.",
+    )
     return parser.parse_args()
 
 
@@ -348,8 +417,22 @@ def main() -> int:
             auto_x = max(0, width - 200)
             roi = (auto_x, 0, 180, height)
             print(f"[INFO] ROI auto-detectada (lateral direita): {roi}")
+
+        roi_x, roi_y, roi_w, roi_h = roi
+        if roi_x + roi_w > width or roi_y + roi_h > height:
+            print(f"[ERRO] ROI {roi} fora dos limites do frame ({width}x{height}). Ajuste --audio-roi.")
+            return 1
+        if roi_w < 5:
+            print(f"[ERRO] ROI largura ({roi_w}) muito pequena para extrair audio. Use w >= 5.")
+            return 1
+
+        debug_dir: Path | None = None
+        if args.debug_audio:
+            debug_dir = output_dir
+            print("[INFO] Debug habilitado: debug_audio_strip.png sera gerado.")
+
         audio_data, audio_stats = extract_audio_from_frames(
-            frames, roi, args.audio_mode, args.audio_sample_rate, args.fps
+            frames, roi, args.audio_mode, args.audio_sample_rate, args.fps, debug_dir
         )
         wav_path = output_dir / f"{args.name}_{timestamp}.wav"
         write_wav(wav_path, audio_data, args.audio_sample_rate)
