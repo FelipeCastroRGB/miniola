@@ -1,6 +1,5 @@
 import argparse
 import json
-import math
 import re
 import shlex
 import shutil
@@ -39,180 +38,59 @@ def extract_audio_from_frames(
     audio_mode: str,
     sample_rate: int,
     frame_rate: float,
-    debug_dir: Path | None = None,
 ) -> tuple[np.ndarray, dict]:
     roi_x, roi_y, roi_w, roi_h = roi
-    nominal_raw_rate = int(frame_rate * roi_h)
-    total_raw = len(frames) * roi_h
-    raw_signal = np.zeros(total_raw, dtype=np.float32)
-    write_pos = 0
+    samples_per_frame = int(sample_rate / frame_rate)
+    total_samples = len(frames) * samples_per_frame
+    audio_signal = np.zeros(total_samples, dtype=np.float32)
+    processed = 0
 
-    debug_strips: list[np.ndarray] = []
-    processed_frames = 0
-
-    for frame_path in frames:
+    for i, frame_path in enumerate(frames):
         gray = read_frame_as_grayscale(frame_path)
         if gray is None:
+            processed += samples_per_frame
             continue
 
         h, w = gray.shape
-
-        if roi_x >= w or roi_y >= h or roi_x + roi_w <= 0 or roi_y + roi_h <= 0:
-            continue
-
-        rx = max(0, roi_x)
-        ry = max(0, roi_y)
+        rx = max(0, min(roi_x, w - 1))
+        ry = max(0, min(roi_y, h - 1))
         rw = max(1, min(roi_w, w - rx))
         rh = max(1, min(roi_h, h - ry))
 
         strip = gray[ry : ry + rh, rx : rx + rw]
 
         if strip.size == 0:
+            processed += samples_per_frame
             continue
 
-        if audio_mode == "variable_area":
-            # O adaptive threshold amplifica granulação do filme.
-            # Para VA, um Otsu global por frame tende a gerar menos chiado.
-            blurred = cv2.GaussianBlur(strip, (5, 5), 0)
-            _, otsu = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-            bright_mean = float(np.mean(strip[otsu == 255])) if np.any(otsu == 255) else 0.0
-            dark_mean = float(np.mean(strip[otsu == 0])) if np.any(otsu == 0) else 0.0
-            # Região útil da trilha costuma ser a faixa mais clara.
-            binary = otsu if bright_mean >= dark_mean else cv2.bitwise_not(otsu)
-
-            kernel = np.ones((3, 3), dtype=np.uint8)
-            binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
-            binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-
-            row_widths = np.zeros(rh, dtype=np.float32)
-            for y in range(rh):
-                row = binary[y]
-                dark_cols = np.where(row > 0)[0]
-                if dark_cols.size > 0:
-                    row_widths[y] = dark_cols[-1] - dark_cols[0] + 1
-                else:
-                    row_widths[y] = 0.0
-
-            # Suaviza serrilhado de grão/perfuração na direção temporal.
-            if rh >= 5:
-                kernel_1d = np.ones(5, dtype=np.float32) / 5.0
-                row_widths = np.convolve(row_widths, kernel_1d, mode="same")
-
-            max_w = rw
-            row_widths = np.clip(row_widths, 0, max_w)
-            signal_row = (row_widths / max_w) * 2.0 - 1.0
-            debug_strips.append(binary)
+        if audio_mode == "variable_density":
+            row = np.mean(strip, axis=0).astype(np.float32)
+            row = (255 - row) / 255.0
         else:
-            # Em trilha de densidade variável, cada linha vertical do frame
-            # representa um instante de áudio.
-            row = np.mean(strip, axis=1).astype(np.float32) / 255.0
-            signal_row = (1.0 - row) * 2.0 - 1.0
+            row = np.mean(strip, axis=1).astype(np.float32)
+            row = (255 - row) / 255.0
 
-        raw_signal[write_pos : write_pos + rh] = signal_row
-        write_pos += rh
-        processed_frames += 1
+        interpolated = np.interp(
+            np.linspace(0, len(row) - 1, samples_per_frame),
+            np.arange(len(row)),
+            row,
+        )
+        audio_signal[processed : processed + samples_per_frame] = interpolated
+        processed += samples_per_frame
 
-    if processed_frames == 0:
-        return np.zeros(sample_rate, dtype=np.int16), {}
+    audio_signal = np.clip(audio_signal, -1.0, 1.0)
+    normalized = (audio_signal * 32767).astype(np.int16)
 
-    actual_len = write_pos
-    raw_signal = raw_signal[:actual_len]
-
-    if debug_dir and debug_strips:
-        max_rows = min(len(debug_strips), 500)
-        dbg_chunks = []
-        for s in debug_strips[:max_rows]:
-            dbg_chunks.append(s)
-        dbg_strip = np.concatenate(dbg_chunks, axis=0)
-        dbg_path = debug_dir / "debug_audio_strip.png"
-        cv2.imwrite(str(dbg_path), dbg_strip)
-
-    signal = raw_signal.astype(np.float32)
-    signal -= np.mean(signal)
-
-    # Bloqueio de DC estável: y[n] = x[n] - x[n-1] + R*y[n-1]
-    # Reduz graves artificiais sem destruir formantes de voz.
-    dc_r = 0.995
-    if len(signal) > 1:
-        dc_filtered = np.zeros_like(signal)
-        prev_x = signal[0]
-        prev_y = 0.0
-        for i in range(1, len(signal)):
-            x = signal[i]
-            y = x - prev_x + dc_r * prev_y
-            dc_filtered[i] = y
-            prev_x = x
-            prev_y = y
-        signal = dc_filtered
-
-    duration_s = processed_frames / frame_rate
-    target_samples = max(1, int(round(duration_s * sample_rate)))
-    final = np.interp(
-        np.linspace(0, actual_len - 1, target_samples),
-        np.arange(actual_len),
-        signal,
-    ).astype(np.float32)
-
-    # Filtro passa-faixa simples para voz (remove rumble e ruído agudo).
-    def one_pole_highpass(data: np.ndarray, cutoff_hz: float, fs: int) -> np.ndarray:
-        if cutoff_hz <= 0 or fs <= 0:
-            return data
-        dt = 1.0 / fs
-        rc = 1.0 / (2.0 * math.pi * cutoff_hz)
-        alpha = rc / (rc + dt)
-        out = np.zeros_like(data)
-        prev_x = data[0]
-        prev_y = 0.0
-        for i in range(1, len(data)):
-            x = data[i]
-            y = alpha * (prev_y + x - prev_x)
-            out[i] = y
-            prev_x = x
-            prev_y = y
-        return out
-
-    def one_pole_lowpass(data: np.ndarray, cutoff_hz: float, fs: int) -> np.ndarray:
-        if cutoff_hz <= 0 or fs <= 0:
-            return data
-        dt = 1.0 / fs
-        rc = 1.0 / (2.0 * math.pi * cutoff_hz)
-        alpha = dt / (rc + dt)
-        out = np.zeros_like(data)
-        out[0] = data[0]
-        for i in range(1, len(data)):
-            out[i] = out[i - 1] + alpha * (data[i] - out[i - 1])
-        return out
-
-    final = one_pole_highpass(final, cutoff_hz=90.0, fs=sample_rate)
-    final = one_pole_lowpass(final, cutoff_hz=5500.0, fs=sample_rate)
-
-    peak = float(np.percentile(np.abs(final), 99.5))
-    if peak > 1e-6:
-        final = final / peak
-    final = np.clip(final, -1.0, 1.0)
-
-    final_int = (final * 32767).astype(np.int16)
-
-    stats: dict = {
+    stats = {
         "total_frames": len(frames),
-        "processed_frames": processed_frames,
-        "total_samples": len(final_int),
+        "processed_frames": processed // samples_per_frame,
+        "total_samples": total_samples,
         "sample_rate": sample_rate,
         "frame_rate": frame_rate,
         "audio_mode": audio_mode,
         "roi": {"x": roi_x, "y": roi_y, "w": roi_w, "h": roi_h},
-        "raw_rate_nominal": nominal_raw_rate,
-        "raw_rate_effective": int(round(actual_len / duration_s)) if duration_s > 0 else nominal_raw_rate,
-        "dc_removed": True,
-        "highpass_applied": True,
-        "lowpass_applied": True,
-        "normalization": "peak_p99_5",
     }
-    if debug_dir:
-        stats["debug_strip_path"] = str(debug_dir / "debug_audio_strip.png")
-
-    return final_int, stats
+    return normalized, stats
 
 
 def write_wav(path: Path, audio_data: np.ndarray, sample_rate: int) -> None:
@@ -401,11 +279,6 @@ def parse_args() -> argparse.Namespace:
         default=48000,
         help="Taxa de amostragem do WAV gerado (padrão: 48000).",
     )
-    parser.add_argument(
-        "--debug-audio",
-        action="store_true",
-        help="Salva debug_audio_strip.png (trilha binarizada) no output para calibrar a ROI.",
-    )
     return parser.parse_args()
 
 
@@ -467,41 +340,16 @@ def main() -> int:
     audio_stats: dict = {}
     if args.extract_audio:
         print("[INFO] Extraindo trilha ótica...")
-        roi: tuple[int, int, int, int]
-        try:
-            roi_parts = [int(x.strip()) for x in args.audio_roi.split(",")]
-        except ValueError:
-            roi_parts = []
-
-        if (
-            len(roi_parts) == 4
-            and roi_parts[0] >= 0
-            and roi_parts[1] >= 0
-            and roi_parts[2] > 0
-            and roi_parts[3] > 0
-        ):
-            roi = (roi_parts[0], roi_parts[1], roi_parts[2], roi_parts[3])
+        roi_parts = [int(x.strip()) for x in args.audio_roi.split(",")]
+        if len(roi_parts) == 4 and all(v > 0 for v in roi_parts):
+            roi: tuple[int, int, int, int] = (roi_parts[0], roi_parts[1], roi_parts[2], roi_parts[3])
             print(f"[INFO] ROI configurada: {roi}")
         else:
             auto_x = max(0, width - 200)
             roi = (auto_x, 0, 180, height)
             print(f"[INFO] ROI auto-detectada (lateral direita): {roi}")
-
-        roi_x, roi_y, roi_w, roi_h = roi
-        if roi_x + roi_w > width or roi_y + roi_h > height:
-            print(f"[ERRO] ROI {roi} fora dos limites do frame ({width}x{height}). Ajuste --audio-roi.")
-            return 1
-        if roi_w < 5:
-            print(f"[ERRO] ROI largura ({roi_w}) muito pequena para extrair audio. Use w >= 5.")
-            return 1
-
-        debug_dir: Path | None = None
-        if args.debug_audio:
-            debug_dir = output_dir
-            print("[INFO] Debug habilitado: debug_audio_strip.png sera gerado.")
-
         audio_data, audio_stats = extract_audio_from_frames(
-            frames, roi, args.audio_mode, args.audio_sample_rate, args.fps, debug_dir
+            frames, roi, args.audio_mode, args.audio_sample_rate, args.fps
         )
         wav_path = output_dir / f"{args.name}_{timestamp}.wav"
         write_wav(wav_path, audio_data, args.audio_sample_rate)
