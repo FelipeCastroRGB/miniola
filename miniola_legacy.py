@@ -22,6 +22,7 @@ import multiprocessing as mp
 import time 
 import logging 
 import shutil
+import psutil
 import os
 
 app = Flask(__name__) # Flask para o Dashboard (Roda no Core 0)
@@ -516,6 +517,12 @@ def get_status():
     uso_disco = shutil.disk_usage(CAPTURE_PATH)
     espaco_livre_mb = uso_disco.free / (1024 * 1024)
     espaco_total_mb = uso_disco.total / (1024 * 1024)
+
+    # --- NOVO: LEITURA DOS 4 NÚCLEOS ---
+    try:
+        cpu_cores = psutil.cpu_percent(percpu=True)
+    except:
+        cpu_cores = [0.0, 0.0, 0.0, 0.0]
     
     return {
         "rec": "GRAVANDO" if GRAVANDO else "PARADO", 
@@ -538,7 +545,8 @@ def get_status():
         "roi_x": ROI_X, "roi_y": ROI_Y, "roi_w": ROI_W, "roi_h": ROI_H,
         "crop_w": CROP_W, "crop_h": CROP_H, "ox": OFFSET_X,
         "gatilho_y": LINHA_GATILHO_Y, "margem": MARGEM_GATILHO,
-        "res_w": RES_W, "res_h": RES_H
+        "res_w": RES_W, "res_h": RES_H,
+        "cpu_cores": cpu_cores,
     }
 
 
@@ -573,6 +581,7 @@ def index():
             FRAMES: <b id='f'>0</b> | 
             PROC: <b id='fps_proc' style='color:#0ff'>0.0 FPS</b> (<b id='ms_ciclo' style='color:#ff0'>0.0 ms</b>) | 
             TEMP: <b id='t_cpu' style='color:#f90'>0.0 °C</b>
+            CORES: <span style='color:#5f5; font-size:14px;'>[<b id='core0'>0</b>%|<b id='core1'>0</b>%|<b id='core2'>0</b>%|<b id='core3'>0</b>%]</span> |
         </div>
         
 <div style='display:flex; background:#1a1a1a; padding:6px 10px; border-bottom:1px solid #444; justify-content:space-between; font-size:12px; color:#aaa;'>
@@ -624,6 +633,13 @@ def index():
                     document.getElementById('esp').innerText = d.espaco;
                     document.getElementById('fps_proc').innerText = d.fps_proc; 
                     document.getElementById('t_cpu').innerText = d.temp; 
+
+                    if(d.cpu_cores && d.cpu_cores.length === 4) {
+                        document.getElementById('core0').innerText = Math.round(d.cpu_cores[0]);
+                        document.getElementById('core1').innerText = Math.round(d.cpu_cores[1]);
+                        document.getElementById('core2').innerText = Math.round(d.cpu_cores[2]);
+                        document.getElementById('core3').innerText = Math.round(d.cpu_cores[3]);
+                    }
                     
                     // --- ATUALIZAÇÕES DA BARRA INFERIOR DE TELEMETRIA ---
                     document.getElementById('v_foco').innerText = d.foco;
