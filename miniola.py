@@ -121,14 +121,14 @@ def disparar_processamento():
     try:
         proc = subprocess.run([sys.executable, "process.py", "--fps", str(FPS_PROJECAO)], capture_output=True, text=True)
         if proc.returncode != 0:
-            print(f"[LABORATÓRIO] 💥 FFFmpeg abortou ou frames estão faltando!\nLOG DE ERRO:\n{proc.stderr}\n{proc.stdout}")
+            print(f"[LABORATÓRIO] FFFmpeg abortou ou frames estão faltando!\nLOG DE ERRO:\n{proc.stderr}\n{proc.stdout}")
         else:
-            print(f"[LABORATÓRIO] 🎬 Rolo finalizado! Disponível na Galeria Web.")
+            print(f"[LABORATÓRIO] Rolo finalizado! Disponível na Galeria Web.")
     except Exception as e:
-        print(f"[LABORATÓRIO] 💥 ERRO FATAL no processamento: {e}")
+        print(f"[LABORATÓRIO] ERRO FATAL no processamento: {e}")
     
     PROCESSANDO_VIDEO = False
-    print("[SISTEMA] ⚙️ Scanner acordado de volta à vida.")
+    print("[SISTEMA] Scanner acordado de volta à vida.")
 
 # --- PAINEL DE CONTROLE ---
 def painel_controle():
@@ -458,56 +458,59 @@ def generate_dashboard():
         for item in lista_contornos_debug:
             x, y, w, h = item['rect']; cv2.rectangle(p_live, (int(x*sx), int(y*sy)), (int((x+w)*sx), int((y+h)*sy)), item['color'], 2)
         
-        # --- PAINEL DIREITO (p_bin): BINÁRIO E HISTOGRAMA ---
+        # --- PAINEL DIREITO (p_bin): SÓ BINÁRIO ---
         p_bin = np.zeros((420, 640, 3), dtype=np.uint8)
         
         if ultimo_frame_binario is not None:
             bin_res = cv2.resize(cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB), (240, 420))
             p_bin[0:420, 50:290] = bin_res
-            
-            if ultimo_crop_preview is not None and ultimo_crop_preview.size > 0:
-                gray_crop = cv2.cvtColor(ultimo_crop_preview, cv2.COLOR_RGB2GRAY)
-                hist = cv2.calcHist([gray_crop], [0], None, [256], [0, 256])
-                cv2.normalize(hist, hist, 0, 150, cv2.NORM_MINMAX)
-                
-                grafico_h = np.zeros((150, 256, 3), dtype=np.uint8)
-                cv2.rectangle(grafico_h, (0, 0), (256, 150), (30, 30, 30), -1)
-                
-                for x in range(256):
-                    valor_y = int(hist[x][0])
-                    cor_linha = (255, 255, 255) if x > 200 else (150, 255, 150)
-                    cv2.line(grafico_h, (x, 150), (x, 150 - valor_y), cor_linha, 1)
-                
-                cv2.line(grafico_h, (10, 0), (10, 150), (0, 0, 255), 1)
-                cv2.line(grafico_h, (245, 0), (245, 150), (0, 0, 255), 1)
-                
-                pos_y_hist = 135
-                pos_x_hist = 330
-                p_bin[pos_y_hist : pos_y_hist+150, pos_x_hist : pos_x_hist+256] = grafico_h
-                cv2.putText(p_bin, "HISTOGRAMA", (pos_x_hist, pos_y_hist - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
-        
-        # --- PAINEL INFERIOR (p_inf): FOTOGRAMA ESTÁTICO COM ZEBRA ---
+
+        # --- PAINEL INFERIOR (p_inf): ZEBRA + HISTOGRAMA LADO A LADO ---
         p_inf = np.zeros((300, 1280, 3), dtype=np.uint8)
         
         if ultimo_crop_preview is not None and ultimo_crop_preview.size > 0:
+            # --- ZEBRA (esquerda do painel inferior) ---
             crop_preview = cv2.resize(ultimo_crop_preview.copy(), (400, 280))
             luma = cv2.cvtColor(crop_preview, cv2.COLOR_RGB2GRAY)
             
             zebra_overlay = crop_preview.copy()
-            zebra_overlay[luma > 245] = [0, 0, 255] # Estouro = Vermelho
-            zebra_overlay[luma < 10] = [255, 0, 0]  # Crush = Azul
+            zebra_overlay[luma > 245] = [0, 0, 255]  # Estouro = Vermelho
+            zebra_overlay[luma < 10]  = [255, 0, 0]  # Crush = Azul
             
-            # Centralizando a foto (1280 / 2) - (400 / 2) = 440
-            pos_y_zebra = 10
-            pos_x_zebra = 50 
-            
+            pos_y_zebra, pos_x_zebra = 10, 50
             p_inf[pos_y_zebra : pos_y_zebra+280, pos_x_zebra : pos_x_zebra+400] = zebra_overlay
-            
-            # Fundo preto semi-transparente para o texto ficar legível
             cv2.rectangle(p_inf, (pos_x_zebra, pos_y_zebra), (pos_x_zebra + 370, pos_y_zebra + 25), (0, 0, 0), -1)
-            cv2.putText(p_inf, "ZEBRA (VERMELHO=ALTAS / AZUL=BAIXAS)", (pos_x_zebra + 5, pos_y_zebra + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
-        
-        # Monta a imagem final (restaurando o vstack)
+            cv2.putText(p_inf, "ZEBRA (VERM=ALTAS / AZUL=BAIXAS)", (pos_x_zebra + 5, pos_y_zebra + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+            
+            # --- HISTOGRAMA (ao lado da Zebra, maior) ---
+            gray_crop = cv2.cvtColor(ultimo_crop_preview, cv2.COLOR_RGB2GRAY)
+            hist = cv2.calcHist([gray_crop], [0], None, [256], [0, 256])
+            cv2.normalize(hist, hist, 0, 270, cv2.NORM_MINMAX)  # Altura máxima = 270px
+            
+            HIST_W, HIST_H = 512, 280  # Histograma 2x mais largo e altura total do painel
+            grafico_h = np.zeros((HIST_H, HIST_W, 3), dtype=np.uint8)
+            cv2.rectangle(grafico_h, (0, 0), (HIST_W, HIST_H), (20, 20, 20), -1)
+            
+            # Desenha as barras interpolando 256 bins -> 512px de largura
+            for i in range(256):
+                x0 = i * 2
+                x1 = x0 + 2
+                valor_y = int(hist[i][0])
+                cor = (255, 255, 255) if i > 200 else (80, 200, 80)
+                cv2.rectangle(grafico_h, (x0, HIST_H), (x1, HIST_H - valor_y), cor, -1)
+            
+            # Linhas de referência (preto/branco absoluto)
+            cv2.line(grafico_h, (20, 0), (20, HIST_H), (0, 80, 255), 1)
+            cv2.line(grafico_h, (490, 0), (490, HIST_H), (0, 80, 255), 1)
+            cv2.putText(grafico_h, "0", (5, HIST_H - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (100, 100, 255), 1)
+            cv2.putText(grafico_h, "255", (476, HIST_H - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (100, 100, 255), 1)
+            
+            pos_x_hist = 500
+            pos_y_hist = 10
+            p_inf[pos_y_hist : pos_y_hist + HIST_H, pos_x_hist : pos_x_hist + HIST_W] = grafico_h
+            cv2.putText(p_inf, "HISTOGRAMA (LUMINANCIA)", (pos_x_hist, pos_y_hist - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+
+        # Monta a imagem final
         dashboard = np.vstack((np.hstack((p_live, p_bin)), p_inf))
         _, buffer = cv2.imencode('.jpg', cv2.cvtColor(dashboard, cv2.COLOR_RGB2BGR), [int(cv2.IMWRITE_JPEG_QUALITY), 70])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
