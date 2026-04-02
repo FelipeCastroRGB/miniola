@@ -27,15 +27,9 @@ public:
         py::buffer_info buf = input_array.request();
         int rows = buf.shape[0];
         int cols = buf.shape[1];
-        int channels = (buf.ndim == 3) ? buf.shape[2] : 1;
         
-        // Mapeamento dinâmico: Detecta se o Python enviou RGB (3 canais) ou Gray (1 canal)
-        cv::Mat frame;
-        if (channels == 3) {
-            frame = cv::Mat(rows, cols, CV_8UC3, buf.ptr);
-        } else {
-            frame = cv::Mat(rows, cols, CV_8UC1, buf.ptr);
-        }
+        // frame_raw em RGB888 -> 3 canais
+        cv::Mat frame(rows, cols, CV_8UC3, buf.ptr);
         
         // Proteção contra falhas de limites da ROI
         cv::Rect roi_rect(std::max(0, roi_x), std::max(0, roi_y),
@@ -47,12 +41,7 @@ public:
 
         cv::Mat roi_color = frame(roi_rect);
         cv::Mat roi_gray, roi_small, binary_small;
-        
-        if (channels == 3) {
-            cv::cvtColor(roi_color, roi_gray, cv::COLOR_RGB2GRAY);
-        } else {
-            roi_gray = roi_color; // Já é cinza, apenas referencia (zero cópia)
-        }
+        cv::cvtColor(roi_color, roi_gray, cv::COLOR_RGB2GRAY);
         cv::resize(roi_gray, roi_small, cv::Size(), 0.5, 0.5);
         cv::threshold(roi_small, binary_small, thresh_val, 255, cv::THRESH_BINARY);
         
