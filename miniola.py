@@ -40,7 +40,7 @@ foco_atual, passo_foco = 14.5, 0.5
 # Resolução única: HIGH (1536x864) — recalibrar ROI/CROP no hardware
 RES_W, RES_H = 1536, 864
 
-config = picam2.create_video_configuration(main={"size": (RES_W, RES_H), "format": "yuv420"})
+config = picam2.create_video_configuration(main={"size": (RES_W, RES_H), "format": "RGB888"})
 picam2.configure(config)
 picam2.set_controls({
     "ExposureTime": shutter_speed, 
@@ -89,13 +89,9 @@ def processo_escrita_disco(fila_in):
         item = fila_in.get()
         if item is None: break
         
-        img_y, filename = item
-        # Se img_y já é escala de cinza (1 canal), não precisa de cvtColor
-        if len(img_y.shape) == 2:
-            cv2.imwrite(filename, img_y, [int(cv2.IMWRITE_JPEG_QUALITY), 99])
-        else:
-            img_bgr = cv2.cvtColor(img_y, cv2.COLOR_RGB2BGR)
-            cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 99])
+        img_rgb, filename = item
+        img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+        cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 99])
 
 def processar_captura(frame, cx_global, cy_global, n_frame):
     global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
@@ -313,12 +309,8 @@ def logica_scanner():
             
         t_inicio = get_time()
         
-        # No modo YUV420, o capture_array retorna um array (H*1.5, W)
-        # Os primeiros RES_H são o plano Y (Luminância / Escala de Cinza)
-        yuv_frame = picam2.capture_array()
-        frame_raw = yuv_frame[:RES_H, :] # Extração ultrarrápida do plano Y
-        
-        ultimo_frame_bruto = frame_raw
+        frame_raw = cap_array()
+        if frame_raw is None: continue
         
         lx, ly, lw, lh = ROI_X, ROI_Y, ROI_W, ROI_H
         
@@ -329,6 +321,7 @@ def logica_scanner():
             )
             binary_small = ret["binary_small"]
             
+            # C++ retorna uma lista de arrays, precisamos normalizar num format dict pra UI python funcionar sem quebrar
             debug_visual = []
             for item in ret["debug_visual"]:
                 debug_visual.append({'rect': item['rect'], 'color': item['color']})
@@ -449,9 +442,8 @@ def generate_dashboard():
         time.sleep(0.06) 
         if ultimo_frame_bruto is None: continue
         
-        # --- PAINEL ESQUERDO (p_live): LIVE VIEW LIMPO (Convertido para RGB para Overlays) ---
-        p_live_gray = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
-        p_live = cv2.cvtColor(p_live_gray, cv2.COLOR_GRAY2RGB)
+        # --- PAINEL ESQUERDO (p_live): LIVE VIEW LIMPO ---
+        p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
         sx, sy = 640/RES_W, 420/RES_H
         
         # Desenhos da Geometria da ROI
@@ -478,10 +470,8 @@ def generate_dashboard():
         
         if ultimo_crop_preview is not None and ultimo_crop_preview.size > 0:
             # --- ZEBRA (esquerda do painel inferior) ---
-            crop_gray = cv2.resize(ultimo_crop_preview.copy(), (400, 280))
-            # Garante que temos 3 canais mesmo vindo de cinza para os overlays vermelho/azul
-            crop_preview = cv2.cvtColor(crop_gray, cv2.COLOR_GRAY2RGB)
-            luma = crop_gray # Já é cinza
+            crop_preview = cv2.resize(ultimo_crop_preview.copy(), (400, 280))
+            luma = cv2.cvtColor(crop_preview, cv2.COLOR_RGB2GRAY)
             
             zebra_overlay = crop_preview.copy()
             zebra_overlay[luma > 245] = [0, 0, 255]  # Estouro = Vermelho
