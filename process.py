@@ -1,5 +1,6 @@
 import argparse
 import json
+import math
 import re
 import shlex
 import shutil
@@ -41,9 +42,10 @@ def extract_audio_from_frames(
     debug_dir: Path | None = None,
 ) -> tuple[np.ndarray, dict]:
     roi_x, roi_y, roi_w, roi_h = roi
-    raw_rate = int(frame_rate * roi_h)
+    nominal_raw_rate = int(frame_rate * roi_h)
     total_raw = len(frames) * roi_h
     raw_signal = np.zeros(total_raw, dtype=np.float32)
+    write_pos = 0
 
     debug_strips: list[np.ndarray] = []
     processed_frames = 0
@@ -69,12 +71,20 @@ def extract_audio_from_frames(
             continue
 
         if audio_mode == "variable_area":
-            block_size = max(3, rw // 8)
-            block_size = block_size if block_size % 2 == 1 else block_size + 1
-            binary = cv2.adaptiveThreshold(
-                strip, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
-                cv2.THRESH_BINARY_INV, block_size, 15
-            )
+            # O adaptive threshold amplifica granulação do filme.
+            # Para VA, um Otsu global por frame tende a gerar menos chiado.
+            blurred = cv2.GaussianBlur(strip, (5, 5), 0)
+            _, otsu = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+            bright_mean = float(np.mean(strip[otsu == 255])) if np.any(otsu == 255) else 0.0
+            dark_mean = float(np.mean(strip[otsu == 0])) if np.any(otsu == 0) else 0.0
+            # Região útil da trilha costuma ser a faixa mais clara.
+            binary = otsu if bright_mean >= dark_mean else cv2.bitwise_not(otsu)
+
+            kernel = np.ones((3, 3), dtype=np.uint8)
+            binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+            binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+
             row_widths = np.zeros(rh, dtype=np.float32)
             for y in range(rh):
                 row = binary[y]
@@ -83,58 +93,104 @@ def extract_audio_from_frames(
                     row_widths[y] = dark_cols[-1] - dark_cols[0] + 1
                 else:
                     row_widths[y] = 0.0
+
+            # Suaviza serrilhado de grão/perfuração na direção temporal.
+            if rh >= 5:
+                kernel_1d = np.ones(5, dtype=np.float32) / 5.0
+                row_widths = np.convolve(row_widths, kernel_1d, mode="same")
+
             max_w = rw
             row_widths = np.clip(row_widths, 0, max_w)
             signal_row = (row_widths / max_w) * 2.0 - 1.0
             debug_strips.append(binary)
         else:
-            row = np.mean(strip, axis=0).astype(np.float32)
-            row = (255 - row) / 255.0
-            target = int(rh)
-            signal_row = np.interp(
-                np.linspace(0, 1, target),
-                np.arange(len(row)) / max(1, len(row) - 1),
-                row,
-            ).astype(np.float32)
+            # Em trilha de densidade variável, cada linha vertical do frame
+            # representa um instante de áudio.
+            row = np.mean(strip, axis=1).astype(np.float32) / 255.0
+            signal_row = (1.0 - row) * 2.0 - 1.0
 
-        raw_signal[processed_frames * roi_h : processed_frames * roi_h + rh] = signal_row
+        raw_signal[write_pos : write_pos + rh] = signal_row
+        write_pos += rh
         processed_frames += 1
 
     if processed_frames == 0:
         return np.zeros(sample_rate, dtype=np.int16), {}
 
-    actual_len = processed_frames * roi_h
+    actual_len = write_pos
     raw_signal = raw_signal[:actual_len]
 
     if debug_dir and debug_strips:
         max_rows = min(len(debug_strips), 500)
         dbg_chunks = []
         for s in debug_strips[:max_rows]:
-            dbg_chunks.append(s.reshape(-1, roi_w))
+            dbg_chunks.append(s)
         dbg_strip = np.concatenate(dbg_chunks, axis=0)
         dbg_path = debug_dir / "debug_audio_strip.png"
         cv2.imwrite(str(dbg_path), dbg_strip)
 
-    signal = raw_signal.copy()
+    signal = raw_signal.astype(np.float32)
     signal -= np.mean(signal)
 
-    alpha = 0.99
-    for i in range(1, len(signal)):
-        signal[i] = signal[i] - alpha * signal[i - 1]
+    # Bloqueio de DC estável: y[n] = x[n] - x[n-1] + R*y[n-1]
+    # Reduz graves artificiais sem destruir formantes de voz.
+    dc_r = 0.995
+    if len(signal) > 1:
+        dc_filtered = np.zeros_like(signal)
+        prev_x = signal[0]
+        prev_y = 0.0
+        for i in range(1, len(signal)):
+            x = signal[i]
+            y = x - prev_x + dc_r * prev_y
+            dc_filtered[i] = y
+            prev_x = x
+            prev_y = y
+        signal = dc_filtered
 
-    rms = np.sqrt(np.mean(signal ** 2))
-    if rms > 1e-6:
-        signal = signal / (rms * 3.5)
-
-    signal = np.clip(signal, -1.0, 1.0)
-
-    duration_s = actual_len / raw_rate
-    target_samples = int(duration_s * sample_rate)
+    duration_s = processed_frames / frame_rate
+    target_samples = max(1, int(round(duration_s * sample_rate)))
     final = np.interp(
         np.linspace(0, actual_len - 1, target_samples),
         np.arange(actual_len),
         signal,
-    )
+    ).astype(np.float32)
+
+    # Filtro passa-faixa simples para voz (remove rumble e ruído agudo).
+    def one_pole_highpass(data: np.ndarray, cutoff_hz: float, fs: int) -> np.ndarray:
+        if cutoff_hz <= 0 or fs <= 0:
+            return data
+        dt = 1.0 / fs
+        rc = 1.0 / (2.0 * math.pi * cutoff_hz)
+        alpha = rc / (rc + dt)
+        out = np.zeros_like(data)
+        prev_x = data[0]
+        prev_y = 0.0
+        for i in range(1, len(data)):
+            x = data[i]
+            y = alpha * (prev_y + x - prev_x)
+            out[i] = y
+            prev_x = x
+            prev_y = y
+        return out
+
+    def one_pole_lowpass(data: np.ndarray, cutoff_hz: float, fs: int) -> np.ndarray:
+        if cutoff_hz <= 0 or fs <= 0:
+            return data
+        dt = 1.0 / fs
+        rc = 1.0 / (2.0 * math.pi * cutoff_hz)
+        alpha = dt / (rc + dt)
+        out = np.zeros_like(data)
+        out[0] = data[0]
+        for i in range(1, len(data)):
+            out[i] = out[i - 1] + alpha * (data[i] - out[i - 1])
+        return out
+
+    final = one_pole_highpass(final, cutoff_hz=90.0, fs=sample_rate)
+    final = one_pole_lowpass(final, cutoff_hz=5500.0, fs=sample_rate)
+
+    peak = float(np.percentile(np.abs(final), 99.5))
+    if peak > 1e-6:
+        final = final / peak
+    final = np.clip(final, -1.0, 1.0)
 
     final_int = (final * 32767).astype(np.int16)
 
@@ -146,10 +202,12 @@ def extract_audio_from_frames(
         "frame_rate": frame_rate,
         "audio_mode": audio_mode,
         "roi": {"x": roi_x, "y": roi_y, "w": roi_w, "h": roi_h},
-        "raw_rate": raw_rate,
+        "raw_rate_nominal": nominal_raw_rate,
+        "raw_rate_effective": int(round(actual_len / duration_s)) if duration_s > 0 else nominal_raw_rate,
         "dc_removed": True,
         "highpass_applied": True,
-        "rms_normalized": True,
+        "lowpass_applied": True,
+        "normalization": "peak_p99_5",
     }
     if debug_dir:
         stats["debug_strip_path"] = str(debug_dir / "debug_audio_strip.png")
@@ -409,9 +467,20 @@ def main() -> int:
     audio_stats: dict = {}
     if args.extract_audio:
         print("[INFO] Extraindo trilha ótica...")
-        roi_parts = [int(x.strip()) for x in args.audio_roi.split(",")]
-        if len(roi_parts) == 4 and all(v > 0 for v in roi_parts):
-            roi: tuple[int, int, int, int] = (roi_parts[0], roi_parts[1], roi_parts[2], roi_parts[3])
+        roi: tuple[int, int, int, int]
+        try:
+            roi_parts = [int(x.strip()) for x in args.audio_roi.split(",")]
+        except ValueError:
+            roi_parts = []
+
+        if (
+            len(roi_parts) == 4
+            and roi_parts[0] >= 0
+            and roi_parts[1] >= 0
+            and roi_parts[2] > 0
+            and roi_parts[3] > 0
+        ):
+            roi = (roi_parts[0], roi_parts[1], roi_parts[2], roi_parts[3])
             print(f"[INFO] ROI configurada: {roi}")
         else:
             auto_x = max(0, width - 200)
