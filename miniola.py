@@ -56,8 +56,8 @@ GRAVANDO = False
 CALIBRANDO = False           # Trava de segurança da tela
 PROCESSANDO_VIDEO = False    # Alerta o scanner para hibernar
 FPS_PROJECAO = 24.0          # FPS de reprodução do filme (independente do fps_cam do sensor!)
-ROI_X, ROI_Y = 25, 10
-ROI_W, ROI_H = 80, 700
+ROI_X, ROI_Y = 200, 10
+ROI_W, ROI_H = 80, 760
 # --- LÓGICA DE GATILHO SIMPLIFICADA ---
 LINHA_GATILHO_Y = 110  # Posição Y relativa DENTRO da ROI
 MARGEM_GATILHO = 23    # Margem de disparo (px para cima e para baixo)
@@ -91,7 +91,7 @@ def processo_escrita_disco(fila_in):
         
         img_rgb, filename = item
         img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+        cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 99])
 
 def processar_captura(frame, cx_global, cy_global, n_frame):
     global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
