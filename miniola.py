@@ -40,7 +40,7 @@ foco_atual, passo_foco = 14.5, 0.5
 # Resolução única: HIGH (1536x864) — recalibrar ROI/CROP no hardware
 RES_W, RES_H = 1536, 864
 
-config = picam2.create_video_configuration(main={"size": (RES_W, RES_H), "format": "YUV420"})
+config = picam2.create_video_configuration(main={"size": (RES_W, RES_H), "format": "yuv420"})
 picam2.configure(config)
 picam2.set_controls({
     "ExposureTime": shutter_speed, 
