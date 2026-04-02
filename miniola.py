@@ -57,7 +57,7 @@ CALIBRANDO = False           # Trava de segurança da tela
 PROCESSANDO_VIDEO = False    # Alerta o scanner para hibernar
 FPS_PROJECAO = 24.0          # FPS de reprodução do filme (independente do fps_cam do sensor!)
 ROI_X, ROI_Y = 200, 10
-ROI_W, ROI_H = 80, 760
+ROI_W, ROI_H = 80, 840
 # --- LÓGICA DE GATILHO SIMPLIFICADA ---
 LINHA_GATILHO_Y = 110  # Posição Y relativa DENTRO da ROI
 MARGEM_GATILHO = 23    # Margem de disparo (px para cima e para baixo)
@@ -520,14 +520,27 @@ def get_status():
     global GRAVANDO, contador_perfs_ciclo, frame_count, fps_real_proc, tempo_ms_ciclo
     global ROI_X, ROI_Y, ROI_W, ROI_H, CROP_W, CROP_H, OFFSET_X
     global foco_atual, shutter_speed, gain, fps_cam, THRESH_VAL, LINHA_GATILHO_Y, MARGEM_GATILHO
-    global encolhimento_atual_pct, CALIBRANDO
-    
+    # --- MEDICÃO DE HARDWARE (Linux /proc) ---
+    cpu_percent, ram_percent, cpu_temp = 0.0, 0.0, 0.0
     try:
+        # CPU Load: /proc/stat
+        with open('/proc/stat', 'r') as f:
+            fields = [float(column) for column in f.readline().strip().split()[1:]]
+        idle, total = fields[3], sum(fields)
+        cpu_percent = 100.0 * (1.0 - idle / total)
+        
+        # RAM Usage: /proc/meminfo
+        with open('/proc/meminfo', 'r') as f:
+            lines = f.readlines()
+        mem = {line.split(':')[0]: int(line.split(':')[1].split()[0]) for line in lines[:32]}
+        ram_percent = 100.0 * (1.0 - mem['MemAvailable'] / mem['MemTotal'])
+
+        # Temp: /sys/class/thermal
         with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
             cpu_temp = float(f.read()) / 1000.0
     except:
-        cpu_temp = 0.0
-
+        pass # Fallback para Windows/Dev
+    
     # --- LEITURA DE DISCO E ARQUIVOS (Ultrarrápida) ---
     total_arquivos = sum(1 for _ in os.scandir(CAPTURE_PATH))
     uso_disco = shutil.disk_usage(CAPTURE_PATH)
@@ -535,7 +548,10 @@ def get_status():
     espaco_total_mb = uso_disco.total / (1024 * 1024)
     
     return {
-        "processando": PROCESSANDO_VIDEO, # Flag pra UI carregar barra
+        "processando": PROCESSANDO_VIDEO, 
+        "cpu": f"{cpu_percent:.1f}%",
+        "ram": f"{ram_percent:.1f}%",
+        "temp": f"{cpu_temp:.1f}°C",
         "rec": "GRAVANDO" if GRAVANDO else "PARADO", 
         "cor": "#ff0000" if GRAVANDO else "#00ff00",
         "ciclo": f"{contador_perfs_ciclo}/4", 
@@ -543,9 +559,8 @@ def get_status():
         "fps_proc": f"{fps_real_proc:.1f} FPS", 
         "ms_ciclo": f"{tempo_ms_ciclo:.1f} ms",
         "queue": fila_gravacao.qsize(),
-        "temp": f"{cpu_temp:.1f} °C",
-        "arquivos": total_arquivos,  # <--- ENVIANDO TOTAL DE FOTOS
-        "espaco": f"{espaco_livre_mb:.0f}MB", # <--- ENVIANDO ESPAÇO LIVRE
+        "arquivos": total_arquivos,  
+        "espaco": f"{espaco_livre_mb:.0f}MB", 
         "foco": f"{foco_atual:.2f}",
         "exp": shutter_speed,
         "gain": f"{gain:.1f}",

@@ -14,8 +14,11 @@
         CICLO: <b id='c'>0/4</b> |
         DISCO: <b id='arq' style='color:#0f0'>0</b> imgs (<b id='esp' style='color:#0aa'>-</b> livres) |
         FRAMES: <b id='f'>0</b> |
+        CPU: <b id='v_cpu' style='color:#0ff'>0%</b> |
+        RAM: <b id='v_ram' style='color:#f0f'>0%</b> |
+        BUF: <b id='v_queue' style='color:#ff0'>0</b> |
         PROC: <b id='fps_proc' style='color:#0ff'>0.0 FPS</b> (<b id='ms_ciclo' style='color:#ff0'>0.0 ms</b>) |
-        TEMP: <b id='t_cpu' style='color:#f90'>0.0 °C</b>
+        TEMP: <b id='t_cpu' style='color:#f90'>0.0°C</b>
     </div>
 
     <div
@@ -168,8 +171,23 @@
                 document.getElementById('f').innerText = d.total;
                 document.getElementById('arq').innerText = d.arquivos;
                 document.getElementById('esp').innerText = d.espaco;
-                document.getElementById('fps_proc').innerText = d.fps_proc;
+                document.getElementById('fps_proc').innerText = d.fps_proc + ' ( ' + d.ms_ciclo + ' )';
                 document.getElementById('t_cpu').innerText = d.temp;
+
+                // --- NOVOS MONITORES DE HARDWARE ---
+                const cpuEl = document.getElementById('v_cpu');
+                const ramEl = document.getElementById('v_ram');
+                const qEl = document.getElementById('v_queue');
+
+                cpuEl.innerText = d.cpu;
+                cpuEl.style.color = parseInt(d.cpu) > 85 ? '#f00' : '#0ff';
+
+                ramEl.innerText = d.ram;
+                ramEl.style.color = parseInt(d.ram) > 85 ? '#f00' : '#f0f';
+
+                qEl.innerText = d.queue;
+                qEl.style.color = d.queue > 20 ? '#f00' : '#ff0';
+                if(d.queue > 50) qEl.style.fontWeight = 'bold'; // Alerta de estouro de buffer!
 
                 // --- ATUALIZAÇÕES DA BARRA INFERIOR DE TELEMETRIA ---
                 document.getElementById('v_foco').innerText = d.foco;
