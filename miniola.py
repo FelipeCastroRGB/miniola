@@ -96,8 +96,9 @@ encolhimento_atual_pct = 0.0
 
 # --- FILA DE MULTIPROCESSAMENTO ---
 fila_gravacao = mp.Queue(maxsize=30) 
+ultimo_pitch_medio = 0.0
 
-def abrir_sessao_audio_optico(session_id: str, fps_projecao: float):
+def abrir_sessao_audio_optico(session_id: str, fps_projecao: float, pitch: float):
     raw_name = f"miniola_audio_{session_id}.f32"
     meta_name = f"miniola_audio_{session_id}.json"
     raw_path = os.path.join(CAPTURE_PATH, raw_name)
@@ -119,6 +120,7 @@ def abrir_sessao_audio_optico(session_id: str, fps_projecao: float):
         "raw_fp": raw_fp,
         "mode": AUDIO_CAPTURE_MODE,
         "fps_projecao": float(fps_seguro),
+        "pitch": pitch,
         "search_side": AUDIO_SEARCH_SIDE,
         "search_w": int(AUDIO_SEARCH_W),
         "read_w": int(AUDIO_READ_W),
@@ -145,7 +147,7 @@ def fechar_sessao_audio_optico(sessao, motivo: str):
         raw_fp.flush()
         raw_fp.close()
 
-    pitch_calculado = ultimo_pitch_medio if ultimo_pitch_medio > 0 else PITCH_PADRAO_PX
+    pitch_calculado = sessao.get("pitch", PITCH_PADRAO_PX)
     
     meta = {
         "version": 1,
@@ -203,7 +205,8 @@ def processo_escrita_disco(fila_in):
 
             if item.get("audio_enabled", True):
                 sid = item.get("session_id") or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-                sessao_audio = abrir_sessao_audio_optico(sid, float(item.get("fps_projecao", 24.0)))
+                p_pitch = float(item.get("pitch_padrao", PITCH_PADRAO_PX))
+                sessao_audio = abrir_sessao_audio_optico(sid, float(item.get("fps_projecao", 24.0)), p_pitch)
             continue
 
         if msg_type == "rec_stop":
@@ -378,9 +381,11 @@ def painel_controle():
                 if not GRAVANDO:
                     sid = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
                     try:
+                        p_val = ultimo_pitch_medio if ultimo_pitch_medio > 0 else PITCH_PADRAO_PX
                         fila_gravacao.put({
                             "type": "rec_start", "session_id": sid,
-                            "audio_enabled": AUDIO_CAPTURE_ENABLED, "fps_projecao": FPS_PROJECAO
+                            "audio_enabled": AUDIO_CAPTURE_ENABLED, "fps_projecao": FPS_PROJECAO,
+                            "pitch_padrao": p_val
                         }, block=True, timeout=2)
                     except Exception as e: print(f"[ERRO] Falha ao iniciar REC: {e}"); continue
                     GRAVANDO = True
@@ -427,7 +432,6 @@ def logica_scanner():
     ESCALA_CV = 0.5 
     skip_ui = 0
     buffer_pitches = []  
-    ultimo_pitch_medio = 0.0
     buffer_tempos = []
 
     while True:
