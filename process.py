@@ -17,6 +17,7 @@ import numpy as np
 
 
 SUPPORTED_EXTENSIONS = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp")
+AUDIO_SIDECAR_GLOB = "miniola_audio_*.json"
 
 
 def read_frame_as_grayscale(path: Path) -> np.ndarray | None:
@@ -77,7 +78,8 @@ def extract_audio_from_frames(
         )
         audio_signal[processed : processed + samples_per_frame] = interpolated
         processed += samples_per_frame
-
+    # Remove o DC offset
+    audio_signal = audio_signal - np.mean(audio_signal)
     audio_signal = np.clip(audio_signal, -1.0, 1.0)
     normalized = (audio_signal * 32767).astype(np.int16)
 
@@ -91,6 +93,80 @@ def extract_audio_from_frames(
         "roi": {"x": roi_x, "y": roi_y, "w": roi_w, "h": roi_h},
     }
     return normalized, stats
+
+
+def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[np.ndarray, dict] | None:
+    sidecar_meta_files = sorted(
+        input_dir.glob(AUDIO_SIDECAR_GLOB),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if not sidecar_meta_files:
+        return None
+
+    for meta_path in sidecar_meta_files:
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+
+        raw_ref = meta.get("raw_path")
+        if raw_ref:
+            raw_path = Path(raw_ref)
+            if not raw_path.is_absolute():
+                raw_path = (meta_path.parent / raw_path).resolve()
+        else:
+            raw_path = meta_path.with_suffix(".f32")
+
+        if not raw_path.exists():
+            continue
+
+        try:
+            signal = np.fromfile(raw_path, dtype=np.float32)
+        except Exception:
+            continue
+
+        if signal.size == 0:
+            continue
+
+        source_sample_rate = float(meta.get("source_sample_rate") or 0.0)
+        if source_sample_rate <= 0:
+            fps_projecao = float(meta.get("fps_projecao") or 0.0)
+            samples_per_frame = int(meta.get("samples_per_frame") or 0)
+            if fps_projecao > 0 and samples_per_frame > 0:
+                source_sample_rate = fps_projecao * samples_per_frame
+
+        if source_sample_rate <= 0:
+            source_sample_rate = float(sample_rate)
+
+        if abs(source_sample_rate - sample_rate) > 1e-6:
+            out_samples = max(1, int(round(signal.size * (sample_rate / source_sample_rate))))
+            signal = np.interp(
+                np.linspace(0, signal.size - 1, out_samples),
+                np.arange(signal.size),
+                signal,
+            ).astype(np.float32)
+
+        # Remove o DC offset inerente à extração ótica para centralizar a onda em zero
+        signal = signal - np.mean(signal)
+        
+        audio_signal = np.clip(signal, -1.0, 1.0)
+        normalized = (audio_signal * 32767).astype(np.int16)
+        stats = {
+            "source": "live_sidecar",
+            "meta_path": str(meta_path),
+            "raw_path": str(raw_path),
+            "total_samples": int(normalized.size),
+            "sample_rate": sample_rate,
+            "source_sample_rate": source_sample_rate,
+            "audio_mode": meta.get("mode", "unknown"),
+            "frames_with_audio": int(meta.get("frames_with_audio", 0)),
+            "samples_per_frame": int(meta.get("samples_per_frame", 0)),
+            "session_id": meta.get("session_id"),
+        }
+        return normalized, stats
+
+    return None
 
 
 def write_wav(path: Path, audio_data: np.ndarray, sample_rate: int) -> None:
@@ -260,7 +336,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--extract-audio",
         action="store_true",
-        help="Extrai áudio da trilha ótica dos frames e salva como WAV.",
+        help="Extrai áudio da trilha ótica e salva WAV (prioriza sidecar ao vivo, fallback em ROI).",
     )
     parser.add_argument(
         "--audio-roi",
@@ -340,17 +416,22 @@ def main() -> int:
     audio_stats: dict = {}
     if args.extract_audio:
         print("[INFO] Extraindo trilha ótica...")
-        roi_parts = [int(x.strip()) for x in args.audio_roi.split(",")]
-        if len(roi_parts) == 4 and all(v > 0 for v in roi_parts):
-            roi: tuple[int, int, int, int] = (roi_parts[0], roi_parts[1], roi_parts[2], roi_parts[3])
-            print(f"[INFO] ROI configurada: {roi}")
+        sidecar_result = try_extract_audio_from_sidecar(input_dir, args.audio_sample_rate)
+        if sidecar_result is not None:
+            audio_data, audio_stats = sidecar_result
+            print(f"[INFO] Sidecar ótico detectado: {Path(audio_stats['meta_path']).name}")
         else:
-            auto_x = max(0, width - 200)
-            roi = (auto_x, 0, 180, height)
-            print(f"[INFO] ROI auto-detectada (lateral direita): {roi}")
-        audio_data, audio_stats = extract_audio_from_frames(
-            frames, roi, args.audio_mode, args.audio_sample_rate, args.fps
-        )
+            roi_parts = [int(x.strip()) for x in args.audio_roi.split(",")]
+            if len(roi_parts) == 4 and roi_parts[2] > 0 and roi_parts[3] > 0:
+                roi: tuple[int, int, int, int] = (roi_parts[0], roi_parts[1], roi_parts[2], roi_parts[3])
+                print(f"[INFO] ROI configurada: {roi}")
+            else:
+                auto_x = max(0, width - 200)
+                roi = (auto_x, 0, 180, height)
+                print(f"[INFO] ROI auto-detectada (lateral direita): {roi}")
+            audio_data, audio_stats = extract_audio_from_frames(
+                frames, roi, args.audio_mode, args.audio_sample_rate, args.fps
+            )
         wav_path = output_dir / f"{args.name}_{timestamp}.wav"
         write_wav(wav_path, audio_data, args.audio_sample_rate)
         audio_output_path = wav_path

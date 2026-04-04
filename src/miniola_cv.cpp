@@ -15,6 +15,9 @@ private:
     std::vector<double> buffer_pitches;
     double ultimo_pitch_medio = 0.0;
     double encolhimento_atual_pct = 0.0;
+    
+    // Tracking para o Virtual Rotary Encoder (Audio)
+    double last_perf_y = -1.0;
 
 public:
     ScannerVision() {}
@@ -22,16 +25,15 @@ public:
     py::dict process_frame(py::array_t<uint8_t> input_array,
                            int roi_x, int roi_y, int roi_w, int roi_h,
                            int thresh_val, int linha_gatilho_y, int margem_gatilho,
-                           double pitch_padrao) {
+                           double pitch_padrao,
+                           bool audio_enabled, int audio_x, int audio_w, int audio_slit_y) {
         
         py::buffer_info buf = input_array.request();
         int rows = buf.shape[0];
         int cols = buf.shape[1];
         
-        // frame_raw em RGB888 -> 3 canais
         cv::Mat frame(rows, cols, CV_8UC3, buf.ptr);
         
-        // Proteção contra falhas de limites da ROI
         cv::Rect roi_rect(std::max(0, roi_x), std::max(0, roi_y),
                           std::min(roi_w, cols - roi_x), std::min(roi_h, rows - roi_y));
                           
@@ -78,7 +80,6 @@ public:
                 
                 py::dict debug_item;
                 debug_item["rect"] = py::make_tuple(rect.x*2 + roi_rect.x, rect.y*2 + roi_rect.y, rect.width*2, rect.height*2);
-                // Mesmo comportamento do Python: RGB Red=(0,0,255), Green=(0,255,0)
                 debug_item["color"] = acionou ? py::make_tuple(0, 0, 255) : py::make_tuple(0, 255, 0); 
                 debug_visual.append(debug_item);
             }
@@ -88,6 +89,56 @@ public:
             return a.cy_roi < b.cy_roi;
         });
         
+        // --- INÍCIO DO AUDIO LINE-SCANNER ---
+        std::vector<float> audio_samples;
+        
+        double real_pitch = (ultimo_pitch_medio > 0) ? ultimo_pitch_medio : pitch_padrao;
+        
+        if (audio_enabled && !furos_validos.empty() && real_pitch > 0) {
+            double curr_perf_y = furos_validos[0].cy_g;
+            
+            if (last_perf_y < 0) {
+                last_perf_y = curr_perf_y;
+            } else {
+                double dy = last_perf_y - curr_perf_y; // y diminui quando o filme sobe
+                
+                // Embrulho de Fase para saltos de furo (Wrapped Phase Tracking)
+                while (dy < -(real_pitch * 0.5)) dy += real_pitch;
+                while (dy >  (real_pitch * 0.5)) dy -= real_pitch;
+                
+                int pixels_movidos = std::round(dy);
+                
+                if (pixels_movidos > 0) {
+                    int safe_x = std::max(0, std::min(audio_x, cols - 1));
+                    int safe_w = std::max(1, std::min(audio_w, cols - safe_x));
+                    int safe_y = std::max(0, std::min(audio_slit_y, rows - 1));
+                    
+                    int max_h = rows - safe_y;
+                    int read_h = std::min(pixels_movidos, max_h);
+                    
+                    if (read_h > 0) {
+                        cv::Rect audio_rect(safe_x, safe_y, safe_w, read_h);
+                        cv::Mat audio_slice, audio_slice_gray;
+                        cv::cvtColor(frame(audio_rect), audio_slice_gray, cv::COLOR_RGB2GRAY);
+                        
+                        // Achatar linhas para 1D array
+                        for (int r = 0; r < read_h; ++r) {
+                            cv::Mat row_mat = audio_slice_gray.row(r);
+                            double row_mean = cv::mean(row_mat)[0];
+                            
+                            // Normalização (255 - mean) / 255 convertida de -1.0 a 1.0
+                            float val = (float)((255.0 - row_mean) / 255.0);
+                            val = (val * 2.0f) - 1.0f;
+                            
+                            audio_samples.push_back(val);
+                        }
+                    }
+                }
+                last_perf_y = curr_perf_y;
+            }
+        }
+        // --- FIM DO AUDIO LINE-SCANNER ---
+
         bool furo_detectado_agora = false;
         long cx_a = -1, cy_a = -1;
         bool capturar = false;
@@ -98,7 +149,7 @@ public:
                 contador_perfs_ciclo++;
                 perfuracao_na_linha = true;
                 
-                if(contador_perfs_ciclo >= 4) {
+                if(contador_perfs_ciclo >= 4) { // Assumindo ciclo de 4 furos para frame cheio no 35mm
                     int qtd = std::min(4, (int)furos_validos.size());
                     
                     long sum_cx = 0;
@@ -142,10 +193,12 @@ public:
             perfuracao_na_linha = false;
         }
         
-        // Copia standalone do Numpy da Matriz binária para desacoplar da vida da cv::Mat
         py::array_t<uint8_t> result_array({binary_small.rows, binary_small.cols});
         py::buffer_info buf_res = result_array.request();
         std::memcpy(buf_res.ptr, binary_small.data, binary_small.total() * binary_small.elemSize());
+        
+        // Converte o std::vector de audio para numpy array
+        py::array_t<float> audio_numpy(audio_samples.size(), audio_samples.data());
         
         py::dict result;
         result["capturar"] = capturar;
@@ -157,13 +210,15 @@ public:
         result["contador_perfs_ciclo"] = contador_perfs_ciclo;
         result["encolhimento_atual_pct"] = encolhimento_atual_pct;
         result["ultimo_pitch_medio"] = ultimo_pitch_medio;
-        result["achou_furo"] = furo_detectado_agora; // Ajuda para bypass no frontend logico
+        result["achou_furo"] = furo_detectado_agora;
+        result["audio_chunk"] = audio_numpy; 
         
         return result;
     }
 
     void reset_ciclo() {
         contador_perfs_ciclo = 0;
+        last_perf_y = -1.0;
     }
 };
 
@@ -171,6 +226,11 @@ PYBIND11_MODULE(miniola_cv, m) {
     m.doc() = "Miniola CV Extension using OpenCV and Pybind11";
     py::class_<ScannerVision>(m, "ScannerVision")
         .def(py::init<>())
-        .def("process_frame", &ScannerVision::process_frame)
+        .def("process_frame", &ScannerVision::process_frame,
+             py::arg("input_array"),
+             py::arg("roi_x"), py::arg("roi_y"), py::arg("roi_w"), py::arg("roi_h"),
+             py::arg("thresh_val"), py::arg("linha_gatilho_y"), py::arg("margem_gatilho"),
+             py::arg("pitch_padrao"),
+             py::arg("audio_enabled") = false, py::arg("audio_x") = 0, py::arg("audio_w") = 0, py::arg("audio_slit_y") = 0)
         .def("reset_ciclo", &ScannerVision::reset_ciclo);
 }
