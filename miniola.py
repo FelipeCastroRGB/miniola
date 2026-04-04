@@ -145,6 +145,8 @@ def fechar_sessao_audio_optico(sessao, motivo: str):
         raw_fp.flush()
         raw_fp.close()
 
+    pitch_calculado = ultimo_pitch_medio if ultimo_pitch_medio > 0 else PITCH_PADRAO_PX
+    
     meta = {
         "version": 1,
         "session_id": sessao.get("session_id"),
@@ -153,8 +155,8 @@ def fechar_sessao_audio_optico(sessao, motivo: str):
         "close_reason": motivo,
         "mode": sessao.get("mode"),
         "fps_projecao": sessao.get("fps_projecao"),
-        "samples_per_frame": int(PITCH_PADRAO_PX * 4), # No 35mm, 1 frame de tempo vale 4 perforações de espaço
-        "source_sample_rate": int(round(sessao.get("fps_projecao", 24.0) * (PITCH_PADRAO_PX * 4))),
+        "samples_per_frame": int(pitch_calculado * 4), # No 35mm, 1 frame de tempo vale 4 perfurações de espaço
+        "source_sample_rate": int(round(sessao.get("fps_projecao", 24.0) * (pitch_calculado * 4))),
         "search_side": sessao.get("search_side"),
         "search_width": sessao.get("search_w"),
         "read_width": sessao.get("read_w"),
