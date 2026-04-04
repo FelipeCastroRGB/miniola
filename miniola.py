@@ -70,6 +70,7 @@ OFFSET_X = 470
 CROP_W, CROP_H = 918, 612 
 
 # --- EXTRAÇÃO DE ÁUDIO ÓTICO (CAPTURA AO VIVO) ---
+AUDIO_X_OFFSET = 50      # Distância da borda direita da ROI perfuração até a pista de som
 AUDIO_CAPTURE_ENABLED = True
 AUDIO_CAPTURE_MODE = "variable_density"
 AUDIO_SEARCH_SIDE = "right"
@@ -269,7 +270,7 @@ def disparar_processamento():
 def painel_controle():
     global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, CROP_H, CROP_W, ROI_Y, ROI_W, ROI_H, THRESH_VAL
     global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo, CALIBRANDO
-    global ultimo_pitch_medio, PITCH_PADRAO_PX, CV_ENGINE, FPS_PROJECAO
+    global ultimo_pitch_medio, PITCH_PADRAO_PX, CV_ENGINE, FPS_PROJECAO, AUDIO_X_OFFSET, AUDIO_READ_W
     time.sleep(2)
     print("\n" + "═"*45)
     print(f"   MINIOLA - PAINEL DE CONTROLE  |  MOTOR DE VISÃO: {CV_ENGINE}")
@@ -280,6 +281,7 @@ def painel_controle():
     print("   EXPOSIÇÃO: e [val] (Shutter Speed)| g [val] (Gain)| fps [val] (Frame Rate)")
     print("   CROP:      ch (Altura)| cw (Largura)| ox [val] (Offset X)")
     print("   ROI:       w/a/s/d (Move ROI)| rx/ry/rw/rh [val] (Ajuste direto)")
+    print("   ÁUDIO ROI: ax [val] (Offset X)| aw [val] (Largura)")
     print("   MEDIÇÃO:   cal (Calibrar)| setcal [val] (Cal. Dinâmica)")
     print("   MOTOR:     motor (Alterna C++ <-> Python)| t [val] (Threshold)")
     print("   OUTROS:    off (Desligar)")
@@ -322,6 +324,8 @@ def painel_controle():
                 MARGEM_GATILHO = int(val)
                 print(f"[GATILHO] Margem ajustada para: +-{MARGEM_GATILHO}px")
             elif cmd == 'ox': OFFSET_X = int(val)
+            elif cmd == 'ax': AUDIO_X_OFFSET = int(val)
+            elif cmd == 'aw': AUDIO_READ_W = int(val)
             elif cmd == 'l':
                 foco_atual = round(foco_atual + passo_foco, 2)
                 picam2.set_controls({"LensPosition": foco_atual})
@@ -437,7 +441,7 @@ def logica_scanner():
         
         if CV_ENGINE == "C++ [Pybind11]":
             slit_y = ROI_Y + (ROI_H // 2)
-            audio_x = ROI_X + ROI_W + 50 
+            audio_x = ROI_X + ROI_W + AUDIO_X_OFFSET 
             
             ret = scanner_cv.process_frame(
                 frame_raw, lx, ly, lw, lh,
@@ -550,6 +554,11 @@ def generate_dashboard():
         p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
         sx, sy = 640/RES_W, 420/RES_H
         cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
+        
+        # Desenha a ROI do Audio (Amarelo)
+        a_x = int((ROI_X + ROI_W + AUDIO_X_OFFSET) * sx)
+        a_w = int(AUDIO_READ_W * sx)
+        cv2.rectangle(p_live, (a_x, int(ROI_Y*sy)), (a_x + a_w, int((ROI_Y+ROI_H)*sy)), (0, 255, 255), 1)
         cor_gatilho = (0, 0, 255) if perfuracao_na_linha else (0, 255, 0)
         
         y_gl = ROI_Y + LINHA_GATILHO_Y
