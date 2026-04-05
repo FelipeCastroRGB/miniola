@@ -171,6 +171,14 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             signal = signal - np.mean(signal) # Fallback: DC offset apenas
             kernel_size = max(3, int(sample_rate / 8000))
             if kernel_size > 0: signal = np.convolve(signal, np.ones(kernel_size)/kernel_size, mode='same')
+            
+        try:
+            import noisereduce as nr
+            print("[AUDIO] Aplicando Spectral Gating Autônomo (Redução de Ruído Estacionário)...")
+            # prop_decrease controla o rigor militar do gate. 0.85 é o padrão perfeito para manter a voz musical.
+            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=0.85, stationary=True)
+        except ImportError:
+            print("[WARN] Biblioteca 'noisereduce' não detectada! Para embutir redução de ruídos, instale: pip install noisereduce")
         
         # Maximização Transparente (Normalize 0.95%)
         peak = np.max(np.abs(signal))
