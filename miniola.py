@@ -427,7 +427,7 @@ def logica_scanner():
     
     global frame_count, ultimo_frame_bruto, ultimo_frame_binario, lista_contornos_debug
     global contador_perfs_ciclo, perfuracao_na_linha, fps_real_proc, tempo_ms_ciclo
-    global encolhimento_atual_pct, PITCH_PADRAO_PX, ultimo_pitch_medio
+    global encolhimento_atual_pct, PITCH_PADRAO_PX, ultimo_pitch_medio, AUDIO_X_OFFSET
 
     ESCALA_CV = 0.5 
     skip_ui = 0

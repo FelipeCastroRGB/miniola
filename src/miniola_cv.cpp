@@ -134,7 +134,12 @@ public:
                         }
                     }
                 }
-                last_perf_y = curr_perf_y;
+                
+                // Acumulador Perfeito de Fase Espacial! 
+                // Se movemos 10.4 pixels e limamos para 10, armazenamos o 0.4 para a próxima volta,
+                // impedindo a amputação submilimétrica que causa modulação Amplitude a 90Hz (Efeito Vocoder).
+                double subpixel_remainder = dy - pixels_movidos;
+                last_perf_y = curr_perf_y + subpixel_remainder;
             }
         }
         // --- FIM DO AUDIO LINE-SCANNER ---
