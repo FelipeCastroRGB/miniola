@@ -111,10 +111,15 @@ public:
                 if (pixels_movidos > 0) {
                     int safe_x = std::max(0, std::min(audio_x, cols - 1));
                     int safe_w = std::max(1, std::min(audio_w, cols - safe_x));
-                    int safe_y = std::max(0, std::min(audio_slit_y, rows - 1));
                     
-                    int max_h = rows - safe_y;
-                    int read_h = std::min(pixels_movidos, max_h);
+                    // --- JIGSAW POINTER ANCHOR ---
+                    // Como o filme trafega para CIMA (Y diminui), os frames novos vêm de baixo.
+                    // Para que os recortes de áudio de diferentes tamanhos (devido à variação de velocidade)
+                    // se conectem perfeitamente sem deixar vãos cegos "engolindo" a onda, 
+                    // temos que manter a BASE fixa e deixar o retângulo crescer pra cima!
+                    int base_y = std::min(audio_slit_y + 150, rows - 1); // Ponto de colisão mecânico cravado
+                    int read_h = std::min(pixels_movidos, base_y);
+                    int safe_y = base_y - read_h;
                     
                     if (read_h > 0) {
                         cv::Rect audio_rect(safe_x, safe_y, safe_w, read_h);
