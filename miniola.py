@@ -79,7 +79,7 @@ AUDIO_READ_W = 96
 AUDIO_READ_H = 384
 AUDIO_MIN_TRACK_W = 24
 AUDIO_MAX_TRACK_W = 180
-AUDIO_BIN_THRESH = 140
+AUDIO_BIN_THRESH = 140 
 AUDIO_Y_SMOOTH = 0.30
 AUDIO_X_SMOOTH = 0.35
 
@@ -255,7 +255,7 @@ def processar_captura(frame, cx_global, cy_global, n_frame):
 def disparar_processamento():
     global PROCESSANDO_VIDEO
     PROCESSANDO_VIDEO = True
-    print("\n[LABORATÓRIO] 🧪 Injetando químicos! Compilador FFmpeg iniciado e Scanner adormecido...")
+    print("\n[Compilador FFmpeg iniciado e Scanner pausado")
     try:
         proc = subprocess.run(
             [sys.executable, "process.py", "--fps", str(FPS_PROJECAO), "--extract-audio"],
@@ -263,11 +263,11 @@ def disparar_processamento():
             text=True,
         )
         if proc.returncode != 0:
-            print(f"[LABORATÓRIO] FFFmpeg abortou ou frames estão faltando!\nLOG DE ERRO:\n{proc.stderr}\n{proc.stdout}")
+            print(f"[FFFmpeg abortou ou frames estão faltando!\nLOG DE ERRO:\n{proc.stderr}\n{proc.stdout}")
         else:
-            print(f"[LABORATÓRIO] Rolo finalizado! Disponível na Galeria Web.")
+            print(f"[Finalizado! Disponível na Galeria Web.")
     except Exception as e:
-        print(f"[LABORATÓRIO] ERRO FATAL no processamento: {e}")
+        print(f"[ERRO FATAL no processamento: {e}")
     
     PROCESSANDO_VIDEO = False
     print("[SISTEMA] Scanner acordado de volta à vida.")
@@ -410,7 +410,7 @@ def painel_controle():
                 print("-> GALERIA DE MP4 LIMPA.")
             elif cmd == 'pfps':
                 FPS_PROJECAO = float(val)
-                print(f"[LABORATÓRIO] FPS de Projeção definido para {FPS_PROJECAO} fps.")
+                print(f"FPS de Projeção definido para {FPS_PROJECAO} fps.")
             elif cmd == 'r': 
                 frame_count = 0
                 for f in os.listdir(CAPTURE_PATH): os.remove(os.path.join(CAPTURE_PATH, f))
