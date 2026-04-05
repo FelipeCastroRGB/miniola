@@ -448,29 +448,7 @@ def logica_scanner():
         if CV_ENGINE == "C++ [Pybind11]":
             slit_y = ROI_Y + (ROI_H // 2)
             
-            # --- RASTREADOR DINÂMICO DE EIXO X (WEAVE TRACKER) ---
-            # A pista óptica é uma linha branca, então achamos o centro dela pela maior luminosidade.
-            # Para evitar ancoragem falsa no brilho do filme, buscamos só ao redor da posição travada atual.
-            margem_busca = 70
-            centro_atual = lx + lw + AUDIO_X_OFFSET + (AUDIO_READ_W // 2)
-            search_x1 = max(0, centro_atual - margem_busca)
-            search_x2 = min(frame_raw.shape[1], centro_atual + margem_busca)
-            
-            if search_x2 > search_x1 + 10:
-                strip_tracker = frame_raw[slit_y:slit_y+8, search_x1:search_x2]
-                strip_gray = cv2.cvtColor(strip_tracker, cv2.COLOR_RGB2GRAY)
-                col_means = np.mean(strip_gray, axis=0)
-                
-                if np.max(col_means) > 40: # Tem luz real para ancorar
-                    center_x_local = int(np.argmax(col_means))
-                    center_x_global = search_x1 + center_x_local
-                    
-                    target_offset = center_x_global - (lx + lw) - (AUDIO_READ_W // 2)
-                    
-                    # Evita pulos violentos cegos, se a medição fugir muito da realidade ancorada a gente rejeita
-                    if abs(target_offset - AUDIO_X_OFFSET) <= 40:
-                        AUDIO_X_OFFSET = int((1.0 - AUDIO_X_SMOOTH) * AUDIO_X_OFFSET + AUDIO_X_SMOOTH * target_offset)
-            # -----------------------------------------------------
+            audio_x = ROI_X + ROI_W + AUDIO_X_OFFSET 
 
             audio_x = ROI_X + ROI_W + AUDIO_X_OFFSET 
             
