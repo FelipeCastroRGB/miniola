@@ -447,6 +447,30 @@ def logica_scanner():
         
         if CV_ENGINE == "C++ [Pybind11]":
             slit_y = ROI_Y + (ROI_H // 2)
+            
+            # --- RASTREADOR DINÂMICO DE EIXO X (WEAVE TRACKER) ---
+            # A pista óptica é uma linha branca, então achamos o centro dela pela maior luminosidade
+            search_x1 = min(frame_raw.shape[1] - 1, lx + lw + 10)
+            search_x2 = min(frame_raw.shape[1], search_x1 + 350)
+            if search_x2 > search_x1 + 50:
+                strip_tracker = frame_raw[slit_y:slit_y+8, search_x1:search_x2]
+                strip_gray = cv2.cvtColor(strip_tracker, cv2.COLOR_RGB2GRAY)
+                col_means = np.mean(strip_gray, axis=0)
+                
+                if np.max(col_means) > 40: # Tem trilha visível
+                    center_x_local = int(np.argmax(col_means))
+                    
+                    # Onde a pista está (globalmente)?
+                    center_x_global = search_x1 + center_x_local
+                    
+                    # Qual deveria ser o AUDIO_X_OFFSET para deixar a janela centrificada nisso?
+                    target_offset = center_x_global - (lx + lw) - (AUDIO_READ_W // 2)
+                    
+                    # Aplicar na nossa EMA (Amortecimento Exponencial Macio)
+                    AUDIO_X_OFFSET = int((1.0 - AUDIO_X_SMOOTH) * AUDIO_X_OFFSET + AUDIO_X_SMOOTH * target_offset)
+            
+            # -----------------------------------------------------
+
             audio_x = ROI_X + ROI_W + AUDIO_X_OFFSET 
             
             ret = scanner_cv.process_frame(
