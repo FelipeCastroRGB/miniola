@@ -174,9 +174,9 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             
         try:
             import noisereduce as nr
-            print("[AUDIO] Aplicando Spectral Gating Autônomo (Redução de Ruído Estacionário)...")
-            # prop_decrease controla o rigor militar do gate. 0.85 é o padrão perfeito para manter a voz musical.
-            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=0.85, stationary=True)
+            print("[AUDIO] Aplicando Spectral Gating Suave (Prevenção de Artefatos Alienígenas)...")
+            # Reduzido de 1.0 para 0.65. O gate em 1.0 destrói os harmônicos da voz e gera som de "Vocoder Subaquático"
+            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=0.65, stationary=True)
         except ImportError:
             print("[WARN] Biblioteca 'noisereduce' não detectada! Para embutir redução de ruídos, instale: pip install noisereduce")
         
