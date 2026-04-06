@@ -140,12 +140,39 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             source_sample_rate = float(sample_rate)
 
         if abs(source_sample_rate - sample_rate) > 1e-6:
+            # === DIGITAL ANTI-ALIASING (THE VIRTUAL SLIT) ===
+            # Esmaga os grãos fotográficos pontiagudos antes da viagem no tempo.
+            # Um moving average atua reduzindo ruído branco em baixas frequências do source
+            # que, de outra forma, colidiriam (aliasing) contra a voz humana em alta frequência na interpolação.
+            try:
+                import scipy.signal as sp_signal
+                # Uma janela de Butterworth atua suavemente bloqueando agudos destrutivos
+                # Simulando uma fenda de aprox 75μm que corta o grão microscópico da prata fotográfica
+                nyq_raw = source_sample_rate / 2.0
+                cutoff_raw = min(nyq_raw * 0.8, 4000) # Mantém a fidelidade da voz principal antes do shift
+                if cutoff_raw > 0 and cutoff_raw < nyq_raw:
+                    sos_aa = sp_signal.butter(4, cutoff_raw, 'lp', fs=source_sample_rate, output='sos')
+                    signal = sp_signal.sosfiltfilt(sos_aa, signal)
+            except ImportError:
+                # Fallback: Um boxcar filter puramente espacial (Emulation of a wide physical lens Slit)
+                lens_width = max(2, int(source_sample_rate / 6000))
+                signal = np.convolve(signal, np.ones(lens_width)/lens_width, mode='same')
+            
+            # === CUBIC SPLINE DYNAMIC INTERPOLATION ===
+            # Usa curvas Bézier contínuas em vez do serrilhado linear `np.interp` para esticar fita (M=6x).
             out_samples = max(1, int(round(signal.size * (sample_rate / source_sample_rate))))
-            signal = np.interp(
-                np.linspace(0, signal.size - 1, out_samples),
-                np.arange(signal.size),
-                signal,
-            ).astype(np.float32)
+            try:
+                from scipy.interpolate import CubicSpline
+                x_old = np.linspace(0, signal.size - 1, signal.size)
+                x_new = np.linspace(0, signal.size - 1, out_samples)
+                cs = CubicSpline(x_old, signal)
+                signal = cs(x_new).astype(np.float32)
+            except ImportError:
+                signal = np.interp(
+                    np.linspace(0, signal.size - 1, out_samples),
+                    np.arange(signal.size),
+                    signal,
+                ).astype(np.float32)
 
         try:
             import scipy.signal as sp_signal
@@ -174,9 +201,10 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             
         try:
             import noisereduce as nr
-            print("[AUDIO] Aplicando Spectral Gating Suave (Prevenção de Artefatos Alienígenas)...")
-            # Reduzido de 1.0 para 0.65. O gate em 1.0 destrói os harmônicos da voz e gera som de "Vocoder Subaquático"
-            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=0.65, stationary=True)
+            print("[AUDIO] Aplicando Spectral Gating Dinâmico (Não-Estacionário! Força Bruta)...")
+            # prop_decrease não passa de 1.0 (100%), mas mudar 'stationary=False' ativa uma IA 
+            # muito mais roxa que persegue ruidos mesmo quando eles flutuam o tom no wow-e-flutter!
+            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=1.0, stationary=False)
         except ImportError:
             print("[WARN] Biblioteca 'noisereduce' não detectada! Para embutir redução de ruídos, instale: pip install noisereduce")
         
