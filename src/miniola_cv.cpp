@@ -42,10 +42,11 @@ public:
         }
 
         cv::Mat roi_color = frame(roi_rect);
-        cv::Mat roi_gray, roi_small, binary_small;
+        cv::Mat roi_gray, binary_small;
         cv::cvtColor(roi_color, roi_gray, cv::COLOR_RGB2GRAY);
-        cv::resize(roi_gray, roi_small, cv::Size(), 0.5, 0.5);
-        cv::threshold(roi_small, binary_small, thresh_val, 255, cv::THRESH_BINARY);
+        
+        // Removido o cv::resize(0.5). Analisamos em resolução nativa para fluidez de tracking perfeita e síncrona
+        cv::threshold(roi_gray, binary_small, thresh_val, 255, cv::THRESH_BINARY);
         
         std::vector<std::vector<cv::Point>> contours;
         cv::findContours(binary_small, contours, cv::RETR_LIST, cv::CHAIN_APPROX_SIMPLE);
@@ -68,18 +69,20 @@ public:
             cv::Rect rect = cv::boundingRect(contours[i]);
             double w_s = rect.width;
             double h_s = rect.height;
-            double area_aprox = (w_s * h_s) * 4.0;
+            double area_aprox = w_s * h_s; // Multiplicador 4.0 varrido
             
             if(area_aprox > 200 && area_aprox < 10000 && (w_s/h_s) > 0.2 && (w_s/h_s) < 2.5) {
-                int cy_roi = (rect.y * 2) + ((rect.height * 2) / 2);
-                int cx_global = (rect.x * 2) + ((rect.width * 2) / 2) + roi_rect.x;
+                // Cálculo exato no pixel original (resolução 1:1)
+                int cy_roi = rect.y + (rect.height / 2);
+                int cx_global = rect.x + (rect.width / 2) + roi_rect.x;
                 int cy_global = cy_roi + roi_rect.y;
                 
                 bool acionou = (cy_roi >= limite_superior && cy_roi <= limite_inferior);
                 furos_validos.push_back({cy_roi, cx_global, cy_global, acionou, rect});
                 
                 py::dict debug_item;
-                debug_item["rect"] = py::make_tuple(rect.x*2 + roi_rect.x, rect.y*2 + roi_rect.y, rect.width*2, rect.height*2);
+                // Coordenadas diretas para o renderizador de tela
+                debug_item["rect"] = py::make_tuple(rect.x + roi_rect.x, rect.y + roi_rect.y, rect.width, rect.height);
                 debug_item["color"] = acionou ? py::make_tuple(0, 0, 255) : py::make_tuple(0, 255, 0); 
                 debug_visual.append(debug_item);
             }

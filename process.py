@@ -149,7 +149,8 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
                 # Uma janela de Butterworth atua suavemente bloqueando agudos destrutivos
                 # Simulando uma fenda de aprox 75μm que corta o grão microscópico da prata fotográfica
                 nyq_raw = source_sample_rate / 2.0
-                cutoff_raw = min(nyq_raw * 0.8, 4000) # Mantém a fidelidade da voz principal antes do shift
+                # Aumentado de 4000Hz para 7000Hz para salvar os transientes e sibilâncias da voz
+                cutoff_raw = min(nyq_raw * 0.8, 7000) 
                 if cutoff_raw > 0 and cutoff_raw < nyq_raw:
                     sos_aa = sp_signal.butter(4, cutoff_raw, 'lp', fs=source_sample_rate, output='sos')
                     signal = sp_signal.sosfiltfilt(sos_aa, signal)
@@ -201,10 +202,10 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             
         try:
             import noisereduce as nr
-            print("[AUDIO] Aplicando Spectral Gating Dinâmico (Não-Estacionário! Força Bruta)...")
-            # prop_decrease não passa de 1.0 (100%), mas mudar 'stationary=False' ativa uma IA 
-            # muito mais roxa que persegue ruidos mesmo quando eles flutuam o tom no wow-e-flutter!
-            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=0.65, stationary=False)
+            print("[AUDIO] Aplicando Spectral Gating Estacionário Suave (Padrão Arquivístico)...")
+            # stationary=True impede que a fase da voz seja destruída dinamicamente.
+            # prop_decrease reduzido para 0.20 para não gerar bolhas/artefatos subaquáticos.
+            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=0.20, stationary=True)
         except ImportError:
             print("[WARN] Biblioteca 'noisereduce' não detectada! Para embutir redução de ruídos, instale: pip install noisereduce")
         
