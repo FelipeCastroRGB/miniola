@@ -183,8 +183,8 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             signal = sp_signal.sosfiltfilt(sos_hp, signal)
             
             # 2. Notch 90Hz (Remove buzz/robótico caso a lâmpada/obturador pulse em 90 FPS)
-            b_notch, a_notch = sp_signal.iirnotch(90.0, 30.0, sample_rate)
-            signal = sp_signal.filtfilt(b_notch, a_notch, signal)
+            #b_notch, a_notch = sp_signal.iirnotch(90.0, 30.0, sample_rate)
+            #signal = sp_signal.filtfilt(b_notch, a_notch, signal)
             
             # 3. Notch 180Hz (Harmônico)
             b_notch2, a_notch2 = sp_signal.iirnotch(180.0, 30.0, sample_rate)
@@ -204,7 +204,7 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             print("[AUDIO] Aplicando Spectral Gating Dinâmico (Não-Estacionário! Força Bruta)...")
             # prop_decrease não passa de 1.0 (100%), mas mudar 'stationary=False' ativa uma IA 
             # muito mais roxa que persegue ruidos mesmo quando eles flutuam o tom no wow-e-flutter!
-            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=1.0, stationary=False)
+            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=0.65, stationary=False)
         except ImportError:
             print("[WARN] Biblioteca 'noisereduce' não detectada! Para embutir redução de ruídos, instale: pip install noisereduce")
         
