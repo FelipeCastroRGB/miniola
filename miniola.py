@@ -347,6 +347,22 @@ def painel_controle():
                     print(f"[AUDIO] Threshold VA anti-blur ajustado para: {AUDIO_BINARIZE_THRESH}")
                 else:
                     print(f"[AUDIO] Threshold VA armazenado em {AUDIO_BINARIZE_THRESH} (inativo no modo density — só ativo em 'variable_area')")
+            elif cmd == 'am':
+                modo_req = entrada[1].lower() if len(entrada) > 1 else ""
+                if modo_req == "vd":
+                    AUDIO_CAPTURE_MODE = "variable_density"
+                    print("[AUDIO] Modo → DENSIDADE VARIÁVEL (VD)")
+                    print("         Preview: grayscale puro. Threshold binarizador DESLIGADO.")
+                    print("         Use para pistas onde a LUMINÂNCIA da faixa varia com o som.")
+                elif modo_req == "va":
+                    AUDIO_CAPTURE_MODE = "variable_area"
+                    print(f"[AUDIO] Modo → ÁREA VARIÁVEL (VA)  [thresh={AUDIO_BINARIZE_THRESH}]")
+                    print("         Preview: binarizado. Threshold binarizador ATIVO.")
+                    print("         Use para pistas onde a LARGURA da faixa branca varia com o som.")
+                    print(f"         Ajuste a binarização da borda com: at [valor]  (atual={AUDIO_BINARIZE_THRESH})")
+                else:
+                    print(f"[AUDIO] Modo atual: {'variable_density (VD)' if AUDIO_CAPTURE_MODE == 'variable_density' else 'variable_area (VA)'}")
+                    print("         Use: am vd  ou  am va")
             elif cmd == 'l':
                 foco_atual = round(foco_atual + passo_foco, 2)
                 picam2.set_controls({"LensPosition": foco_atual})
