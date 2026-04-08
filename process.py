@@ -185,20 +185,20 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             print(f"[AUDIO] Aplicando Masterização: High-Pass(40Hz), Low-Pass(7000Hz), Notch Filtros(90Hz, 180Hz)")
             
             # 1. High-Pass (Corta 'rumble' de sub-grave mecânico < 40Hz)
-            sos_hp = sp_signal.butter(4, 40, 'hp', fs=sample_rate, output='sos')
-            signal = sp_signal.sosfiltfilt(sos_hp, signal)
+            #sos_hp = sp_signal.butter(4, 40, 'hp', fs=sample_rate, output='sos')
+            #signal = sp_signal.sosfiltfilt(sos_hp, signal)
             
             # 2. Notch 90Hz (Remove buzz/robótico caso a lâmpada/obturador pulse em 90 FPS)
             #b_notch, a_notch = sp_signal.iirnotch(90.0, 30.0, sample_rate)
             #signal = sp_signal.filtfilt(b_notch, a_notch, signal)
             
             # 3. Notch 180Hz (Harmônico)
-            b_notch2, a_notch2 = sp_signal.iirnotch(180.0, 30.0, sample_rate)
-            signal = sp_signal.filtfilt(b_notch2, a_notch2, signal)
+            #b_notch2, a_notch2 = sp_signal.iirnotch(180.0, 30.0, sample_rate)
+            #signal = sp_signal.filtfilt(b_notch2, a_notch2, signal)
             
             # 4. Low-Pass (Corta estridência, arranhões e poeira óptica > 7000Hz)
-            sos_lp = sp_signal.butter(4, 7000, 'lp', fs=sample_rate, output='sos')
-            signal = sp_signal.sosfiltfilt(sos_lp, signal)
+            #sos_lp = sp_signal.butter(4, 7000, 'lp', fs=sample_rate, output='sos')
+            #signal = sp_signal.sosfiltfilt(sos_lp, signal)
         except ImportError:
             print("[WARN] Biblioteca 'scipy' não detectada! Masterização de cinema pulada. Para ter o áudio super limpo, instale: pip install scipy")
             signal = signal - np.mean(signal) # Fallback: DC offset apenas
