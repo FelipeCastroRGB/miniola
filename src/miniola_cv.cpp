@@ -26,7 +26,8 @@ public:
                            int roi_x, int roi_y, int roi_w, int roi_h,
                            int thresh_val, int linha_gatilho_y, int margem_gatilho,
                            double pitch_padrao,
-                           bool audio_enabled, int audio_x, int audio_w, int audio_slit_y) {
+                           bool audio_enabled, int audio_x, int audio_w, int audio_slit_y,
+                           int audio_thresh_val = 100) {
         
         py::buffer_info buf = input_array.request();
         int rows = buf.shape[0];
@@ -129,10 +130,28 @@ public:
                         cv::Mat audio_slice, audio_slice_gray;
                         cv::cvtColor(frame(audio_rect), audio_slice_gray, cv::COLOR_RGB2GRAY);
                         
-                        // Achatar linhas para 1D array
+                        // Achatar linhas para 1D array com compensação de desfoque óptico
                         for (int r = 0; r < read_h; ++r) {
                             cv::Mat row_mat = audio_slice_gray.row(r);
-                            double row_mean = cv::mean(row_mat)[0];
+                            
+                            // === LEITURA DE AMPLITUDE POR MODO DE PISTA ===
+                            // Área Variável  (audio_thresh_val > 0): binariza a linha antes
+                            //   da média. O sinal está na LARGURA da faixa branca — bordas
+                            //   desfocadas criariam pixels cinza falsos que distorceriam a
+                            //   largura medida. O threshold elimina esse gradiente e entrega
+                            //   uma borda digital precisa.
+                            //
+                            // Densidade Variável (audio_thresh_val == 0): usa a média direta
+                            //   dos tons de cinza. O sinal está na LUMINÂNCIA de toda a faixa
+                            //   — binarizar destruiria a informação analógica do sinal.
+                            double row_mean;
+                            if (audio_thresh_val > 0) {
+                                cv::Mat row_bin;
+                                cv::threshold(row_mat, row_bin, audio_thresh_val, 255, cv::THRESH_BINARY);
+                                row_mean = cv::mean(row_bin)[0];
+                            } else {
+                                row_mean = cv::mean(row_mat)[0];
+                            }
                             
                             // Normalização (255 - mean) / 255 convertida de -1.0 a 1.0
                             float val = (float)((255.0 - row_mean) / 255.0);
@@ -244,6 +263,7 @@ PYBIND11_MODULE(miniola_cv, m) {
              py::arg("roi_x"), py::arg("roi_y"), py::arg("roi_w"), py::arg("roi_h"),
              py::arg("thresh_val"), py::arg("linha_gatilho_y"), py::arg("margem_gatilho"),
              py::arg("pitch_padrao"),
-             py::arg("audio_enabled") = false, py::arg("audio_x") = 0, py::arg("audio_w") = 0, py::arg("audio_slit_y") = 0)
+             py::arg("audio_enabled") = false, py::arg("audio_x") = 0, py::arg("audio_w") = 0,
+             py::arg("audio_slit_y") = 0, py::arg("audio_thresh_val") = 100)
         .def("reset_ciclo", &ScannerVision::reset_ciclo);
 }

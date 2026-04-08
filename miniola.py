@@ -49,7 +49,15 @@ picam2.set_controls({
     "AnalogueGain": gain, 
     "FrameRate": fps_cam, 
     "LensPosition": foco_atual,
-    "ScalerCrop": (0, 0, 4608, 2592) # Trava o FOV Total
+    "ScalerCrop": (0, 0, 4608, 2592), # Trava o FOV Total
+    # --- MODO SCANNER CIENTÍFICO (ISP NEUTRALIZADO) ---
+    # Elimina todo o pós-processamento de beleza fotográfica que distorce a onda sonora óptica
+    "Sharpness": 0.0,          # CRÍTICO: desativa edge-enhancement que cria harmônicas falsas
+    "Contrast": 1.0,           # Curva de tonalidade linear (sem compressão S-curve)
+    "Brightness": 0.0,         # Ponto médio matemático neutro
+    "NoiseReductionMode": 0,   # Desativa NR interno do ISP (borra transientes vocais)
+    "AwbEnable": False,        # Balanço de branco travado (captura em tons lineares)
+    "AeEnable": False,         # Auto-exposição proibida (amplitude não pode flutuar)
 })
 picam2.start()
 
@@ -80,6 +88,8 @@ AUDIO_READ_H = 384
 AUDIO_MIN_TRACK_W = 24
 AUDIO_MAX_TRACK_W = 180
 AUDIO_BIN_THRESH = 140 
+AUDIO_BINARIZE_THRESH = 100  # Threshold anti-blur: binariza cada linha antes de medir amplitude
+                              # Ajuste se a pista estiver muito clara (subir) ou muito escura (baixar)
 AUDIO_Y_SMOOTH = 0.30
 AUDIO_X_SMOOTH = 0.35
 
@@ -275,7 +285,7 @@ def disparar_processamento():
 def painel_controle():
     global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, CROP_H, CROP_W, ROI_Y, ROI_W, ROI_H, THRESH_VAL
     global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo, CALIBRANDO
-    global ultimo_pitch_medio, PITCH_PADRAO_PX, CV_ENGINE, FPS_PROJECAO, AUDIO_X_OFFSET, AUDIO_READ_W
+    global ultimo_pitch_medio, PITCH_PADRAO_PX, CV_ENGINE, FPS_PROJECAO, AUDIO_X_OFFSET, AUDIO_READ_W, AUDIO_BINARIZE_THRESH
     time.sleep(2)
     print("\n" + "═"*45)
     print(f"   MINIOLA - PAINEL DE CONTROLE  |  MOTOR DE VISÃO: {CV_ENGINE}")
@@ -286,7 +296,7 @@ def painel_controle():
     print("   EXPOSIÇÃO: e [val] (Shutter Speed)| g [val] (Gain)| fps [val] (Frame Rate)")
     print("   CROP:      ch (Altura)| cw (Largura)| ox [val] (Offset X)")
     print("   ROI:       w/a/s/d (Move ROI)| rx/ry/rw/rh [val] (Ajuste direto)")
-    print("   ÁUDIO ROI: ax [val] (Offset X)| aw [val] (Largura)")
+    print("   ÁUDIO ROI: ax [val] (Øffset X)| aw [val] (Largura)| at [val] (Binarize Thresh anti-blur, 0-255)")
     print("   MEDIÇÃO:   cal (Calibrar)| setcal [val] (Cal. Dinâmica)")
     print("   MOTOR:     motor (Alterna C++ <-> Python)| t [val] (Threshold)")
     print("   OUTROS:    off (Desligar)")
@@ -331,6 +341,12 @@ def painel_controle():
             elif cmd == 'ox': OFFSET_X = int(val)
             elif cmd == 'ax': AUDIO_X_OFFSET = int(val)
             elif cmd == 'aw': AUDIO_READ_W = int(val)
+            elif cmd == 'at':
+                AUDIO_BINARIZE_THRESH = max(1, min(255, int(val)))
+                if AUDIO_CAPTURE_MODE == "variable_area":
+                    print(f"[AUDIO] Threshold VA anti-blur ajustado para: {AUDIO_BINARIZE_THRESH}")
+                else:
+                    print(f"[AUDIO] Threshold VA armazenado em {AUDIO_BINARIZE_THRESH} (inativo no modo density — só ativo em 'variable_area')")
             elif cmd == 'l':
                 foco_atual = round(foco_atual + passo_foco, 2)
                 picam2.set_controls({"LensPosition": foco_atual})
@@ -452,10 +468,15 @@ def logica_scanner():
 
             audio_x = ROI_X + ROI_W + AUDIO_X_OFFSET 
             
+            # Threshold anti-blur: só ativo no modo Área Variável.
+            # No modo Densidade Variável o sinal está nos tons de cinza — threshold = 0 (desativado).
+            audio_thresh = AUDIO_BINARIZE_THRESH if AUDIO_CAPTURE_MODE == "variable_area" else 0
+            
             ret = scanner_cv.process_frame(
                 frame_raw, lx, ly, lw, lh,
                 THRESH_VAL, LINHA_GATILHO_Y, MARGEM_GATILHO, PITCH_PADRAO_PX,
-                (GRAVANDO and AUDIO_CAPTURE_ENABLED), audio_x, AUDIO_READ_W, slit_y
+                (GRAVANDO and AUDIO_CAPTURE_ENABLED), audio_x, AUDIO_READ_W, slit_y,
+                audio_thresh
             )
             binary_small = ret["binary_small"]
             

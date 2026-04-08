@@ -182,23 +182,27 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
 
         try:
             import scipy.signal as sp_signal
-            print(f"[AUDIO] Aplicando Masterização: High-Pass(40Hz), Low-Pass(7000Hz), Notch Filtros(90Hz, 180Hz)")
+            print(f"[AUDIO] Aplicando Masterização Arquivística: High-Pass(40Hz) + Low-Pass(8kHz)")
             
-            # 1. High-Pass (Corta 'rumble' de sub-grave mecânico < 40Hz)
-            #sos_hp = sp_signal.butter(4, 40, 'hp', fs=sample_rate, output='sos')
-            #signal = sp_signal.sosfiltfilt(sos_hp, signal)
+            # 1. High-Pass 40Hz — Remove rumble de vibração mecânica do motor de transporte
+            # Sem este filtro o ruído de baixa frequência satura a percepção da voz
+            sos_hp = sp_signal.butter(4, 40, 'hp', fs=sample_rate, output='sos')
+            signal = sp_signal.sosfiltfilt(sos_hp, signal)
             
-            # 2. Notch 90Hz (Remove buzz/robótico caso a lâmpada/obturador pulse em 90 FPS)
+            # 2. Notch 90Hz — Remove buzz/robótico se obturador pulsar em 90 FPS
+            #Ativar SOMENTE se o espectrograma do Audacity mostrar uma risca fina em 90 Hz
             #b_notch, a_notch = sp_signal.iirnotch(90.0, 30.0, sample_rate)
             #signal = sp_signal.filtfilt(b_notch, a_notch, signal)
             
-            # 3. Notch 180Hz (Harmônico)
+            # 3. Notch 180Hz — Harmônico do 90Hz
+            # Ativar SOMENTE se o espectrograma mostrar uma risca fina em 180 Hz
             #b_notch2, a_notch2 = sp_signal.iirnotch(180.0, 30.0, sample_rate)
             #signal = sp_signal.filtfilt(b_notch2, a_notch2, signal)
             
-            # 4. Low-Pass (Corta estridência, arranhões e poeira óptica > 7000Hz)
-            #sos_lp = sp_signal.butter(4, 7000, 'lp', fs=sample_rate, output='sos')
-            #signal = sp_signal.sosfiltfilt(sos_lp, signal)
+            # 4. Low-Pass 8kHz — Guard band pós-resample; encobre aliasing residual
+            # a Picamera2 com Sharpness=0 produz dados limpos mas ainda há grão fotográfico acima de 8kHz
+            sos_lp = sp_signal.butter(4, 8000, 'lp', fs=sample_rate, output='sos')
+            signal = sp_signal.sosfiltfilt(sos_lp, signal)
         except ImportError:
             print("[WARN] Biblioteca 'scipy' não detectada! Masterização de cinema pulada. Para ter o áudio super limpo, instale: pip install scipy")
             signal = signal - np.mean(signal) # Fallback: DC offset apenas
@@ -207,10 +211,11 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             
         try:
             import noisereduce as nr
-            print("[AUDIO] Aplicando Spectral Gating Estacionário Suave (Padrão Arquivístico)...")
+            print("[AUDIO] Aplicando Spectral Gating Estacionário (prop_decrease=0.10)...")
             # stationary=True impede que a fase da voz seja destruída dinamicamente.
-            # prop_decrease reduzido para 0.20 para não gerar bolhas/artefatos subaquáticos.
-            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=0.20, stationary=True)
+            # prop_decrease reduzido para 0.10 (era 0.20) — preserva consoantes e sibilâncias.
+            # Se ainda houver muito ruído de fundo, aumente para 0.15 (nunca além de 0.25).
+            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=0.10, stationary=True)
         except ImportError:
             print("[WARN] Biblioteca 'noisereduce' não detectada! Para embutir redução de ruídos, instale: pip install noisereduce")
         
