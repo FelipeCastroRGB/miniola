@@ -146,6 +146,11 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             # que, de outra forma, colidiriam (aliasing) contra a voz humana em alta frequência na interpolação.
             try:
                 import scipy.signal as sp_signal
+                # 0. A "Cura da Areia" (Filtro de Mediana)
+                # Arranca cracas e furos microscópicos de grão fotográfico que soariam como estalos,
+                # sem destruir a curva natural da voz (Padrão Arquivístico)
+                signal = sp_signal.medfilt(signal, kernel_size=3)
+                
                 # Uma janela de Butterworth atua suavemente bloqueando agudos destrutivos
                 # Simulando uma fenda de aprox 75μm que corta o grão microscópico da prata fotográfica
                 nyq_raw = source_sample_rate / 2.0
