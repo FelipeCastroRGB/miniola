@@ -285,7 +285,7 @@ def disparar_processamento():
 def painel_controle():
     global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, CROP_H, CROP_W, ROI_Y, ROI_W, ROI_H, THRESH_VAL
     global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo, CALIBRANDO
-    global ultimo_pitch_medio, PITCH_PADRAO_PX, CV_ENGINE, FPS_PROJECAO, AUDIO_X_OFFSET, AUDIO_READ_W, AUDIO_BINARIZE_THRESH
+    global ultimo_pitch_medio, PITCH_PADRAO_PX, CV_ENGINE, FPS_PROJECAO, AUDIO_X_OFFSET, AUDIO_READ_W, AUDIO_BINARIZE_THRESH, AUDIO_CAPTURE_MODE
     time.sleep(2)
     print("\n" + "═"*45)
     print(f"   MINIOLA - PAINEL DE CONTROLE  |  MOTOR DE VISÃO: {CV_ENGINE}")
@@ -296,7 +296,7 @@ def painel_controle():
     print("   EXPOSIÇÃO: e [val] (Shutter Speed)| g [val] (Gain)| fps [val] (Frame Rate)")
     print("   CROP:      ch (Altura)| cw (Largura)| ox [val] (Offset X)")
     print("   ROI:       w/a/s/d (Move ROI)| rx/ry/rw/rh [val] (Ajuste direto)")
-    print("   ÁUDIO ROI: ax [val] (Øffset X)| aw [val] (Largura)| at [val] (Binarize Thresh anti-blur, 0-255)")
+    print("   ÁUDIO ROI: ax [val] (Offset X)| aw [val] (Largura)| at [val] (Thresh VA, 1-255)| am vd|va (Modo da Pista)")
     print("   MEDIÇÃO:   cal (Calibrar)| setcal [val] (Cal. Dinâmica)")
     print("   MOTOR:     motor (Alterna C++ <-> Python)| t [val] (Threshold)")
     print("   OUTROS:    off (Desligar)")

@@ -190,7 +190,7 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             signal = sp_signal.sosfiltfilt(sos_hp, signal)
             
             # 2. Notch 90Hz — Remove buzz/robótico se obturador pulsar em 90 FPS
-            #Ativar SOMENTE se o espectrograma do Audacity mostrar uma risca fina em 90 Hz
+            # Ativar SOMENTE se o espectrograma do Audacity mostrar uma risca fina em 90 Hz
             #b_notch, a_notch = sp_signal.iirnotch(90.0, 30.0, sample_rate)
             #signal = sp_signal.filtfilt(b_notch, a_notch, signal)
             
@@ -215,7 +215,7 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             # stationary=True impede que a fase da voz seja destruída dinamicamente.
             # prop_decrease reduzido para 0.10 (era 0.20) — preserva consoantes e sibilâncias.
             # Se ainda houver muito ruído de fundo, aumente para 0.15 (nunca além de 0.25).
-            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=0.10, stationary=True)
+            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=0.5, stationary=True)
         except ImportError:
             print("[WARN] Biblioteca 'noisereduce' não detectada! Para embutir redução de ruídos, instale: pip install noisereduce")
         
