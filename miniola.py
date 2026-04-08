@@ -600,9 +600,46 @@ def generate_dashboard():
             x, y, w, h = item['rect']; cv2.rectangle(p_live, (int(x*sx), int(y*sy)), (int((x+w)*sx), int((y+h)*sy)), item['color'], 2)
         
         p_bin = np.zeros((420, 640, 3), dtype=np.uint8)
+
+        # --- Painel Esquerdo: Perfurações Binárias ---
+        cv2.putText(p_bin, "PERFURACOES", (10, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (150, 150, 150), 1)
         if ultimo_frame_binario is not None:
-            bin_res = cv2.resize(cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB), (240, 420))
-            p_bin[0:420, 50:290] = bin_res
+            bin_res = cv2.resize(cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB), (270, 400))
+            p_bin[20:420, 10:280] = bin_res
+
+        # --- Painel Direito: Pista de Som ---
+        cv2.line(p_bin, (310, 0), (310, 420), (40, 40, 40), 1)  # divisor vertical
+        ax_raw = ROI_X + ROI_W + AUDIO_X_OFFSET
+        aw_raw = max(1, AUDIO_READ_W)
+        ay_raw = max(0, ROI_Y)
+        ah_raw = max(1, min(RES_H - ay_raw, ROI_H))
+        safe_ax = max(0, ax_raw)
+        safe_aw = min(aw_raw, RES_W - safe_ax)
+
+        if ultimo_frame_bruto is not None and safe_aw > 0 and ah_raw > 0:
+            audio_strip = ultimo_frame_bruto[ay_raw : ay_raw + ah_raw, safe_ax : safe_ax + safe_aw]
+            if audio_strip.size > 0:
+                audio_gray = cv2.cvtColor(audio_strip, cv2.COLOR_RGB2GRAY)
+
+                if AUDIO_CAPTURE_MODE == "variable_area" and AUDIO_BINARIZE_THRESH > 0:
+                    # VA: mostra versão binarizada — o que o C++ "vê" para medir a largura
+                    _, audio_display = cv2.threshold(audio_gray, AUDIO_BINARIZE_THRESH, 255, cv2.THRESH_BINARY)
+                    label = f"PISTA [VA]  t={AUDIO_BINARIZE_THRESH}"
+                    label_color = (0, 255, 255)
+                else:
+                    # VD: mostra grayscale puro — a luminância É o sinal analógico
+                    audio_display = audio_gray
+                    label = "PISTA [VD]  densidade"
+                    label_color = (80, 220, 80)
+
+                audio_preview = cv2.resize(
+                    cv2.cvtColor(audio_display, cv2.COLOR_GRAY2RGB), (290, 400)
+                )
+                p_bin[20:420, 330:620] = audio_preview
+                cv2.putText(p_bin, label, (330, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.38, label_color, 1)
+        else:
+            cv2.putText(p_bin, "PISTA AUDIO", (330, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (80, 80, 80), 1)
+            cv2.putText(p_bin, "(sem frame)", (330, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (60, 60, 60), 1)
 
         p_inf = np.zeros((300, 1280, 3), dtype=np.uint8)
         if ultimo_crop_preview is not None and ultimo_crop_preview.size > 0:
