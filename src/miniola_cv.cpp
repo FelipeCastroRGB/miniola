@@ -16,14 +16,8 @@ private:
     double ultimo_pitch_medio = 0.0;
     double encolhimento_atual_pct = 0.0;
     
-    // Filtro Alpha-Beta (Volante de Inércia / PLL)
-    bool filter_init = false;
+    // Tracking para o Virtual Rotary Encoder (Audio)
     double last_perf_y = -1.0;
-    double theta_meas = 0.0;
-    double theta_est = 0.0;
-    double v_est = 0.0;
-    double last_theta_est = 0.0;
-    double subpixel_remainder = 0.0;
 
 public:
     ScannerVision() {}
@@ -32,9 +26,7 @@ public:
                            int roi_x, int roi_y, int roi_w, int roi_h,
                            int thresh_val, int linha_gatilho_y, int margem_gatilho,
                            double pitch_padrao,
-                           bool audio_enabled, int audio_x, int audio_w, int audio_slit_y,
-                           int audio_thresh_val = 100,
-                           double filter_alpha = 0.15, double filter_beta = 0.05) {
+                           bool audio_enabled, int audio_x, int audio_w, int audio_slit_y) {
         
         py::buffer_info buf = input_array.request();
         int rows = buf.shape[0];
@@ -105,42 +97,19 @@ public:
         
         double real_pitch = (ultimo_pitch_medio > 0) ? ultimo_pitch_medio : pitch_padrao;
         
-        double erro_furo_virtual = 0.0; 
         if (audio_enabled && !furos_validos.empty() && real_pitch > 0) {
             double curr_perf_y = furos_validos[0].cy_g;
             
-            if (!filter_init) {
+            if (last_perf_y < 0) {
                 last_perf_y = curr_perf_y;
-                theta_meas = 0.0;
-                theta_est = 0.0;
-                last_theta_est = 0.0;
-                v_est = 0.0;
-                filter_init = true;
             } else {
-                double dy_meas = last_perf_y - curr_perf_y; // y diminui quando o filme sobe
+                double dy = last_perf_y - curr_perf_y; // y diminui quando o filme sobe
                 
                 // Embrulho de Fase para saltos de furo (Wrapped Phase Tracking)
-                while (dy_meas < -(real_pitch * 0.5)) dy_meas += real_pitch;
-                while (dy_meas >  (real_pitch * 0.5)) dy_meas -= real_pitch;
+                while (dy < -(real_pitch * 0.5)) dy += real_pitch;
+                while (dy >  (real_pitch * 0.5)) dy -= real_pitch;
                 
-                theta_meas += dy_meas;
-                last_perf_y = curr_perf_y;
-                
-                // --- Volante de Inércia (Alpha-Beta PLL) ---
-                double theta_pred = theta_est + v_est;
-                double residual = theta_meas - theta_pred;
-                
-                theta_est = theta_pred + filter_alpha * residual;
-                v_est = v_est + filter_beta * residual;
-                
-                // O deslocamento filtrado a ser lido para áudio
-                double virtual_dy = theta_est - last_theta_est;
-                last_theta_est = theta_est;
-                
-                erro_furo_virtual = theta_meas - theta_est; // Para estabilização de imagem
-                
-                int pixels_movidos = std::round(virtual_dy + subpixel_remainder);
-                subpixel_remainder = (virtual_dy + subpixel_remainder) - pixels_movidos;
+                int pixels_movidos = std::round(dy);
                 
                 if (pixels_movidos > 0) {
                     int safe_x = std::max(0, std::min(audio_x, cols - 1));
@@ -164,40 +133,7 @@ public:
                         for (int r = 0; r < read_h; ++r) {
                             cv::Mat row_mat = audio_slice_gray.row(r);
                             
-                            // === LEITURA DE AMPLITUDE POR MODO DE PISTA ===
-                            // Área Variável  (audio_thresh_val > 0): binariza a linha antes
-                            //   da média. O sinal está na LARGURA da faixa branca — bordas
-                            //   desfocadas criariam pixels cinza falsos que distorceriam a
-                            //   largura medida. O threshold elimina esse gradiente e entrega
-                            //   uma borda digital precisa.
-                            //
-                            // Densidade Variável (audio_thresh_val == 0): usa a média direta
-                            //   dos tons de cinza. O sinal está na LUMINÂNCIA de toda a faixa
-                            //   — binarizar destruiria a informação analógica do sinal.
-                            double row_mean;
-                            if (audio_thresh_val > 0) {
-                                cv::Mat row_bin;
-                                cv::threshold(row_mat, row_bin, audio_thresh_val, 255, cv::THRESH_BINARY);
-                                
-                                const uint8_t* row_ptr = row_bin.ptr<uint8_t>(0);
-                                int t_left = 0, t_right = safe_w - 1;
-                                
-                                // Raycast: Fronteiras extremas (isentas de impurezas internas)
-                                for (int i = 1; i < safe_w; i++) {
-                                    if (row_ptr[i] != row_ptr[i-1]) { t_left = i; break; }
-                                }
-                                for (int i = safe_w - 2; i >= 0; i--) {
-                                    if (row_ptr[i] != row_ptr[i+1]) { t_right = i; break; }
-                                }
-                                
-                                if (t_right > t_left) {
-                                    row_mean = 255.0 * ((double)(t_right - t_left) / safe_w);
-                                } else {
-                                    row_mean = cv::mean(row_bin)[0];
-                                }
-                            } else {
-                                row_mean = cv::mean(row_mat)[0];
-                            }
+                            double row_mean = cv::mean(row_mat)[0];
                             
                             // Normalização (255 - mean) / 255 convertida de -1.0 a 1.0
                             float val = (float)((255.0 - row_mean) / 255.0);
@@ -208,6 +144,11 @@ public:
                     }
                 }
                 
+                // Acumulador Perfeito de Fase Espacial! 
+                // Se movemos 10.4 pixels e limamos para 10, armazenamos o 0.4 para a próxima volta,
+                // impedindo a amputação submilimétrica que causa modulação Amplitude a 90Hz (Efeito Vocoder).
+                double subpixel_remainder = dy - pixels_movidos;
+                last_perf_y = curr_perf_y + subpixel_remainder;
             }
         }
         // --- FIM DO AUDIO LINE-SCANNER ---
@@ -252,9 +193,9 @@ public:
                             double multiplicador = 1.5 - (double)i;
                             soma_centros_y += ((double)furos_validos[i].cy_g + (multiplicador * pitch_instantaneo));
                         }
-                        cy_a = std::round((soma_centros_y / qtd) - erro_furo_virtual); // Ancorado no Furo Virtual (Estabilizado)
+                        cy_a = std::round(soma_centros_y / qtd);
                     } else {
-                        cy_a = std::round((double)furos_validos[0].cy_g - erro_furo_virtual + 150.0); // Ancorado no Furo Virtual
+                        cy_a = furos_validos[0].cy_g + 150;
                     }
                     capturar = true;
                     contador_perfs_ciclo = 0;
@@ -292,8 +233,6 @@ public:
     void reset_ciclo() {
         contador_perfs_ciclo = 0;
         last_perf_y = -1.0;
-        filter_init = false;
-        subpixel_remainder = 0.0;
     }
 };
 
@@ -306,8 +245,6 @@ PYBIND11_MODULE(miniola_cv, m) {
              py::arg("roi_x"), py::arg("roi_y"), py::arg("roi_w"), py::arg("roi_h"),
              py::arg("thresh_val"), py::arg("linha_gatilho_y"), py::arg("margem_gatilho"),
              py::arg("pitch_padrao"),
-             py::arg("audio_enabled") = false, py::arg("audio_x") = 0, py::arg("audio_w") = 0,
-             py::arg("audio_slit_y") = 0, py::arg("audio_thresh_val") = 100,
-             py::arg("filter_alpha") = 0.15, py::arg("filter_beta") = 0.05)
+             py::arg("audio_enabled") = false, py::arg("audio_x") = 0, py::arg("audio_w") = 0, py::arg("audio_slit_y") = 0)
         .def("reset_ciclo", &ScannerVision::reset_ciclo);
 }

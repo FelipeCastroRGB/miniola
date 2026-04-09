@@ -80,22 +80,15 @@ CROP_W, CROP_H = 918, 612
 # --- EXTRAÇÃO DE ÁUDIO ÓTICO (CAPTURA AO VIVO) ---
 AUDIO_X_OFFSET = 50      # Distância da borda direita da ROI perfuração até a pista de som
 AUDIO_CAPTURE_ENABLED = True
-AUDIO_CAPTURE_MODE = "variable_density"
 AUDIO_SEARCH_SIDE = "right"
 AUDIO_SEARCH_W = 220
 AUDIO_READ_W = 96
 AUDIO_READ_H = 384
 AUDIO_MIN_TRACK_W = 24
 AUDIO_MAX_TRACK_W = 180
-AUDIO_BIN_THRESH = 140 
-AUDIO_BINARIZE_THRESH = 100  # Threshold anti-blur: binariza cada linha antes de medir amplitude
-                              # Ajuste se a pista estiver muito clara (subir) ou muito escura (baixar)
+AUDIO_BIN_THRESH = 140
 AUDIO_Y_SMOOTH = 0.30
 AUDIO_X_SMOOTH = 0.35
-
-# Volante de Inércia (Alpha-Beta PLL) para estabilização geométrica
-FILTER_ALPHA = 0.15
-FILTER_BETA = 0.05
 
 contador_perfs_ciclo = 0
 frame_count = 0
@@ -289,8 +282,7 @@ def disparar_processamento():
 def painel_controle():
     global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, CROP_H, CROP_W, ROI_Y, ROI_W, ROI_H, THRESH_VAL
     global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo, CALIBRANDO
-    global ultimo_pitch_medio, PITCH_PADRAO_PX, CV_ENGINE, FPS_PROJECAO, AUDIO_X_OFFSET, AUDIO_READ_W, AUDIO_BINARIZE_THRESH, AUDIO_CAPTURE_MODE
-    global FILTER_ALPHA, FILTER_BETA
+    global ultimo_pitch_medio, PITCH_PADRAO_PX, CV_ENGINE, FPS_PROJECAO, AUDIO_X_OFFSET, AUDIO_READ_W
     time.sleep(2)
     print("\n" + "═"*45)
     print(f"   MINIOLA - PAINEL DE CONTROLE  |  MOTOR DE VISÃO: {CV_ENGINE}")
@@ -301,8 +293,7 @@ def painel_controle():
     print("   EXPOSIÇÃO: e [val] (Shutter Speed)| g [val] (Gain)| fps [val] (Frame Rate)")
     print("   CROP:      ch (Altura)| cw (Largura)| ox [val] (Offset X)")
     print("   ROI:       w/a/s/d (Move ROI)| rx/ry/rw/rh [val] (Ajuste direto)")
-    print("   ÁUDIO ROI: ax [val] (Offset X)| aw [val] (Largura)| at [val] (Thresh VA, 1-255)| am vd|va (Modo da Pista)")
-    print("   VOLANTE:   fa [val] (Alpha Inércia Pos, ex 0.15)| fb [val] (Beta Inércia Vel, ex 0.05)")
+    print("   ÁUDIO ROI: ax [val] (Offset X)| aw [val] (Largura)")
     print("   MEDIÇÃO:   cal (Calibrar)| setcal [val] (Cal. Dinâmica)")
     print("   MOTOR:     motor (Alterna C++ <-> Python)| t [val] (Threshold)")
     print("   OUTROS:    off (Desligar)")
@@ -347,34 +338,6 @@ def painel_controle():
             elif cmd == 'ox': OFFSET_X = int(val)
             elif cmd == 'ax': AUDIO_X_OFFSET = int(val)
             elif cmd == 'aw': AUDIO_READ_W = int(val)
-            elif cmd == 'at':
-                AUDIO_BINARIZE_THRESH = max(1, min(255, int(val)))
-                if AUDIO_CAPTURE_MODE == "variable_area":
-                    print(f"[AUDIO] Threshold VA anti-blur ajustado para: {AUDIO_BINARIZE_THRESH}")
-                else:
-                    print(f"[AUDIO] Threshold VA armazenado em {AUDIO_BINARIZE_THRESH} (inativo no modo density — só ativo em 'variable_area')")
-            elif cmd == 'am':
-                modo_req = entrada[1].lower() if len(entrada) > 1 else ""
-                if modo_req == "vd":
-                    AUDIO_CAPTURE_MODE = "variable_density"
-                    print("[AUDIO] Modo → DENSIDADE VARIÁVEL (VD)")
-                    print("         Preview: grayscale puro. Threshold binarizador DESLIGADO.")
-                    print("         Use para pistas onde a LUMINÂNCIA da faixa varia com o som.")
-                elif modo_req == "va":
-                    AUDIO_CAPTURE_MODE = "variable_area"
-                    print(f"[AUDIO] Modo → ÁREA VARIÁVEL (VA)  [thresh={AUDIO_BINARIZE_THRESH}]")
-                    print("         Preview: binarizado. Threshold binarizador ATIVO.")
-                    print("         Use para pistas onde a LARGURA da faixa branca varia com o som.")
-                    print(f"         Ajuste a binarização da borda com: at [valor]  (atual={AUDIO_BINARIZE_THRESH})")
-                else:
-                    print(f"[AUDIO] Modo atual: {'variable_density (VD)' if AUDIO_CAPTURE_MODE == 'variable_density' else 'variable_area (VA)'}")
-                    print("         Use: am vd  ou  am va")
-            elif cmd == 'fa':
-                FILTER_ALPHA = float(val)
-                print(f"[VOLANTE] Alpha (Ganho Proporcional) definido para {FILTER_ALPHA}")
-            elif cmd == 'fb':
-                FILTER_BETA = float(val)
-                print(f"[VOLANTE] Beta (Ganho Integrativo) definido para {FILTER_BETA}")
             elif cmd == 'l':
                 foco_atual = round(foco_atual + passo_foco, 2)
                 picam2.set_controls({"LensPosition": foco_atual})
@@ -496,15 +459,10 @@ def logica_scanner():
 
             audio_x = ROI_X + ROI_W + AUDIO_X_OFFSET 
             
-            # Threshold anti-blur: só ativo no modo Área Variável.
-            # No modo Densidade Variável o sinal está nos tons de cinza — threshold = 0 (desativado).
-            audio_thresh = AUDIO_BINARIZE_THRESH if AUDIO_CAPTURE_MODE == "variable_area" else 0
-            
             ret = scanner_cv.process_frame(
                 frame_raw, lx, ly, lw, lh,
                 THRESH_VAL, LINHA_GATILHO_Y, MARGEM_GATILHO, PITCH_PADRAO_PX,
-                (GRAVANDO and AUDIO_CAPTURE_ENABLED), audio_x, AUDIO_READ_W, slit_y,
-                audio_thresh, FILTER_ALPHA, FILTER_BETA
+                (GRAVANDO and AUDIO_CAPTURE_ENABLED), audio_x, AUDIO_READ_W, slit_y
             )
             binary_small = ret["binary_small"]
             
@@ -628,46 +586,9 @@ def generate_dashboard():
             x, y, w, h = item['rect']; cv2.rectangle(p_live, (int(x*sx), int(y*sy)), (int((x+w)*sx), int((y+h)*sy)), item['color'], 2)
         
         p_bin = np.zeros((420, 640, 3), dtype=np.uint8)
-
-        # --- Painel Esquerdo: Perfurações Binárias ---
-        cv2.putText(p_bin, "PERFURACOES", (10, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (150, 150, 150), 1)
         if ultimo_frame_binario is not None:
-            bin_res = cv2.resize(cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB), (270, 400))
-            p_bin[20:420, 10:280] = bin_res
-
-        # --- Painel Direito: Pista de Som ---
-        cv2.line(p_bin, (310, 0), (310, 420), (40, 40, 40), 1)  # divisor vertical
-        ax_raw = ROI_X + ROI_W + AUDIO_X_OFFSET
-        aw_raw = max(1, AUDIO_READ_W)
-        ay_raw = max(0, ROI_Y)
-        ah_raw = max(1, min(RES_H - ay_raw, ROI_H))
-        safe_ax = max(0, ax_raw)
-        safe_aw = min(aw_raw, RES_W - safe_ax)
-
-        if ultimo_frame_bruto is not None and safe_aw > 0 and ah_raw > 0:
-            audio_strip = ultimo_frame_bruto[ay_raw : ay_raw + ah_raw, safe_ax : safe_ax + safe_aw]
-            if audio_strip.size > 0:
-                audio_gray = cv2.cvtColor(audio_strip, cv2.COLOR_RGB2GRAY)
-
-                if AUDIO_CAPTURE_MODE == "variable_area" and AUDIO_BINARIZE_THRESH > 0:
-                    # VA: mostra versão binarizada — o que o C++ "vê" para medir a largura
-                    _, audio_display = cv2.threshold(audio_gray, AUDIO_BINARIZE_THRESH, 255, cv2.THRESH_BINARY)
-                    label = f"PISTA [VA]  t={AUDIO_BINARIZE_THRESH}"
-                    label_color = (0, 255, 255)
-                else:
-                    # VD: mostra grayscale puro — a luminância É o sinal analógico
-                    audio_display = audio_gray
-                    label = "PISTA [VD]  densidade"
-                    label_color = (80, 220, 80)
-
-                audio_preview = cv2.resize(
-                    cv2.cvtColor(audio_display, cv2.COLOR_GRAY2RGB), (290, 400)
-                )
-                p_bin[20:420, 330:620] = audio_preview
-                cv2.putText(p_bin, label, (330, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.38, label_color, 1)
-        else:
-            cv2.putText(p_bin, "PISTA AUDIO", (330, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (80, 80, 80), 1)
-            cv2.putText(p_bin, "(sem frame)", (330, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (60, 60, 60), 1)
+            bin_res = cv2.resize(cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB), (240, 420))
+            p_bin[0:420, 50:290] = bin_res
 
         p_inf = np.zeros((300, 1280, 3), dtype=np.uint8)
         if ultimo_crop_preview is not None and ultimo_crop_preview.size > 0:
