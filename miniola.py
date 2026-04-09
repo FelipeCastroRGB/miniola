@@ -80,6 +80,7 @@ CROP_W, CROP_H = 918, 612
 # --- EXTRAÇÃO DE ÁUDIO ÓTICO (CAPTURA AO VIVO) ---
 AUDIO_X_OFFSET = 50      # Distância da borda direita da ROI perfuração até a pista de som
 AUDIO_CAPTURE_ENABLED = True
+AUDIO_CAPTURE_MODE = "variable_density"
 AUDIO_SEARCH_SIDE = "right"
 AUDIO_SEARCH_W = 220
 AUDIO_READ_W = 96
