@@ -204,7 +204,7 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             print("[AUDIO] Aplicando Spectral Gating Dinâmico (Não-Estacionário! Força Bruta)...")
             # prop_decrease não passa de 1.0 (100%), mas mudar 'stationary=False' ativa uma IA 
             # muito mais roxa que persegue ruidos mesmo quando eles flutuam o tom no wow-e-flutter!
-            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=1.0, stationary=False)
+            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=0.2, stationary=False)
         except ImportError:
             print("[WARN] Biblioteca 'noisereduce' não detectada! Para embutir redução de ruídos, instale: pip install noisereduce")
         

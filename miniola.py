@@ -64,7 +64,7 @@ ROI_W, ROI_H = 80, 840
 LINHA_GATILHO_Y = 110  # Posição Y relativa DENTRO da ROI
 MARGEM_GATILHO = 23    # Margem de disparo (px para cima e para baixo)
 THRESH_VAL = 239 # Valor do threshold para binarização
-PITCH_PADRAO_PX = 85.0  # CALIBRE AQUI: Quantos pixels tem o pitch de um filme NOVO na sua lente?
+PITCH_PADRAO_PX = 195.0  # CALIBRE AQUI: Quantos pixels tem o pitch de um filme NOVO na sua lente?
 # --- PARÂMETROS DO CROP ---
 OFFSET_X = 470 
 CROP_W, CROP_H = 918, 612 
@@ -73,15 +73,8 @@ CROP_W, CROP_H = 918, 612
 AUDIO_X_OFFSET = 50      # Distância da borda direita da ROI perfuração até a pista de som
 AUDIO_CAPTURE_ENABLED = True
 AUDIO_CAPTURE_MODE = "variable_density"
-AUDIO_SEARCH_SIDE = "right"
-AUDIO_SEARCH_W = 220
 AUDIO_READ_W = 96
-AUDIO_READ_H = 384
-AUDIO_MIN_TRACK_W = 24
-AUDIO_MAX_TRACK_W = 180
-AUDIO_BIN_THRESH = 140 
-AUDIO_Y_SMOOTH = 0.30
-AUDIO_X_SMOOTH = 0.35
+
 
 contador_perfs_ciclo = 0
 frame_count = 0
