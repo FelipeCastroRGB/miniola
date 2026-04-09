@@ -49,15 +49,7 @@ picam2.set_controls({
     "AnalogueGain": gain, 
     "FrameRate": fps_cam, 
     "LensPosition": foco_atual,
-    "ScalerCrop": (0, 0, 4608, 2592), # Trava o FOV Total
-    # --- MODO SCANNER CIENTÍFICO (ISP NEUTRALIZADO) ---
-    # Elimina todo o pós-processamento de beleza fotográfica que distorce a onda sonora óptica
-    "Sharpness": 0.0,          # CRÍTICO: desativa edge-enhancement que cria harmônicas falsas
-    "Contrast": 1.0,           # Curva de tonalidade linear (sem compressão S-curve)
-    "Brightness": 0.0,         # Ponto médio matemático neutro
-    "NoiseReductionMode": 0,   # Desativa NR interno do ISP (borra transientes vocais)
-    "AwbEnable": False,        # Balanço de branco travado (captura em tons lineares)
-    "AeEnable": False,         # Auto-exposição proibida (amplitude não pode flutuar)
+    "ScalerCrop": (0, 0, 4608, 2592) # Trava o FOV Total
 })
 picam2.start()
 
@@ -87,7 +79,7 @@ AUDIO_READ_W = 96
 AUDIO_READ_H = 384
 AUDIO_MIN_TRACK_W = 24
 AUDIO_MAX_TRACK_W = 180
-AUDIO_BIN_THRESH = 140
+AUDIO_BIN_THRESH = 140 
 AUDIO_Y_SMOOTH = 0.30
 AUDIO_X_SMOOTH = 0.35
 

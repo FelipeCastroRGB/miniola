@@ -129,10 +129,9 @@ public:
                         cv::Mat audio_slice, audio_slice_gray;
                         cv::cvtColor(frame(audio_rect), audio_slice_gray, cv::COLOR_RGB2GRAY);
                         
-                        // Achatar linhas para 1D array com compensação de desfoque óptico
+                        // Achatar linhas para 1D array
                         for (int r = 0; r < read_h; ++r) {
                             cv::Mat row_mat = audio_slice_gray.row(r);
-                            
                             double row_mean = cv::mean(row_mat)[0];
                             
                             // Normalização (255 - mean) / 255 convertida de -1.0 a 1.0

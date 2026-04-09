@@ -146,16 +146,10 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             # que, de outra forma, colidiriam (aliasing) contra a voz humana em alta frequência na interpolação.
             try:
                 import scipy.signal as sp_signal
-                # 0. A "Cura da Areia" (Filtro de Mediana)
-                # Arranca cracas e furos microscópicos de grão fotográfico que soariam como estalos,
-                # sem destruir a curva natural da voz (Padrão Arquivístico)
-                signal = sp_signal.medfilt(signal, kernel_size=3)
-                
                 # Uma janela de Butterworth atua suavemente bloqueando agudos destrutivos
                 # Simulando uma fenda de aprox 75μm que corta o grão microscópico da prata fotográfica
                 nyq_raw = source_sample_rate / 2.0
-                # Aumentado de 4000Hz para 7000Hz para salvar os transientes e sibilâncias da voz
-                cutoff_raw = min(nyq_raw * 0.8, 7000) 
+                cutoff_raw = min(nyq_raw * 0.8, 4000) # Mantém a fidelidade da voz principal antes do shift
                 if cutoff_raw > 0 and cutoff_raw < nyq_raw:
                     sos_aa = sp_signal.butter(4, cutoff_raw, 'lp', fs=source_sample_rate, output='sos')
                     signal = sp_signal.sosfiltfilt(sos_aa, signal)
@@ -182,26 +176,22 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
 
         try:
             import scipy.signal as sp_signal
-            print(f"[AUDIO] Aplicando Masterização Arquivística: High-Pass(40Hz) + Low-Pass(8kHz)")
+            print(f"[AUDIO] Aplicando Masterização: High-Pass(40Hz), Low-Pass(7000Hz), Notch Filtros(90Hz, 180Hz)")
             
-            # 1. High-Pass 40Hz — Remove rumble de vibração mecânica do motor de transporte
-            # Sem este filtro o ruído de baixa frequência satura a percepção da voz
+            # 1. High-Pass (Corta 'rumble' de sub-grave mecânico < 40Hz)
             sos_hp = sp_signal.butter(4, 40, 'hp', fs=sample_rate, output='sos')
             signal = sp_signal.sosfiltfilt(sos_hp, signal)
             
-            # 2. Notch 90Hz — Remove buzz/robótico se obturador pulsar em 90 FPS
-            # Ativar SOMENTE se o espectrograma do Audacity mostrar uma risca fina em 90 Hz
+            # 2. Notch 90Hz (Remove buzz/robótico caso a lâmpada/obturador pulse em 90 FPS)
             b_notch, a_notch = sp_signal.iirnotch(90.0, 30.0, sample_rate)
             signal = sp_signal.filtfilt(b_notch, a_notch, signal)
             
-            # 3. Notch 180Hz — Harmônico do 90Hz
-            # Ativar SOMENTE se o espectrograma mostrar uma risca fina em 180 Hz
+            # 3. Notch 180Hz (Harmônico)
             b_notch2, a_notch2 = sp_signal.iirnotch(180.0, 30.0, sample_rate)
             signal = sp_signal.filtfilt(b_notch2, a_notch2, signal)
             
-            # 4. Low-Pass 8kHz — Guard band pós-resample; encobre aliasing residual
-            # a Picamera2 com Sharpness=0 produz dados limpos mas ainda há grão fotográfico acima de 8kHz
-            sos_lp = sp_signal.butter(4, 8000, 'lp', fs=sample_rate, output='sos')
+            # 4. Low-Pass (Corta estridência, arranhões e poeira óptica > 7000Hz)
+            sos_lp = sp_signal.butter(4, 7000, 'lp', fs=sample_rate, output='sos')
             signal = sp_signal.sosfiltfilt(sos_lp, signal)
         except ImportError:
             print("[WARN] Biblioteca 'scipy' não detectada! Masterização de cinema pulada. Para ter o áudio super limpo, instale: pip install scipy")
@@ -211,11 +201,10 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             
         try:
             import noisereduce as nr
-            print("[AUDIO] Aplicando Spectral Gating Estacionário (prop_decrease=0.10)...")
-            # stationary=True impede que a fase da voz seja destruída dinamicamente.
-            # prop_decrease reduzido para 0.10 (era 0.20) — preserva consoantes e sibilâncias.
-            # Se ainda houver muito ruído de fundo, aumente para 0.15 (nunca além de 0.25).
-            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=0.5, stationary=True)
+            print("[AUDIO] Aplicando Spectral Gating Dinâmico (Não-Estacionário! Força Bruta)...")
+            # prop_decrease não passa de 1.0 (100%), mas mudar 'stationary=False' ativa uma IA 
+            # muito mais roxa que persegue ruidos mesmo quando eles flutuam o tom no wow-e-flutter!
+            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=1.0, stationary=False)
         except ImportError:
             print("[WARN] Biblioteca 'noisereduce' não detectada! Para embutir redução de ruídos, instale: pip install noisereduce")
         
