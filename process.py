@@ -191,13 +191,13 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             
             # 2. Notch 90Hz — Remove buzz/robótico se obturador pulsar em 90 FPS
             # Ativar SOMENTE se o espectrograma do Audacity mostrar uma risca fina em 90 Hz
-            #b_notch, a_notch = sp_signal.iirnotch(90.0, 30.0, sample_rate)
-            #signal = sp_signal.filtfilt(b_notch, a_notch, signal)
+            b_notch, a_notch = sp_signal.iirnotch(90.0, 30.0, sample_rate)
+            signal = sp_signal.filtfilt(b_notch, a_notch, signal)
             
             # 3. Notch 180Hz — Harmônico do 90Hz
             # Ativar SOMENTE se o espectrograma mostrar uma risca fina em 180 Hz
-            #b_notch2, a_notch2 = sp_signal.iirnotch(180.0, 30.0, sample_rate)
-            #signal = sp_signal.filtfilt(b_notch2, a_notch2, signal)
+            b_notch2, a_notch2 = sp_signal.iirnotch(180.0, 30.0, sample_rate)
+            signal = sp_signal.filtfilt(b_notch2, a_notch2, signal)
             
             # 4. Low-Pass 8kHz — Guard band pós-resample; encobre aliasing residual
             # a Picamera2 com Sharpness=0 produz dados limpos mas ainda há grão fotográfico acima de 8kHz

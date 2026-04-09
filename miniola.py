@@ -93,6 +93,10 @@ AUDIO_BINARIZE_THRESH = 100  # Threshold anti-blur: binariza cada linha antes de
 AUDIO_Y_SMOOTH = 0.30
 AUDIO_X_SMOOTH = 0.35
 
+# Volante de Inércia (Alpha-Beta PLL) para estabilização geométrica
+FILTER_ALPHA = 0.15
+FILTER_BETA = 0.05
+
 contador_perfs_ciclo = 0
 frame_count = 0
 perfuracao_na_linha = False
@@ -286,6 +290,7 @@ def painel_controle():
     global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, CROP_H, CROP_W, ROI_Y, ROI_W, ROI_H, THRESH_VAL
     global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo, CALIBRANDO
     global ultimo_pitch_medio, PITCH_PADRAO_PX, CV_ENGINE, FPS_PROJECAO, AUDIO_X_OFFSET, AUDIO_READ_W, AUDIO_BINARIZE_THRESH, AUDIO_CAPTURE_MODE
+    global FILTER_ALPHA, FILTER_BETA
     time.sleep(2)
     print("\n" + "═"*45)
     print(f"   MINIOLA - PAINEL DE CONTROLE  |  MOTOR DE VISÃO: {CV_ENGINE}")
@@ -297,6 +302,7 @@ def painel_controle():
     print("   CROP:      ch (Altura)| cw (Largura)| ox [val] (Offset X)")
     print("   ROI:       w/a/s/d (Move ROI)| rx/ry/rw/rh [val] (Ajuste direto)")
     print("   ÁUDIO ROI: ax [val] (Offset X)| aw [val] (Largura)| at [val] (Thresh VA, 1-255)| am vd|va (Modo da Pista)")
+    print("   VOLANTE:   fa [val] (Alpha Inércia Pos, ex 0.15)| fb [val] (Beta Inércia Vel, ex 0.05)")
     print("   MEDIÇÃO:   cal (Calibrar)| setcal [val] (Cal. Dinâmica)")
     print("   MOTOR:     motor (Alterna C++ <-> Python)| t [val] (Threshold)")
     print("   OUTROS:    off (Desligar)")
@@ -363,6 +369,12 @@ def painel_controle():
                 else:
                     print(f"[AUDIO] Modo atual: {'variable_density (VD)' if AUDIO_CAPTURE_MODE == 'variable_density' else 'variable_area (VA)'}")
                     print("         Use: am vd  ou  am va")
+            elif cmd == 'fa':
+                FILTER_ALPHA = float(val)
+                print(f"[VOLANTE] Alpha (Ganho Proporcional) definido para {FILTER_ALPHA}")
+            elif cmd == 'fb':
+                FILTER_BETA = float(val)
+                print(f"[VOLANTE] Beta (Ganho Integrativo) definido para {FILTER_BETA}")
             elif cmd == 'l':
                 foco_atual = round(foco_atual + passo_foco, 2)
                 picam2.set_controls({"LensPosition": foco_atual})
@@ -492,7 +504,7 @@ def logica_scanner():
                 frame_raw, lx, ly, lw, lh,
                 THRESH_VAL, LINHA_GATILHO_Y, MARGEM_GATILHO, PITCH_PADRAO_PX,
                 (GRAVANDO and AUDIO_CAPTURE_ENABLED), audio_x, AUDIO_READ_W, slit_y,
-                audio_thresh
+                audio_thresh, FILTER_ALPHA, FILTER_BETA
             )
             binary_small = ret["binary_small"]
             
