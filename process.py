@@ -146,10 +146,16 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             # que, de outra forma, colidiriam (aliasing) contra a voz humana em alta frequência na interpolação.
             try:
                 import scipy.signal as sp_signal
+                # 0. A "Cura da Areia" (Filtro de Mediana)
+                # Arranca cracas e furos microscópicos de grão fotográfico que soariam como estalos,
+                # sem destruir a curva natural da voz (Padrão Arquivístico)
+                signal = sp_signal.medfilt(signal, kernel_size=3)
+                
                 # Uma janela de Butterworth atua suavemente bloqueando agudos destrutivos
                 # Simulando uma fenda de aprox 75μm que corta o grão microscópico da prata fotográfica
                 nyq_raw = source_sample_rate / 2.0
-                cutoff_raw = min(nyq_raw * 0.8, 4000) # Mantém a fidelidade da voz principal antes do shift
+                # Aumentado para 7000Hz para salvar os transientes e sibilâncias da voz
+                cutoff_raw = min(nyq_raw * 0.8, 7000) 
                 if cutoff_raw > 0 and cutoff_raw < nyq_raw:
                     sos_aa = sp_signal.butter(4, cutoff_raw, 'lp', fs=source_sample_rate, output='sos')
                     signal = sp_signal.sosfiltfilt(sos_aa, signal)
@@ -201,10 +207,10 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             
         try:
             import noisereduce as nr
-            print("[AUDIO] Aplicando Spectral Gating Dinâmico (Não-Estacionário! Força Bruta)...")
-            # prop_decrease não passa de 1.0 (100%), mas mudar 'stationary=False' ativa uma IA 
-            # muito mais roxa que persegue ruidos mesmo quando eles flutuam o tom no wow-e-flutter!
-            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=0.2, stationary=False)
+            print("[AUDIO] Aplicando Spectral Gating Estacionário (prop_decrease=0.15)...")
+            # stationary=True impede que a fase da voz seja destruída dinamicamente pelo algoritmo.
+            # prop_decrease conservador para preservar consoantes acústicas reais do som.
+            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=0.15, stationary=True)
         except ImportError:
             print("[WARN] Biblioteca 'noisereduce' não detectada! Para embutir redução de ruídos, instale: pip install noisereduce")
         
