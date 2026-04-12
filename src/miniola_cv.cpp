@@ -119,30 +119,62 @@ public:
                     int safe_x = std::max(0, std::min(audio_x, cols - 1));
                     int safe_w = std::max(1, std::min(audio_w, cols - safe_x));
                     
-                    // --- JIGSAW POINTER ANCHOR ---
-                    // Como o filme trafega para CIMA (Y diminui), os frames novos vêm de baixo.
-                    // Para que os recortes de áudio de diferentes tamanhos (devido à variação de velocidade)
-                    // se conectem perfeitamente sem deixar vãos cegos "engolindo" a onda, 
-                    // temos que manter a BASE fixa e deixar o retângulo crescer pra cima!
-                    int base_y = std::min(audio_slit_y + 150, rows - 1); // Ponto de colisão mecânico cravado
-                    int read_h = std::min(pixels_movidos, base_y);
-                    int safe_y = base_y - read_h;
+                    // --- JIGSAW POINTER ANCHOR SUB-PIXEL ---
+                    double base_y = (double)std::min(audio_slit_y + 150, rows - 1); 
                     
-                    if (read_h > 0) {
-                        cv::Rect audio_rect(safe_x, safe_y, safe_w, read_h);
-                        cv::Mat audio_slice, audio_slice_gray;
-                        cv::cvtColor(frame(audio_rect), audio_slice_gray, cv::COLOR_RGB2GRAY);
+                    // As posições sub-pixel exatas de leitura
+                    // y_end é a parte de baixo (linha no frame anterior + erro acumulado)
+                    // y_start é a parte de cima (linha atingida neste exato frame)
+                    // Para evitar o pulo de inteiros nas altas frequências e saltos bruscos na fase
+                    
+                    int num_amostras = pixels_movidos;
+                    if (num_amostras > 0) {
+                        double y_end = base_y; 
+                        // Corrigimos o phase-drift para a interpolação deslizar exatamente como uma fita rolando
+                        double y_start = base_y - dy; 
                         
-                        // Achatar linhas para 1D array
-                        for (int r = 0; r < read_h; ++r) {
-                            cv::Mat row_mat = audio_slice_gray.row(r);
-                            double row_mean = cv::mean(row_mat)[0];
+                        double exact_y_min = std::min(y_start, y_end);
+                        double exact_y_max = std::max(y_start, y_end);
+                        
+                        int safe_y_int = std::max(0, (int)std::floor(exact_y_min));
+                        int safe_y_end_int = std::min(rows - 1, (int)std::ceil(exact_y_max) + 1);
+                        int real_read_h = safe_y_end_int - safe_y_int;
+                        
+                        if (real_read_h > 0) {
+                            cv::Rect audio_rect(safe_x, safe_y_int, safe_w, real_read_h);
+                            cv::Mat audio_slice_gray;
+                            cv::cvtColor(frame(audio_rect), audio_slice_gray, cv::COLOR_RGB2GRAY);
                             
-                            // Normalização (255 - mean) / 255 convertida de -1.0 a 1.0
-                            float val = (float)((255.0 - row_mean) / 255.0);
-                            val = (val * 2.0f) - 1.0f;
+                            double step_y = (y_end - y_start) / (double)num_amostras;
                             
-                            audio_samples.push_back(val);
+                            for (int i = 0; i < num_amostras; ++i) {
+                                // A fenda caminha matematicamente linha por linha fracionária
+                                double exact_y = y_start + (i * step_y);
+                                double exact_y_local = exact_y - safe_y_int; // Transforma para ref do CROP
+                                
+                                int y_baixo = (int)std::floor(exact_y_local);
+                                int y_cima = y_baixo + 1;
+                                double peso_cima = exact_y_local - y_baixo;
+                                double peso_baixo = 1.0 - peso_cima;
+                                
+                                y_baixo = std::max(0, std::min(y_baixo, real_read_h - 1));
+                                y_cima = std::max(0, std::min(y_cima, real_read_h - 1));
+                                
+                                double media_luma_linha = 0.0;
+                                const uint8_t* ptr_baixo = audio_slice_gray.ptr<uint8_t>(y_baixo);
+                                const uint8_t* ptr_cima  = audio_slice_gray.ptr<uint8_t>(y_cima);
+                                
+                                for (int x = 0; x < safe_w; ++x) {
+                                    double pixel_interpolado = (ptr_baixo[x] * peso_baixo) + (ptr_cima[x] * peso_cima);
+                                    media_luma_linha += pixel_interpolado;
+                                }
+                                
+                                media_luma_linha /= (double)safe_w;
+                                
+                                // Normalização Arquivística (255 - mean) / 255 convertida de -1.0 a 1.0
+                                float val = (float)((255.0 - media_luma_linha) / 255.0);
+                                audio_samples.push_back((val * 2.0f) - 1.0f);
+                            }
                         }
                     }
                 }
