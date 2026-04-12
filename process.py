@@ -210,7 +210,7 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             print("[AUDIO] Aplicando Spectral Gating Estacionário (prop_decrease=0.15)...")
             # stationary=True impede que a fase da voz seja destruída dinamicamente pelo algoritmo.
             # prop_decrease conservador para preservar consoantes acústicas reais do som.
-            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=0.8, stationary=True)
+            signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=0.8, stationary=False)
         except ImportError:
             print("[WARN] Biblioteca 'noisereduce' não detectada! Para embutir redução de ruídos, instale: pip install noisereduce")
         
