@@ -18,6 +18,7 @@ private:
     
     // Tracking para o Virtual Rotary Encoder (Audio)
     double last_perf_y = -1.0;
+    double audio_phase_remainder = 0.0;
 
 public:
     ScannerVision() {}
@@ -107,88 +108,68 @@ public:
             if (last_perf_y < 0) {
                 last_perf_y = curr_perf_y;
             } else {
-                double dy = last_perf_y - curr_perf_y; // y diminui quando o filme sobe
+                double dy = last_perf_y - curr_perf_y; 
                 
-                // Embrulho de Fase para saltos de furo (Wrapped Phase Tracking)
                 while (dy < -(real_pitch * 0.5)) dy += real_pitch;
                 while (dy >  (real_pitch * 0.5)) dy -= real_pitch;
                 
-                int pixels_movidos = std::round(dy);
+                double exact_dy = std::abs(dy); 
                 
-                if (pixels_movidos > 0) {
+                if (exact_dy > 0) {
                     int safe_x = std::max(0, std::min(audio_x, cols - 1));
                     int safe_w = std::max(1, std::min(audio_w, cols - safe_x));
                     
-                    // --- JIGSAW POINTER ANCHOR ---
-                    // Como o filme trafega para CIMA (Y diminui), os frames novos vêm de baixo.
-                    // Para que os recortes de áudio de diferentes tamanhos (devido à variação de velocidade)
-                    // se conectem perfeitamente sem deixar vãos cegos "engolindo" a onda, 
-                    // temos que manter a BASE fixa e deixar o retângulo crescer pra cima!
-                    int base_y = std::min(audio_slit_y + 150, rows - 1); // Ponto de colisão mecânico cravado
-                    int read_h = std::min(pixels_movidos, base_y);
-                    int safe_y = base_y - read_h;
-
-                    if (read_h > 0) {
-                        // 1. Ampliamos levemente a área de recorte para garantir margem para a interpolação Sub-pixel
-                        int padding = 2; 
-                        int y_start = std::max(0, safe_y - padding);
-                        int y_end_rect = std::min(rows - 1, safe_y + read_h + padding);
-                        int crop_h = y_end_rect - y_start;
-                        
-                        cv::Rect process_rect(safe_x, y_start, safe_w, crop_h);
+                    int base_y = std::min(audio_slit_y + 150, rows - 1); 
+                    
+                    int padding = 2;
+                    double y_start = base_y - exact_dy;
+                    double y_end = base_y;
+                    
+                    int int_y_start = std::max(0, (int)std::floor(y_start) - padding);
+                    int int_y_end = std::min(rows - 1, (int)std::ceil(y_end) + padding);
+                    int crop_h = int_y_end - int_y_start;
+                    
+                    if (crop_h > 0 && safe_w > 0) {
+                        cv::Rect process_rect(safe_x, int_y_start, safe_w, crop_h);
                         cv::Mat slice_color = frame(process_rect);
                         cv::Mat slice_gray;
                         cv::cvtColor(slice_color, slice_gray, cv::COLOR_RGB2GRAY);
                         
-                        // 2. Usamos a distância decimal verdadeira em vez do inteiro arredondado
-                        double exact_dy = std::abs(dy); 
-                        int num_amostras = read_h; 
+                        // O SEGREDO: O passo avança rigidamente a cada 1.0 pixel espacial
+                        double current_y = y_start + audio_phase_remainder;
                         
-                        // O passo avança em frações exatas de pixel
-                        double step_y = exact_dy / num_amostras;
-                        
-                        for (int i = 0; i < num_amostras; ++i) {
-                            // Posição flutuante ideal da onda sonora nesta amostra
-                            double pos_y_ideal = (safe_y - y_start) + (i * step_y);
+                        while (current_y < y_end) {
+                            double local_y = current_y - int_y_start;
                             
-                            // 3. Interpolação Bilinear Eixo Y (Mistura das luzes)
-                            int y_baixo = (int)std::floor(pos_y_ideal);
+                            int y_baixo = (int)std::floor(local_y);
                             int y_cima = y_baixo + 1;
-                            double peso_cima = pos_y_ideal - y_baixo;
+                            double peso_cima = local_y - y_baixo;
                             double peso_baixo = 1.0 - peso_cima;
                             
-                            // Travas de segurança de memória
                             y_baixo = std::max(0, std::min(y_baixo, crop_h - 1));
                             y_cima = std::max(0, std::min(y_cima, crop_h - 1));
                             
                             double media_luma_linha = 0.0;
-                            
-                            // Varredura da fenda horizontal
                             for (int x = 0; x < safe_w; ++x) {
                                 double pixel_baixo = slice_gray.at<uint8_t>(y_baixo, x);
                                 double pixel_cima = slice_gray.at<uint8_t>(y_cima, x);
-                                
-                                // O valor luminoso exato entre dois pixels
-                                double pixel_interpolado = (pixel_baixo * peso_baixo) + (pixel_cima * peso_cima);
-                                media_luma_linha += pixel_interpolado;
+                                media_luma_linha += (pixel_baixo * peso_baixo) + (pixel_cima * peso_cima);
                             }
-                            
                             media_luma_linha /= (double)safe_w;
                             
-                            // 4. Normalização Acústica
                             float val = (float)((255.0 - media_luma_linha) / 255.0);
-                            val = (val * 2.0f) - 1.0f;
+                            audio_samples.push_back((val * 2.0f) - 1.0f);
                             
-                            audio_samples.push_back(val);
+                            current_y += 1.0; 
                         }
+                        
+                        // Guarda a sobra sub-pixel para ancorar perfeitamente o próximo frame
+                        audio_phase_remainder = current_y - y_end;
                     }
                 }
                 
-                // Acumulador Perfeito de Fase Espacial! 
-                // Se movemos 10.4 pixels e limamos para 10, armazenamos o 0.4 para a próxima volta,
-                // impedindo a amputação submilimétrica que causa modulação Amplitude a 90Hz (Efeito Vocoder).
-                double subpixel_remainder = dy - pixels_movidos;
-                last_perf_y = curr_perf_y + subpixel_remainder;
+                // O tracking atualizado usando a coordenada pura do cv::moments
+                last_perf_y = curr_perf_y;
             }
         }
         // --- FIM DO AUDIO LINE-SCANNER ---
@@ -273,6 +254,7 @@ public:
     void reset_ciclo() {
         contador_perfs_ciclo = 0;
         last_perf_y = -1.0;
+        audio_phase_remainder = 0.0;
     }
 };
 
