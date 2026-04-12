@@ -119,11 +119,16 @@ public:
                     int safe_x = std::max(0, std::min(audio_x, cols - 1));
                     int safe_w = std::max(1, std::min(audio_w, cols - safe_x));
                     
-                    int base_y = std::min(audio_slit_y + 150, rows - 1); 
-                    
                     int padding = 2;
-                    double y_start = base_y - exact_dy;
-                    double y_end = base_y;
+                    double offset_distancia = 150.0; 
+                    
+                    // Mola Virtual: O playhead surfa ancorado na perfuração exata do momento. 
+                    // Se a câmera vibrar fisicamente 5px, as duas marcações pulam 5px juntas, lendo o mesmo tecido ótico.
+                    double pos_a = curr_perf_y + offset_distancia;
+                    double pos_b = last_perf_y + offset_distancia;
+                    
+                    double y_start = std::min(pos_a, pos_b);
+                    double y_end = std::max(pos_a, pos_b);
                     
                     int int_y_start = std::max(0, (int)std::floor(y_start) - padding);
                     int int_y_end = std::min(rows - 1, (int)std::ceil(y_end) + padding);
