@@ -110,8 +110,16 @@ public:
             } else {
                 double dy = last_perf_y - curr_perf_y; 
                 
-                while (dy < -(real_pitch * 0.5)) dy += real_pitch;
-                while (dy >  (real_pitch * 0.5)) dy -= real_pitch;
+                // O Embrulho de Fase (Wrap). Se o furo mudar, TEMOS de projetar 
+                // o last_perf_y para o mesmo universo do furo novo!
+                while (dy < -(real_pitch * 0.5)) { 
+                    dy += real_pitch; 
+                    last_perf_y += real_pitch; // <-- A MÁGICA QUE FALTAVA
+                }
+                while (dy >  (real_pitch * 0.5)) { 
+                    dy -= real_pitch; 
+                    last_perf_y -= real_pitch; // <-- A MÁGICA QUE FALTAVA
+                }
                 
                 double exact_dy = std::abs(dy); 
                 
@@ -119,17 +127,18 @@ public:
                     int safe_x = std::max(0, std::min(audio_x, cols - 1));
                     int safe_w = std::max(1, std::min(audio_w, cols - safe_x));
                     
+                    // O OFFSET REAL: Calcula a distância exata entre a linha de gatilho
+                    // e o centro iluminado do sensor (onde a luz é perfeita).
+                    double offset_mola = (audio_slit_y + 150.0) - linha_gatilho_y;
+                    
+                    // A cabeça de leitura agora surfa na vibração, mas na zona certa da luz!
+                    double y_start = curr_perf_y + offset_mola;
+                    double y_end   = last_perf_y + offset_mola;
+                    
+                    // Salvaguarda caso o filme ande para trás momentaneamente
+                    if (y_start > y_end) std::swap(y_start, y_end);
+
                     int padding = 2;
-                    double offset_distancia = 150.0; 
-                    
-                    // Mola Virtual: O playhead surfa ancorado na perfuração exata do momento. 
-                    // Se a câmera vibrar fisicamente 5px, as duas marcações pulam 5px juntas, lendo o mesmo tecido ótico.
-                    double pos_a = curr_perf_y + offset_distancia;
-                    double pos_b = last_perf_y + offset_distancia;
-                    
-                    double y_start = std::min(pos_a, pos_b);
-                    double y_end = std::max(pos_a, pos_b);
-                    
                     int int_y_start = std::max(0, (int)std::floor(y_start) - padding);
                     int int_y_end = std::min(rows - 1, (int)std::ceil(y_end) + padding);
                     int crop_h = int_y_end - int_y_start;
@@ -140,7 +149,7 @@ public:
                         cv::Mat slice_gray;
                         cv::cvtColor(slice_color, slice_gray, cv::COLOR_RGB2GRAY);
                         
-                        // O SEGREDO: O passo avança rigidamente a cada 1.0 pixel espacial
+                        // O passo avança rigidamente a cada 1.0 pixel (Amortização Temporal Perfeita)
                         double current_y = y_start + audio_phase_remainder;
                         
                         while (current_y < y_end) {
@@ -168,12 +177,10 @@ public:
                             current_y += 1.0; 
                         }
                         
-                        // Guarda a sobra sub-pixel para ancorar perfeitamente o próximo frame
                         audio_phase_remainder = current_y - y_end;
                     }
                 }
                 
-                // O tracking atualizado usando a coordenada pura do cv::moments
                 last_perf_y = curr_perf_y;
             }
         }
