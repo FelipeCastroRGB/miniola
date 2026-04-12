@@ -110,16 +110,9 @@ public:
             } else {
                 double dy = last_perf_y - curr_perf_y; 
                 
-                // O Embrulho de Fase (Wrap). Se o furo mudar, TEMOS de projetar 
-                // o last_perf_y para o mesmo universo do furo novo!
-                while (dy < -(real_pitch * 0.5)) { 
-                    dy += real_pitch; 
-                    last_perf_y += real_pitch; // <-- A MÁGICA QUE FALTAVA
-                }
-                while (dy >  (real_pitch * 0.5)) { 
-                    dy -= real_pitch; 
-                    last_perf_y -= real_pitch; // <-- A MÁGICA QUE FALTAVA
-                }
+                // Embrulho de Fase para saltos de furo (Wrapped Phase Tracking)
+                while (dy < -(real_pitch * 0.5)) dy += real_pitch;
+                while (dy >  (real_pitch * 0.5)) dy -= real_pitch;
                 
                 double exact_dy = std::abs(dy); 
                 
@@ -127,18 +120,11 @@ public:
                     int safe_x = std::max(0, std::min(audio_x, cols - 1));
                     int safe_w = std::max(1, std::min(audio_w, cols - safe_x));
                     
-                    // O OFFSET REAL: Calcula a distância exata entre a linha de gatilho
-                    // e o centro iluminado do sensor (onde a luz é perfeita).
-                    double offset_mola = (audio_slit_y + 150.0) - linha_gatilho_y;
+                    int base_y = std::min(audio_slit_y + 150, rows - 1); 
                     
-                    // A cabeça de leitura agora surfa na vibração, mas na zona certa da luz!
-                    double y_start = curr_perf_y + offset_mola;
-                    double y_end   = last_perf_y + offset_mola;
-                    
-                    // Salvaguarda caso o filme ande para trás momentaneamente
-                    if (y_start > y_end) std::swap(y_start, y_end);
-
                     int padding = 2;
+                    double y_start = base_y - exact_dy;
+                    double y_end = base_y;
                     int int_y_start = std::max(0, (int)std::floor(y_start) - padding);
                     int int_y_end = std::min(rows - 1, (int)std::ceil(y_end) + padding);
                     int crop_h = int_y_end - int_y_start;
