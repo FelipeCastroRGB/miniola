@@ -55,9 +55,9 @@ public:
         int limite_inferior = linha_gatilho_y + margem_gatilho;
         
         struct Furo {
-            int cy_roi;
-            int cx_g;
-            int cy_g;
+            double cy_roi;
+            double cx_g;
+            double cy_g;
             bool acionou;
             cv::Rect rect;
         };
@@ -72,10 +72,14 @@ public:
             double area_aprox = w_s * h_s; // Multiplicador 4.0 varrido
             
             if(area_aprox > 200 && area_aprox < 10000 && (w_s/h_s) > 0.2 && (w_s/h_s) < 2.5) {
-                // Cálculo exato no pixel original (resolução 1:1)
-                int cy_roi = rect.y + (rect.height / 2);
-                int cx_global = rect.x + (rect.width / 2) + roi_rect.x;
-                int cy_global = cy_roi + roi_rect.y;
+                // Rastreamento Sub-pixel Espacial de Alta Precisão (Elimina Quantization Jitter de áudio)
+                cv::Moments M = cv::moments(contours[i]);
+                
+                double cx_roi = (M.m00 != 0) ? (M.m10 / M.m00) : (rect.x + rect.width / 2.0);
+                double cy_roi = (M.m00 != 0) ? (M.m01 / M.m00) : (rect.y + rect.height / 2.0);
+                
+                double cx_global = cx_roi + roi_rect.x;
+                double cy_global = cy_roi + roi_rect.y;
                 
                 bool acionou = (cy_roi >= limite_superior && cy_roi <= limite_inferior);
                 furos_validos.push_back({cy_roi, cx_global, cy_global, acionou, rect});
