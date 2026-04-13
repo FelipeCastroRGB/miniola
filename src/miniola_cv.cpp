@@ -18,6 +18,9 @@ private:
     
     // Tracking para o Virtual Rotary Encoder (Audio)
     double last_perf_y = -1.0;
+    
+    // Tracking de Autocorrelação (Auto-Stitching)
+    std::vector<float> audio_tail;
     double audio_phase_remainder = 0.0;
 
 public:
@@ -108,65 +111,82 @@ public:
             if (last_perf_y < 0) {
                 last_perf_y = curr_perf_y;
             } else {
-                double dy = last_perf_y - curr_perf_y; 
+                double raw_dy = last_perf_y - curr_perf_y; 
+                while (raw_dy < -(real_pitch * 0.5)) { raw_dy += real_pitch; }
+                while (raw_dy >  (real_pitch * 0.5)) { raw_dy -= real_pitch; }
                 
-                // Embrulho de Fase para saltos de furo (Wrapped Phase Tracking)
-                while (dy < -(real_pitch * 0.5)) dy += real_pitch;
-                while (dy >  (real_pitch * 0.5)) dy -= real_pitch;
+                // Estimativa grosseira do avanço guiada pelo furo
+                int estimated_dy = std::max(0, (int)std::round(std::abs(raw_dy)));
                 
-                double exact_dy = std::abs(dy); 
-                
-                if (exact_dy > 0) {
+                if (estimated_dy > 0) {
                     int safe_x = std::max(0, std::min(audio_x, cols - 1));
                     int safe_w = std::max(1, std::min(audio_w, cols - safe_x));
-                    
                     int base_y = std::min(audio_slit_y + 150, rows - 1); 
                     
-                    int padding = 2;
-                    double y_start = base_y - exact_dy;
-                    double y_end = base_y;
-                    int int_y_start = std::max(0, (int)std::floor(y_start) - padding);
-                    int int_y_end = std::min(rows - 1, (int)std::ceil(y_end) + padding);
-                    int crop_h = int_y_end - int_y_start;
+                    // Parâmetros de Autocorrelação
+                    int tail_size = 20;     // O tamanho da impressão digital
+                    int search_margin = 15; // Margem para compensar a distorção da lente
                     
-                    if (crop_h > 0 && safe_w > 0) {
-                        cv::Rect process_rect(safe_x, int_y_start, safe_w, crop_h);
+                    // Extraímos mais áudio do que o necessário para podermos deslizar o molde
+                    int read_h = audio_tail.empty() ? (estimated_dy + tail_size) : (estimated_dy + tail_size + search_margin);
+                    int safe_y = std::max(0, base_y - read_h);
+                    read_h = base_y - safe_y; 
+                    
+                    if (read_h >= tail_size && safe_w > 0) {
+                        cv::Rect process_rect(safe_x, safe_y, safe_w, read_h);
                         cv::Mat slice_color = frame(process_rect);
                         cv::Mat slice_gray;
                         cv::cvtColor(slice_color, slice_gray, cv::COLOR_RGB2GRAY);
                         
-                        // O passo avança rigidamente a cada 1.0 pixel (Amortização Temporal Perfeita)
-                        double current_y = y_start + audio_phase_remainder;
+                        std::vector<float> current_chunk;
                         
-                        while (current_y < y_end) {
-                            double local_y = current_y - int_y_start;
-                            
-                            int y_baixo = (int)std::floor(local_y);
-                            int y_cima = y_baixo + 1;
-                            double peso_cima = local_y - y_baixo;
-                            double peso_baixo = 1.0 - peso_cima;
-                            
-                            y_baixo = std::max(0, std::min(y_baixo, crop_h - 1));
-                            y_cima = std::max(0, std::min(y_cima, crop_h - 1));
-                            
+                        // Varredura da área alargada
+                        for (int r = 0; r < read_h; ++r) {
                             double media_luma_linha = 0.0;
                             for (int x = 0; x < safe_w; ++x) {
-                                double pixel_baixo = slice_gray.at<uint8_t>(y_baixo, x);
-                                double pixel_cima = slice_gray.at<uint8_t>(y_cima, x);
-                                media_luma_linha += (pixel_baixo * peso_baixo) + (pixel_cima * peso_cima);
+                                media_luma_linha += slice_gray.at<uint8_t>(r, x);
                             }
                             media_luma_linha /= (double)safe_w;
-                            
                             float val = (float)((255.0 - media_luma_linha) / 255.0);
-                            audio_samples.push_back((val * 2.0f) - 1.0f);
-                            
-                            current_y += 1.0; 
+                            current_chunk.push_back((val * 2.0f) - 1.0f);
                         }
                         
-                        audio_phase_remainder = current_y - y_end;
+                        int start_copy_idx = 0;
+                        
+                        // O MILAGRE DA AUTOCORRELAÇÃO: SAD (Sum of Absolute Differences)
+                        if (!audio_tail.empty() && current_chunk.size() >= (tail_size + search_margin)) {
+                            double min_sad = 1e9;
+                            int best_offset = 0;
+                            
+                            // Desliza a cauda velha sobre o topo da onda nova
+                            int max_search = std::min(search_margin * 2, (int)current_chunk.size() - tail_size);
+                            for (int offset = 0; offset <= max_search; ++offset) {
+                                double current_sad = 0.0;
+                                for (int i = 0; i < tail_size; ++i) {
+                                    current_sad += std::abs(audio_tail[i] - current_chunk[offset + i]);
+                                }
+                                if (current_sad < min_sad) {
+                                    min_sad = current_sad;
+                                    best_offset = offset;
+                                }
+                            }
+                            // O áudio novo, que ainda não foi exportado, começa logo após o molde perfeito!
+                            start_copy_idx = best_offset + tail_size;
+                        } 
+                        
+                        // Anexa o áudio costurado à prova de lente
+                        for (int i = start_copy_idx; i < current_chunk.size(); ++i) {
+                            audio_samples.push_back(current_chunk[i]);
+                        }
+                        
+                        // Corta e guarda os últimos 'tail_size' pixéis como molde para o frame seguinte
+                        audio_tail.clear();
+                        int tail_start = std::max(0, (int)current_chunk.size() - tail_size);
+                        for (int i = tail_start; i < current_chunk.size(); ++i) {
+                            audio_tail.push_back(current_chunk[i]);
+                        }
                     }
                 }
-                
                 last_perf_y = curr_perf_y;
             }
         }
@@ -252,6 +272,7 @@ public:
     void reset_ciclo() {
         contador_perfs_ciclo = 0;
         last_perf_y = -1.0;
+        audio_tail.clear();
         audio_phase_remainder = 0.0;
     }
 };
