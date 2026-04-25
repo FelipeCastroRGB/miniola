@@ -1,6 +1,6 @@
 # Miniola - Scanner de Preservacao Audiovisual (35mm)
 
-O **Miniola** e um dispositivo de baixo custo para digitalizacao e inspecao de peliculas cinematograficas. O projeto utiliza Raspberry Pi + Camera Module para capturar quadros sincronizados por deteccao de perfuracoes.
+O **Miniola** é um dispositivo de baixo custo desenhado para inspeção de películas cinematograficas com o objetivo de preservar o patriônio audiovisual e democraziar o acesso às ferramentas de visionamento dos materiaies em filme. O projeto utiliza Raspberry Pi + Camera Module para capturar quadros sincronizados por detecção de perfuraçôes via OpenCV, assim como extração de som óptico AV e DV.
 
 > Estado atual de hardware: migrado para **Raspberry Pi 4 B (1 GB)** para maior desempenho de OpenCV.
 
