@@ -160,20 +160,16 @@ def fechar_sessao_audio_optico(sessao, motivo: str):
     except Exception as e:
         print(f"[AUDIO] Falha ao salvar metadados da sessão: {e}")
 
-# Obs: A extração via Python Area Scanner foi substituída pelo Virtual Rotary Encoder em C++
-
 def processo_escrita_disco(fila_in):
     print("[SISTEMA] Processo de gravação (Núcleo Isolado) iniciado.")
     sessao_audio = None
-    ultimo_frame_processado = -1
     while True:
         item = fila_in.get()
         if item is None:
             fechar_sessao_audio_optico(sessao_audio, "shutdown")
             break
 
-        msg_type = "frame"
-        if isinstance(item, dict): msg_type = item.get("type", "frame")
+        msg_type = item.get("type", "frame") if isinstance(item, dict) else "frame"
 
         if msg_type == "audio_chunk":
             if sessao_audio is not None:
@@ -210,7 +206,6 @@ def processo_escrita_disco(fila_in):
 
         img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
         cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 99])
-        ultimo_frame_processado = item.get("frame_index", ultimo_frame_processado + 1)
 
 def processar_captura(frame, cx_global, cy_global, n_frame):
     global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
@@ -235,7 +230,8 @@ def processar_captura(frame, cx_global, cy_global, n_frame):
                     },
                     block=False,
                 )
-            except: pass
+            except Exception as e:
+                print(f"[WARN] Fila de gravação cheia, frame {n_frame} descartado: {e}")
 
 def disparar_processamento():
     global PROCESSANDO_VIDEO
@@ -351,7 +347,7 @@ def painel_controle():
                 time.sleep(1)
                 os.system("sudo poweroff")
             elif cmd == 'setcal':
-                if 'ultimo_pitch_medio' in globals() and ultimo_pitch_medio > 0:
+                if ultimo_pitch_medio > 0:
                     encolhimento_referencia = float(val) if len(entrada) > 1 else 0.0
                     fator_escala = 1.0 - (encolhimento_referencia / 100.0)
                     PITCH_PADRAO_PX = ultimo_pitch_medio / fator_escala
@@ -432,11 +428,8 @@ def logica_scanner():
         
         if CV_ENGINE == "C++ [Pybind11]":
             slit_y = ROI_Y + (ROI_H // 2)
-            
-            audio_x = ROI_X + ROI_W + AUDIO_X_OFFSET 
+            audio_x = ROI_X + ROI_W + AUDIO_X_OFFSET
 
-            audio_x = ROI_X + ROI_W + AUDIO_X_OFFSET 
-            
             ret = scanner_cv.process_frame(
                 frame_raw, lx, ly, lw, lh,
                 THRESH_VAL, LINHA_GATILHO_Y, MARGEM_GATILHO, PITCH_PADRAO_PX,
@@ -447,7 +440,7 @@ def logica_scanner():
             audio_chunk = ret.get("audio_chunk")
             if audio_chunk is not None and audio_chunk.size > 0:
                 try: fila_gravacao.put({"type": "audio_chunk", "data": audio_chunk}, block=False)
-                except: pass
+                except Exception as e: print(f"[WARN] Fila cheia, chunk de áudio descartado: {e}")
 
             debug_visual = []
             if "debug_visual" in ret:
@@ -471,7 +464,6 @@ def logica_scanner():
             roi_small = cv_resize(roi_gray, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV) 
             _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY) 
             
-            perfs_neste_frame = []
             debug_visual = []
             furo_detectado_agora = False
             contours, _ = cv_find(binary_small, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
@@ -636,9 +628,6 @@ def generate_dashboard():
 
 @app.route('/status')
 def get_status():
-    global GRAVANDO, contador_perfs_ciclo, frame_count, fps_real_proc, tempo_ms_ciclo
-    global ROI_X, ROI_Y, ROI_W, ROI_H, CROP_W, CROP_H, OFFSET_X
-    global foco_atual, shutter_speed, gain, fps_cam, THRESH_VAL, LINHA_GATILHO_Y, MARGEM_GATILHO
     cpu_percent, ram_percent, cpu_temp = 0.0, 0.0, 0.0
     try:
         with open('/proc/stat', 'r') as f: fields = [float(column) for column in f.readline().strip().split()[1:]]

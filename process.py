@@ -15,6 +15,22 @@ from PIL import Image
 import cv2
 import numpy as np
 
+try:
+    import scipy.signal as sp_signal
+    from scipy.interpolate import CubicSpline
+    HAS_SCIPY = True
+except ImportError:
+    HAS_SCIPY = False
+    sp_signal = None  # type: ignore
+    CubicSpline = None  # type: ignore
+
+try:
+    import noisereduce as nr
+    HAS_NOISEREDUCE = True
+except ImportError:
+    HAS_NOISEREDUCE = False
+    nr = None  # type: ignore
+
 
 SUPPORTED_EXTENSIONS = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp")
 AUDIO_SIDECAR_GLOB = "miniola_audio_*.json"
@@ -44,12 +60,12 @@ def extract_audio_from_frames(
     samples_per_frame = int(sample_rate / frame_rate)
     total_samples = len(frames) * samples_per_frame
     audio_signal = np.zeros(total_samples, dtype=np.float32)
-    processed = 0
+    processed_samples = 0
 
     for i, frame_path in enumerate(frames):
         gray = read_frame_as_grayscale(frame_path)
         if gray is None:
-            processed += samples_per_frame
+            processed_samples += samples_per_frame
             continue
 
         h, w = gray.shape
@@ -61,7 +77,7 @@ def extract_audio_from_frames(
         strip = gray[ry : ry + rh, rx : rx + rw]
 
         if strip.size == 0:
-            processed += samples_per_frame
+            processed_samples += samples_per_frame
             continue
 
         if audio_mode == "variable_density":
@@ -76,8 +92,8 @@ def extract_audio_from_frames(
             np.arange(len(row)),
             row,
         )
-        audio_signal[processed : processed + samples_per_frame] = interpolated
-        processed += samples_per_frame
+        audio_signal[processed_samples : processed_samples + samples_per_frame] = interpolated
+        processed_samples += samples_per_frame
     # Remove o DC offset
     audio_signal = audio_signal - np.mean(audio_signal)
     audio_signal = np.clip(audio_signal, -1.0, 1.0)
@@ -85,7 +101,7 @@ def extract_audio_from_frames(
 
     stats = {
         "total_frames": len(frames),
-        "processed_frames": processed // samples_per_frame,
+        "processed_frames": processed_samples // samples_per_frame,
         "total_samples": total_samples,
         "sample_rate": sample_rate,
         "frame_rate": frame_rate,
@@ -144,70 +160,65 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             # Esmaga os grãos fotográficos pontiagudos antes da viagem no tempo.
             # Um moving average atua reduzindo ruído branco em baixas frequências do source
             # que, de outra forma, colidiriam (aliasing) contra a voz humana em alta frequência na interpolação.
-            try:
-                import scipy.signal as sp_signal  # type: ignore
-                
+            if HAS_SCIPY:
                 # Uma janela de Butterworth atua suavemente bloqueando agudos destrutivos
                 # Simulando uma fenda de aprox 75μm que corta o grão microscópico da prata fotográfica
                 nyq_raw = source_sample_rate / 2.0
                 # Aumentado para 7000Hz para salvar os transientes e sibilâncias da voz
-                cutoff_raw = min(nyq_raw * 0.8, 7000) 
+                cutoff_raw = min(nyq_raw * 0.8, 7000)
                 if cutoff_raw > 0 and cutoff_raw < nyq_raw:
                     sos_aa = sp_signal.butter(4, cutoff_raw, 'lp', fs=source_sample_rate, output='sos')
                     signal = sp_signal.sosfiltfilt(sos_aa, signal)
-            except ImportError:
+            else:
                 # Fallback: Um boxcar filter puramente espacial (Emulation of a wide physical lens Slit)
                 lens_width = max(2, int(source_sample_rate / 6000))
                 signal = np.convolve(signal, np.ones(lens_width)/lens_width, mode='same')
-            
+
             # === CUBIC SPLINE DYNAMIC INTERPOLATION ===
             # Usa curvas Bézier contínuas em vez do serrilhado linear `np.interp` para esticar fita (M=6x).
             out_samples = max(1, int(round(signal.size * (sample_rate / source_sample_rate))))
-            try:
-                from scipy.interpolate import CubicSpline  # type: ignore
+            if HAS_SCIPY:
                 x_old = np.linspace(0, signal.size - 1, signal.size)
                 x_new = np.linspace(0, signal.size - 1, out_samples)
                 cs = CubicSpline(x_old, signal)
                 signal = cs(x_new).astype(np.float32)
-            except ImportError:
+            else:
                 signal = np.interp(
                     np.linspace(0, signal.size - 1, out_samples),
                     np.arange(signal.size),
                     signal,
                 ).astype(np.float32)
 
-        try:
-            import scipy.signal as sp_signal  # type: ignore
+        if HAS_SCIPY:
             print(f"[AUDIO] Aplicando Masterização: High-Pass(40Hz), Low-Pass(7000Hz), Notch Filtros(90Hz, 180Hz)")
-            
+
             # 1. High-Pass (Corta 'rumble' de sub-grave mecânico < 40Hz)
             sos_hp = sp_signal.butter(4, 40, 'hp', fs=sample_rate, output='sos')
             signal = sp_signal.sosfiltfilt(sos_hp, signal)
-            
+
             # 2. Notch 90Hz (Remove buzz/robótico caso a lâmpada/obturador pulse em 90 FPS)
             b_notch, a_notch = sp_signal.iirnotch(90.0, 30.0, sample_rate)
             signal = sp_signal.filtfilt(b_notch, a_notch, signal)
-            
+
             # 3. Notch 180Hz (Harmônico)
             b_notch2, a_notch2 = sp_signal.iirnotch(180.0, 30.0, sample_rate)
             signal = sp_signal.filtfilt(b_notch2, a_notch2, signal)
-            
-            # 4. Low-Pass (Corta estridência, arranhões e poeira óptica > 7000Hz)
+
+            # 4. Low-Pass (Corta estridência, arranhaões e poeira óptica > 7000Hz)
             sos_lp = sp_signal.butter(4, 7000, 'lp', fs=sample_rate, output='sos')
             signal = sp_signal.sosfiltfilt(sos_lp, signal)
-        except ImportError:
+        else:
             print("[WARN] Biblioteca 'scipy' não detectada! Masterização de cinema pulada. Para ter o áudio super limpo, instale: pip install scipy")
             signal = signal - np.mean(signal) # Fallback: DC offset apenas
             kernel_size = max(3, int(sample_rate / 8000))
             if kernel_size > 0: signal = np.convolve(signal, np.ones(kernel_size)/kernel_size, mode='same')
-            
-        try:
-            import noisereduce as nr  # type: ignore
+
+        if HAS_NOISEREDUCE:
             print("[AUDIO] Aplicando Spectral Gating Estacionário (prop_decrease=0.15)...")
             # stationary=True impede que a fase da voz seja destruída dinamicamente pelo algoritmo.
             # prop_decrease conservador para preservar consoantes acústicas reais do som.
             signal = nr.reduce_noise(y=signal, sr=sample_rate, prop_decrease=0.5, stationary=True)
-        except ImportError:
+        else:
             print("[WARN] Biblioteca 'noisereduce' não detectada! Para embutir redução de ruídos, instale: pip install noisereduce")
         
         # Maximização Transparente (Normalize 0.95%)
@@ -259,6 +270,7 @@ def list_frames(input_dir: Path) -> list[Path]:
 
 
 def detect_missing_indices(frames: Iterable[Path]) -> list[int]:
+    """Retorna lista de índices numéricos absolutos ausentes na sequência (não paths de arquivo)."""
     numeric_indices = [extract_last_number(frame) for frame in frames]
     numeric_indices = [idx for idx in numeric_indices if idx is not None]
     if len(numeric_indices) < 2:

@@ -21,7 +21,6 @@ private:
     
     // Tracking de Autocorrelação (Auto-Stitching)
     std::vector<float> audio_tail;
-    double audio_phase_remainder = 0.0;
 
 public:
     ScannerVision() {}
@@ -38,8 +37,12 @@ public:
         
         cv::Mat frame(rows, cols, CV_8UC3, buf.ptr);
         
-        cv::Rect roi_rect(std::max(0, roi_x), std::max(0, roi_y),
-                          std::min(roi_w, cols - roi_x), std::min(roi_h, rows - roi_y));
+        cv::Rect roi_rect(
+            std::max(0, roi_x),
+            std::max(0, roi_y),
+            std::max(0, std::min(roi_w, cols - std::max(0, roi_x))),
+            std::max(0, std::min(roi_h, rows - std::max(0, roi_y)))
+        );
                           
         if (roi_rect.width <= 0 || roi_rect.height <= 0) {
             py::dict err; err["capturar"] = false; return err;
@@ -139,6 +142,7 @@ public:
                         cv::cvtColor(slice_color, slice_gray, cv::COLOR_RGB2GRAY);
                         
                         std::vector<float> current_chunk;
+                        current_chunk.reserve(read_h);
                         
                         // Varredura da área alargada
                         for (int r = 0; r < read_h; ++r) {
@@ -154,7 +158,7 @@ public:
                         int start_copy_idx = 0;
                         
                         // O MILAGRE DA AUTOCORRELAÇÃO: SAD (Sum of Absolute Differences)
-                        if (!audio_tail.empty() && current_chunk.size() >= (tail_size + search_margin)) {
+                        if (!audio_tail.empty() && (int)current_chunk.size() >= (tail_size + search_margin)) {
                             double min_sad = 1e9;
                             int best_offset = 0;
                             
@@ -273,7 +277,6 @@ public:
         contador_perfs_ciclo = 0;
         last_perf_y = -1.0;
         audio_tail.clear();
-        audio_phase_remainder = 0.0;
     }
 };
 
