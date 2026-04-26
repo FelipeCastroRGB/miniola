@@ -6,15 +6,15 @@ sys.modules["pykms"] = MagicMock()
 sys.modules["kms"] = MagicMock()
 
 try:
-    import miniola_cv
+    import miniola_cv  # type: ignore
     CV_ENGINE = "C++ [Pybind11]"
     scanner_cv = miniola_cv.ScannerVision()
 except ImportError:
     CV_ENGINE = "Python [Nativo]"
     scanner_cv = None
 
-from flask import Flask, Response, request, render_template, send_from_directory, jsonify
-from picamera2 import Picamera2 
+from flask import Flask, Response, request, render_template, send_from_directory, jsonify  # type: ignore
+from picamera2 import Picamera2  # type: ignore 
 import cv2 
 import numpy as np 
 import threading 

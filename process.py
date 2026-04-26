@@ -145,7 +145,7 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             # Um moving average atua reduzindo ruído branco em baixas frequências do source
             # que, de outra forma, colidiriam (aliasing) contra a voz humana em alta frequência na interpolação.
             try:
-                import scipy.signal as sp_signal
+                import scipy.signal as sp_signal  # type: ignore
                 
                 # Uma janela de Butterworth atua suavemente bloqueando agudos destrutivos
                 # Simulando uma fenda de aprox 75μm que corta o grão microscópico da prata fotográfica
@@ -164,7 +164,7 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             # Usa curvas Bézier contínuas em vez do serrilhado linear `np.interp` para esticar fita (M=6x).
             out_samples = max(1, int(round(signal.size * (sample_rate / source_sample_rate))))
             try:
-                from scipy.interpolate import CubicSpline
+                from scipy.interpolate import CubicSpline  # type: ignore
                 x_old = np.linspace(0, signal.size - 1, signal.size)
                 x_new = np.linspace(0, signal.size - 1, out_samples)
                 cs = CubicSpline(x_old, signal)
@@ -177,7 +177,7 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
                 ).astype(np.float32)
 
         try:
-            import scipy.signal as sp_signal
+            import scipy.signal as sp_signal  # type: ignore
             print(f"[AUDIO] Aplicando Masterização: High-Pass(40Hz), Low-Pass(7000Hz), Notch Filtros(90Hz, 180Hz)")
             
             # 1. High-Pass (Corta 'rumble' de sub-grave mecânico < 40Hz)
@@ -202,7 +202,7 @@ def try_extract_audio_from_sidecar(input_dir: Path, sample_rate: int) -> tuple[n
             if kernel_size > 0: signal = np.convolve(signal, np.ones(kernel_size)/kernel_size, mode='same')
             
         try:
-            import noisereduce as nr
+            import noisereduce as nr  # type: ignore
             print("[AUDIO] Aplicando Spectral Gating Estacionário (prop_decrease=0.15)...")
             # stationary=True impede que a fase da voz seja destruída dinamicamente pelo algoritmo.
             # prop_decrease conservador para preservar consoantes acústicas reais do som.
