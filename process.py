@@ -35,6 +35,11 @@ except ImportError:
 SUPPORTED_EXTENSIONS = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp")
 AUDIO_SIDECAR_GLOB = "miniola_audio_*.json"
 
+# No filme 35mm, a trilha ótica está fisicamente 21 fotogramas à frente
+# da janela de projeção. Para sincronizar áudio e vídeo é necessário
+# aparar esse offset do início do WAV antes de muxar.
+FILM_35MM_AUDIO_ADVANCE_FRAMES = 21
+
 
 def read_frame_as_grayscale(path: Path) -> np.ndarray | None:
     try:
@@ -373,6 +378,40 @@ def build_ffmpeg_command(
     raise ValueError(f"Tipo de saída não suportado: {output_type}")
 
 
+def build_ffmpeg_mux_command(
+    ffmpeg_path: str,
+    video_path: Path,
+    audio_path: Path,
+    fps: float,
+    audio_advance_frames: int,
+    output_path: Path,
+) -> list[str]:
+    """Gera comando ffmpeg para muxar vídeo + áudio com compensação do offset ótico 35mm.
+
+    O som no 35mm está 'audio_advance_frames' fotogramas à frente da imagem
+    correspondente. Aparamos esse offset do início do WAV com 'atrim' para que
+    o primeiro sample audível coincida com o quadro 1 do vídeo.
+    O vídeo é copiado sem reencoding (-c:v copy) para máxima velocidade e qualidade.
+    """
+    delay_seconds = audio_advance_frames / fps
+    return [
+        ffmpeg_path,
+        "-y",
+        "-hide_banner",
+        "-loglevel", "error",
+        "-i", str(video_path),
+        "-i", str(audio_path),
+        "-af", f"atrim=start={delay_seconds:.6f},asetpts=PTS-STARTPTS",
+        "-map", "0:v",
+        "-map", "1:a",
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-b:a", "256k",
+        "-movflags", "+faststart",
+        str(output_path),
+    ]
+
+
 def probe_first_frame(path: Path) -> tuple[int, int]:
     try:
         # Abertura extremamente rápida sem decodificar a bagagem do JPEG no O(N) de tempo.
@@ -430,6 +469,15 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=48000,
         help="Taxa de amostragem do WAV gerado (padrão: 48000).",
+    )
+    parser.add_argument(
+        "--audio-advance-frames",
+        type=int,
+        default=FILM_35MM_AUDIO_ADVANCE_FRAMES,
+        help=(
+            f"Fotogramas de avanço da trilha ótica em relação à imagem "
+            f"(padrão: {FILM_35MM_AUDIO_ADVANCE_FRAMES} para 35mm)."
+        ),
     )
     return parser.parse_args()
 
@@ -535,6 +583,27 @@ def main() -> int:
         if manifest_path.exists():
             manifest_path.unlink()
 
+    # --- MUX VÍDEO + ÁUDIO COM OFFSET 35MM ---
+    muxed_outputs: list[Path] = []
+    if audio_output_path is not None and outputs:
+        delay_s = args.audio_advance_frames / args.fps
+        print(
+            f"\n[INFO] Muxando vídeo + áudio com offset 35mm: "
+            f"{args.audio_advance_frames} frames @ {args.fps} fps = {delay_s:.3f}s"
+        )
+        for video_path in outputs:
+            # ProRes já é formato de arquivo (MOV), suporta AAC normalmente.
+            # Se precisar de PCM em ProRes, trocar -c:a por pcm_s24le.
+            muxed_ext = video_path.suffix
+            muxed_path = output_dir / f"{video_path.stem}_com_audio{muxed_ext}"
+            cmd_mux = build_ffmpeg_mux_command(
+                ffmpeg, video_path, audio_output_path,
+                args.fps, args.audio_advance_frames, muxed_path
+            )
+            subprocess.run(cmd_mux, check=True)
+            muxed_outputs.append(muxed_path)
+            print(f"[INFO] Muxado: {muxed_path.name}")
+
     report: dict = {
         "created_at_utc": timestamp,
         "input_dir": str(input_dir),
@@ -546,10 +615,13 @@ def main() -> int:
         "missing_indices_count": len(missing_indices),
         "missing_indices_preview": missing_indices[:50],
         "outputs": [str(path) for path in outputs],
+        "muxed_outputs": [str(path) for path in muxed_outputs],
     }
     if audio_output_path:
         report["audio"] = {
             "wav_path": str(audio_output_path),
+            "audio_advance_frames": args.audio_advance_frames,
+            "audio_advance_seconds": round(args.audio_advance_frames / args.fps, 6),
             "stats": audio_stats,
         }
     report_path = output_dir / f"{args.name}_{timestamp}.report.json"
@@ -558,7 +630,9 @@ def main() -> int:
     print("\n[SUCESSO] Processamento concluído.")
     print(f"[INFO] Relatório: {report_path}")
     for output_path in outputs:
-        print(f"[INFO] Saída: {output_path}")
+        print(f"[INFO] Vídeo (mudo): {output_path}")
+    for muxed_path in muxed_outputs:
+        print(f"[INFO] Vídeo + Áudio sincronizado: {muxed_path}")
     return 0
 
 
