@@ -27,6 +27,12 @@ import subprocess
 import glob
 import json
 from datetime import datetime, timezone
+try:
+    from PIL import Image as PILImage
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
+    PILImage = None  # type: ignore
 
 app = Flask(__name__) # Flask para o Dashboard (Roda no Core 0)
 log = logging.getLogger('werkzeug') # Desativa os logs de requisição do Flask para não poluir o console
@@ -204,8 +210,15 @@ def processo_escrita_disco(fila_in):
 
         if img_rgb is None or not filename: continue
 
-        img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 99])
+        # Salva diretamente em RGB via PIL — sem conversão de canal,
+        # garantindo fidelidade de cor perfeita para filmes coloridos.
+        # subsampling=0 → 4:4:4 (sem perda de croma, ideal para skin tones e grãos de prata).
+        if HAS_PIL:
+            PILImage.fromarray(img_rgb).save(filename, quality=99, subsampling=0)
+        else:
+            # Fallback: PIL não disponível, usa cv2 com conversão BGR
+            img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+            cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 99])
 
 def processar_captura(frame, cx_global, cy_global, n_frame):
     global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
