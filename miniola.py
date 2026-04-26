@@ -201,23 +201,24 @@ def processo_escrita_disco(fila_in):
             sessao_audio = None
             continue
 
+        # picamera2 com "RGB888" entrega BGR na memória (comportamento libcamera).
+        # O frame precisa ser convertido BGR→RGB antes de qualquer encoder que assuma RGB.
         if isinstance(item, dict):
-            img_rgb = item.get("img_rgb")
+            img_bgr = item.get("img_bgr")
             filename = item.get("filename")
         else:
-            try: img_rgb, filename = item
+            try: img_bgr, filename = item
             except Exception: continue
 
-        if img_rgb is None or not filename: continue
+        if img_bgr is None or not filename: continue
 
-        # Salva diretamente em RGB via PIL — sem conversão de canal,
-        # garantindo fidelidade de cor perfeita para filmes coloridos.
+        # Salva como JPEG com cores corretas:
+        # PIL espera RGB → convertemos BGR→RGB antes de fromarray.
         # subsampling=0 → 4:4:4 (sem perda de croma, ideal para skin tones e grãos de prata).
         if HAS_PIL:
-            PILImage.fromarray(img_rgb).save(filename, quality=99, subsampling=0)
+            PILImage.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)).save(filename, quality=99, subsampling=0)
         else:
-            # Fallback: PIL não disponível, usa cv2 com conversão BGR
-            img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+            # Fallback: PIL não disponível. img_bgr já está em BGR, cv2.imwrite espera BGR → direto.
             cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 99])
 
 def processar_captura(frame, cx_global, cy_global, n_frame):
@@ -237,7 +238,7 @@ def processar_captura(frame, cx_global, cy_global, n_frame):
                 fila_gravacao.put(
                     {
                         "type": "frame",
-                        "img_rgb": crop.copy(),
+                        "img_bgr": crop.copy(),  # picamera2 BGR — mantém nome correto
                         "filename": filename,
                         "frame_index": n_frame,
                     },
@@ -636,7 +637,8 @@ def generate_dashboard():
             cv2.putText(p_inf, "HISTOGRAMA (LUMINANCIA)", (pos_x_hist, pos_y_hist - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
 
         dashboard = np.vstack((np.hstack((p_live, p_bin)), p_inf))
-        _, buffer = cv2.imencode('.jpg', cv2.cvtColor(dashboard, cv2.COLOR_RGB2BGR), [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+        # frame_raw já é BGR (picamera2), dashboard construído em BGR → imencode direto, sem conversão extra.
+        _, buffer = cv2.imencode('.jpg', dashboard, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
 @app.route('/status')
@@ -665,7 +667,8 @@ def get_status():
         "exp": shutter_speed, "gain": f"{gain:.1f}", "fps_cam": fps_cam, "shrink": f"{encolhimento_atual_pct:.1f}%",
         "calibrando": CALIBRANDO, "thresh": THRESH_VAL,
         "roi_x": ROI_X, "roi_y": ROI_Y, "roi_w": ROI_W, "roi_h": ROI_H, "crop_w": CROP_W, "crop_h": CROP_H, "ox": OFFSET_X,
-        "gatilho_y": LINHA_GATILHO_Y, "margem": MARGEM_GATILHO, "res_w": RES_W, "res_h": RES_H, "fps_projecao": FPS_PROJECAO
+        "gatilho_y": LINHA_GATILHO_Y, "margem": MARGEM_GATILHO, "res_w": RES_W, "res_h": RES_H, "fps_projecao": FPS_PROJECAO,
+        "motor_cor": "PIL/RGB" if HAS_PIL else "cv2/BGR-fallback",
     }
 
 @app.route('/calibrar')
