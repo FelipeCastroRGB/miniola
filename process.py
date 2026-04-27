@@ -466,7 +466,20 @@ def render_stabilized_video_stream(
         raise RuntimeError("Nenhum dado de tracking casou com os frames encontrados.")
 
     crop_w, crop_h = ref_track["cw"], ref_track["ch"]
+    
+    valid_pitches = []
+    for f in frames:
+        idx = int(f.stem.split('_')[-1])
+        if idx in tracking_data:
+            p = tracking_data[idx].get("pitch_inst", -1.0)
+            if p > 0:
+                valid_pitches.append(p)
+                
+    pitch_padrao = sum(valid_pitches) / len(valid_pitches) if valid_pitches else -1.0
+    
     print(f"[ESTABILIZAÇÃO] Iniciando ancoragem na perfuração. Crop: {crop_w}x{crop_h}")
+    if pitch_padrao > 0:
+        print(f"[ESTABILIZAÇÃO] Compensação de Rolling Shutter ativada (Pitch Padrão: {pitch_padrao:.2f}px)")
 
     # Monta comando FFmpeg recebendo RAW de stdin e gerando MÚLTIPLAS saídas simultâneas
     cmd = [
@@ -494,20 +507,25 @@ def render_stabilized_video_stream(
             f_idx = int(frame_path.stem.split('_')[-1])
             track = tracking_data.get(f_idx)
             
+            scale_y = 1.0
             if track:
                 cx, cy, ox = track["cx"], track["cy"], track["ox"]
+                pitch_inst = track.get("pitch_inst", -1.0)
+                if pitch_padrao > 0 and pitch_inst > 0:
+                    scale_y = pitch_padrao / pitch_inst
             else:
                 # Fallback no centro se faltar tracking
                 cx, cy, ox = img.shape[1] / 2, img.shape[0] / 2, 0
                 
             center_x, center_y = cx + ox, cy
             
-            # Matriz de translação para fazer crop centrado em center_x, center_y
+            # Matriz Afim: Translação X, e (Escala Y + Translação Y)
+            # Para que o center_y original caia exatamente no meio do crop_h após o redimensionamento.
             tx = crop_w / 2.0 - center_x
-            ty = crop_h / 2.0 - center_y
+            ty = crop_h / 2.0 - (scale_y * center_y)
             
-            # warpAffine aplica shift sub-pixel e crop ao mesmo tempo
-            M = np.float32([[1, 0, tx], [0, 1, ty]])
+            # warpAffine aplica shift sub-pixel e correção de stretch do rolling shutter ao mesmo tempo!
+            M = np.float32([[1.0, 0.0, tx], [0.0, scale_y, ty]])
             dst = cv2.warpAffine(img, M, (crop_w, crop_h), flags=cv2.INTER_LINEAR)
             
             proc.stdin.write(dst.tobytes())

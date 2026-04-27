@@ -241,11 +241,12 @@ def processo_escrita_disco(fila_in):
                 "cy": item.get("cy"),
                 "ox": item.get("ox"),
                 "cw": item.get("cw"),
-                "ch": item.get("ch")
+                "ch": item.get("ch"),
+                "pitch_inst": item.get("pitch_inst", -1.0)
             })
             arquivo_tracking.write(log_linha + "\n")
 
-def processar_captura(frame, cx_global, cy_global, n_frame):
+def processar_captura(frame, cx_global, cy_global, n_frame, pitch_inst=-1.0):
     global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
     
     fx, fy = cx_global + OFFSET_X, cy_global
@@ -269,7 +270,8 @@ def processar_captura(frame, cx_global, cy_global, n_frame):
                         "cy": float(cy_global),
                         "ox": int(OFFSET_X),
                         "cw": int(CROP_W),
-                        "ch": int(CROP_H)
+                        "ch": int(CROP_H),
+                        "pitch_inst": float(pitch_inst)
                     },
                     block=False,
                 )
@@ -499,7 +501,8 @@ def logica_scanner():
             furo_detectado_agora = ret["achou_furo"]
 
             if ret["capturar"]:
-                processar_captura(frame_raw, ret["cx_a"], ret["cy_a"], frame_count)
+                p_inst = ret.get("pitch_instantaneo", -1.0)
+                processar_captura(frame_raw, ret["cx_a"], ret["cy_a"], frame_count, p_inst)
                 frame_count += 1
         else:
             roi_color = frame_raw[ly:ly+lh, lx:lx+lw]

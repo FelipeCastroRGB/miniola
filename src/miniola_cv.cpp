@@ -13,7 +13,8 @@ private:
     int contador_perfs_ciclo = 0;
     bool perfuracao_na_linha = false;
     std::vector<double> buffer_pitches;
-    double ultimo_pitch_medio = 0.0;
+    double ultimo_pitch_medio = -1.0;
+    double ultimo_pitch_instantaneo = -1.0;
     double encolhimento_atual_pct = 0.0;
     
     // Tracking para o Virtual Rotary Encoder (Audio)
@@ -217,6 +218,7 @@ public:
                         double soma_pitch = 0;
                         for(int i=1; i<qtd; i++) soma_pitch += (furos_validos[i].cy_g - furos_validos[i-1].cy_g);
                         double pitch_instantaneo = soma_pitch / (qtd - 1);
+                        ultimo_pitch_instantaneo = pitch_instantaneo;
                         
                         if(pitch_instantaneo > 0) {
                             buffer_pitches.push_back(pitch_instantaneo);
@@ -267,6 +269,7 @@ public:
         result["contador_perfs_ciclo"] = contador_perfs_ciclo;
         result["encolhimento_atual_pct"] = encolhimento_atual_pct;
         result["ultimo_pitch_medio"] = ultimo_pitch_medio;
+        result["pitch_instantaneo"] = ultimo_pitch_instantaneo;
         result["achou_furo"] = furo_detectado_agora;
         result["audio_chunk"] = audio_numpy; 
         
