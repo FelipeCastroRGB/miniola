@@ -169,10 +169,12 @@ def fechar_sessao_audio_optico(sessao, motivo: str):
 def processo_escrita_disco(fila_in):
     print("[SISTEMA] Processo de gravação (Núcleo Isolado) iniciado.")
     sessao_audio = None
+    arquivo_tracking = None
     while True:
         item = fila_in.get()
         if item is None:
             fechar_sessao_audio_optico(sessao_audio, "shutdown")
+            if arquivo_tracking: arquivo_tracking.close()
             break
 
         msg_type = item.get("type", "frame") if isinstance(item, dict) else "frame"
@@ -194,11 +196,21 @@ def processo_escrita_disco(fila_in):
                 sid = item.get("session_id") or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
                 p_pitch = float(item.get("pitch_padrao", PITCH_PADRAO_PX))
                 sessao_audio = abrir_sessao_audio_optico(sid, float(item.get("fps_projecao", 24.0)), p_pitch)
+
+            # Abre arquivo de telemetria para a nova sessão
+            if arquivo_tracking: arquivo_tracking.close()
+            sid = item.get("session_id") or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            tracking_path = os.path.join(CAPTURE_PATH, f"miniola_tracking_{sid}.jsonl")
+            arquivo_tracking = open(tracking_path, "w", encoding="utf-8")
+            print(f"[TRACKING] Arquivo de telemetria criado: {os.path.basename(tracking_path)}")
             continue
 
         if msg_type == "rec_stop":
             fechar_sessao_audio_optico(sessao_audio, "manual_stop")
             sessao_audio = None
+            if arquivo_tracking:
+                arquivo_tracking.close()
+                arquivo_tracking = None
             continue
 
         # picamera2 com "RGB888" entrega BGR na memória (comportamento libcamera).
@@ -221,6 +233,18 @@ def processo_escrita_disco(fila_in):
             # Fallback: PIL não disponível. img_bgr já está em BGR, cv2.imwrite espera BGR → direto.
             cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 99])
 
+        # Gravar as coordenadas matemáticas de registro deste fotograma
+        if arquivo_tracking and "cy" in item:
+            log_linha = json.dumps({
+                "frame": item.get("frame_index"),
+                "cx": item.get("cx"),
+                "cy": item.get("cy"),
+                "ox": item.get("ox"),
+                "cw": item.get("cw"),
+                "ch": item.get("ch")
+            })
+            arquivo_tracking.write(log_linha + "\n")
+
 def processar_captura(frame, cx_global, cy_global, n_frame):
     global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
     
@@ -238,9 +262,14 @@ def processar_captura(frame, cx_global, cy_global, n_frame):
                 fila_gravacao.put(
                     {
                         "type": "frame",
-                        "img_bgr": crop.copy(),  # picamera2 BGR — mantém nome correto
+                        "img_bgr": frame.copy(),  # Envia o frame INTEIRO (overscan) para o disco
                         "filename": filename,
                         "frame_index": n_frame,
+                        "cx": float(cx_global),
+                        "cy": float(cy_global),
+                        "ox": int(OFFSET_X),
+                        "cw": int(CROP_W),
+                        "ch": int(CROP_H)
                     },
                     block=False,
                 )

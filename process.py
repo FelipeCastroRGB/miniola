@@ -54,6 +54,31 @@ def read_frame_as_grayscale(path: Path) -> np.ndarray | None:
         return None
 
 
+def load_tracking_data(input_dir: Path) -> dict[int, dict]:
+    """Lê o arquivo de telemetria mais recente (se existir) para estabilização."""
+    tracking_files = list(input_dir.glob("miniola_tracking_*.jsonl"))
+    if not tracking_files:
+        return {}
+    tracking_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    
+    data = {}
+    with open(tracking_files[0], "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line: continue
+            try:
+                row = json.loads(line)
+                data[row["frame"]] = row
+            except Exception:
+                pass
+    return data
+    try:
+        img = Image.open(path).convert("L")
+        return np.array(img)
+    except Exception:
+        return None
+
+
 def extract_audio_from_frames(
     frames: list[Path],
     roi: tuple[int, int, int, int],
@@ -421,6 +446,79 @@ def probe_first_frame(path: Path) -> tuple[int, int]:
         raise RuntimeError(f"Não foi possível ler as dimensões do primeiro frame: {path}") from e
 
 
+def render_stabilized_video_stream(
+    ffmpeg_path: str,
+    frames: list[Path],
+    tracking_data: dict[int, dict],
+    fps: float,
+    outputs: list[tuple[Path, str]],
+):
+    """Lê frames, recorta e alinha perfeitamente usando sub-pixel warpAffine, e envia pro ffmpeg via pipe."""
+    # Descobre tamanho final do crop com base no primeiro frame rastreado
+    ref_track = None
+    for f in frames:
+        idx = int(f.stem.split('_')[-1])
+        if idx in tracking_data:
+            ref_track = tracking_data[idx]
+            break
+            
+    if not ref_track:
+        raise RuntimeError("Nenhum dado de tracking casou com os frames encontrados.")
+
+    crop_w, crop_h = ref_track["cw"], ref_track["ch"]
+    print(f"[ESTABILIZAÇÃO] Iniciando ancoragem na perfuração. Crop: {crop_w}x{crop_h}")
+
+    # Monta comando FFmpeg recebendo RAW de stdin e gerando MÚLTIPLAS saídas simultâneas
+    cmd = [
+        ffmpeg_path, "-y", "-hide_banner", "-loglevel", "error",
+        "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{crop_w}x{crop_h}", "-r", str(fps),
+        "-i", "-"
+    ]
+    
+    for out_path, out_type in outputs:
+        if out_type == "mp4":
+            cmd.extend(["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", str(out_path)])
+        elif out_type == "prores":
+            cmd.extend(["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le", str(out_path)])
+
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+    
+    try:
+        for i, frame_path in enumerate(frames):
+            if i % 100 == 0:
+                print(f"[ESTABILIZAÇÃO] Processando frame {i+1}/{len(frames)}...")
+                
+            img = cv2.imread(str(frame_path))
+            if img is None: continue
+                
+            f_idx = int(frame_path.stem.split('_')[-1])
+            track = tracking_data.get(f_idx)
+            
+            if track:
+                cx, cy, ox = track["cx"], track["cy"], track["ox"]
+            else:
+                # Fallback no centro se faltar tracking
+                cx, cy, ox = img.shape[1] / 2, img.shape[0] / 2, 0
+                
+            center_x, center_y = cx + ox, cy
+            
+            # Matriz de translação para fazer crop centrado em center_x, center_y
+            tx = crop_w / 2.0 - center_x
+            ty = crop_h / 2.0 - center_y
+            
+            # warpAffine aplica shift sub-pixel e crop ao mesmo tempo
+            M = np.float32([[1, 0, tx], [0, 1, ty]])
+            dst = cv2.warpAffine(img, M, (crop_w, crop_h), flags=cv2.INTER_LINEAR)
+            
+            proc.stdin.write(dst.tobytes())
+    finally:
+        if proc.stdin: proc.stdin.close()
+        proc.wait()
+        
+    if proc.returncode != 0:
+        raise RuntimeError("Erro na renderização estabilizada com FFmpeg.")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Gera vídeo MP4/ProRes a partir dos frames de captura do Miniola.",
@@ -568,17 +666,29 @@ def main() -> int:
     manifest_path = output_dir / f".{args.name}_{timestamp}.frames.txt"
     build_concat_manifest(frames, args.fps, manifest_path)
 
+    tracking_data = load_tracking_data(input_dir)
     outputs: list[Path] = []
     output_types = ("mp4", "prores") if args.format == "both" else (args.format,)
     extension_map = {"mp4": "mp4", "prores": "mov"}
 
     try:
-        for output_type in output_types:
-            output_path = output_dir / f"{args.name}_{timestamp}.{extension_map[output_type]}"
-            cmd = build_ffmpeg_command(ffmpeg, manifest_path, args.fps, output_path, output_type)
-            print(f"[INFO] Gerando arquivo {output_type.upper()}: {output_path.name}")
-            subprocess.run(cmd, check=True)
-            outputs.append(output_path)
+        if tracking_data:
+            print("[INFO] Telemetria (Registro Óptico) detectada! Usando ancoragem sub-pixel.")
+            plan_outputs = []
+            for output_type in output_types:
+                output_path = output_dir / f"{args.name}_{timestamp}.{extension_map[output_type]}"
+                plan_outputs.append((output_path, output_type))
+                outputs.append(output_path)
+            render_stabilized_video_stream(ffmpeg, frames, tracking_data, args.fps, plan_outputs)
+        else:
+            print("[INFO] Sem telemetria detectada. Processando concatenação nativa rápida.")
+            for output_type in output_types:
+                output_path = output_dir / f"{args.name}_{timestamp}.{extension_map[output_type]}"
+                cmd = build_ffmpeg_command(ffmpeg, manifest_path, args.fps, output_path, output_type)
+                print(f"[INFO] Gerando arquivo {output_type.upper()}: {output_path.name}")
+                subprocess.run(cmd, check=True)
+                outputs.append(output_path)
+
     finally:
         if manifest_path.exists():
             manifest_path.unlink()
