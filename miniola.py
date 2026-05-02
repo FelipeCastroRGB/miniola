@@ -47,16 +47,16 @@ parser = argparse.ArgumentParser(description="Miniola Scanner")
 parser.add_argument('--camera', type=str, default='ximea', choices=['pi', 'ximea'], help='Qual hardware de câmera usar (pi ou ximea)')
 args = parser.parse_args()
 
-shutter_speed, gain, fps_cam = 5000, 1.0, 110
+shutter_speed, gain, fps_cam = 600, 1.0, 120
 foco_atual, passo_foco = 14.5, 0.5
 
 
-# Resolução: Valores Exatos do CamTool do Usuário
-RES_W, RES_H = 1800, 1356
+# Resolução: Valores Exatos do CamTool do Usuário (2026-05-02)
+RES_W, RES_H = 1620, 1130
 
 # Offsets Exatos do CamTool do Usuário
-CAM_OFFSET_X = 124
-CAM_OFFSET_Y = 296
+CAM_OFFSET_X = 272
+CAM_OFFSET_Y = 224
 
 print(f"[SISTEMA] Inicializando provedor de câmera: {args.camera.upper()}")
 camera = get_camera_provider(args.camera)
