@@ -17,29 +17,25 @@ class XimeaAdapter(CameraProvider):
             self.cam.set_imgdataformat('XI_RGB24')
             
             # Limite de Banda Seguro para o Raspberry Pi 4
-            # (Evita o "failed with status 5" / "Camera has been reset" por excesso de tráfego/energia)
+            # (Evitamos que a câmera tente puxar 3000+ Mbps e queime a controladora USB do Pi)
             try:
-                self.cam.set_limit_bandwidth(1200) # 1200 Mbps (~150 MB/s) - Suficiente para 1536x864@90fps
+                self.cam.set_auto_bandwidth_calculation('XI_OFF')
+                self.cam.set_limit_bandwidth(1000) # 1000 Mbps (~125 MB/s)
             except Exception as e:
                 print(f"[WARN] Não foi possível limitar a banda: {e}")
 
             self.cam.set_exposure(shutter_speed) # em us
             self.cam.set_gain(gain) # em dB
             
-            # Resolução pode ser travada no hardware/ROI ANTES do FPS!
-            # (Limitar o frame primeiro impede erro caso o FPS desejado só seja possível no crop)
+            # Resolução
             try:
                 self.cam.set_width(res_w)
                 self.cam.set_height(res_h)
             except Exception as e:
                 print(f"[WARN] Falha ao definir resolução Ximea {res_w}x{res_h}: {e}")
 
-            # Controle de FPS
-            try:
-                self.cam.set_acq_timing_mode('XI_ACQ_TIMING_MODE_FRAME_RATE')
-                self.cam.set_framerate(fps)
-            except Exception as e:
-                print(f"[WARN] Falha ao definir Framerate Ximea ({fps} FPS): {e}")
+            # Deixamos a câmera em Free-Run (rodando o mais rápido possível dentro do limite de banda)
+            # Impor um Framerate estava causando o ERROR 11 (Invalid Arguments)
 
             self.cam.start_acquisition()
             from ximea import xiapi
