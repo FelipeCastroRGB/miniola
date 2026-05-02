@@ -9,7 +9,7 @@ class XimeaAdapter(CameraProvider):
         except ImportError:
             print("[WARN] ximea_api não está instalado. Modo de câmera Ximea inativo.")
 
-    def start(self, res_w, res_h, fps, shutter_speed, gain, lens_position):
+    def start(self, res_w, res_h, fps, shutter_speed, gain, lens_position, offset_x=0, offset_y=0):
         if not self.cam: return
         try:
             self.cam.open_device()
@@ -44,8 +44,10 @@ class XimeaAdapter(CameraProvider):
             try:
                 self.cam.set_width(res_w)
                 self.cam.set_height(res_h)
+                self.cam.set_offsetX(offset_x)
+                self.cam.set_offsetY(offset_y)
             except Exception as e:
-                print(f"[WARN] Falha ao definir resolução Ximea {res_w}x{res_h}: {e}")
+                print(f"[WARN] Falha ao definir Geometria Ximea (Res:{res_w}x{res_h} Offset:{offset_x},{offset_y}): {e}")
 
             # Tenta definir o FPS desejado. Se a matemática interna da Ximea rejeitar (ERROR 11),
             # deixamos em FREE_RUN (vai rodar no máximo que a banda de 2000 Mbps permitir)

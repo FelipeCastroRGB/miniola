@@ -51,12 +51,16 @@ shutter_speed, gain, fps_cam = 600, 1.0, 160
 foco_atual, passo_foco = 14.5, 0.5
 
 # Resolução: ULTRA-WIDE (1920x800) — Captura toda a largura do filme (ambas as bordas) 
-# e altura suficiente para as perfurações, mas garantindo 160 FPS.
-RES_W, RES_H = 2048, 2048
+# Resolução: Valores Exatos do CamTool do Usuário
+RES_W, RES_H = 1952, 1356
+
+# Offsets Exatos do CamTool do Usuário
+CAM_OFFSET_X = 36
+CAM_OFFSET_Y = 296
 
 print(f"[SISTEMA] Inicializando provedor de câmera: {args.camera.upper()}")
 camera = get_camera_provider(args.camera)
-camera.start(RES_W, RES_H, fps_cam, shutter_speed, gain, foco_atual)
+camera.start(RES_W, RES_H, fps_cam, shutter_speed, gain, foco_atual, CAM_OFFSET_X, CAM_OFFSET_Y)
 
 # Padrão Bayer Padrão (Pode ser alterado dinamicamente via painel)
 BAYER_MODE = cv2.COLOR_BayerBG2BGR
