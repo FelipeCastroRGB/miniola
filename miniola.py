@@ -181,6 +181,11 @@ def processo_escrita_disco(fila_in):
 
         msg_type = item.get("type", "frame") if isinstance(item, dict) else "frame"
 
+        if msg_type == "set_bayer":
+            global BAYER_MODE
+            BAYER_MODE = item.get("mode")
+            continue
+
         if msg_type == "audio_chunk":
             if sessao_audio is not None:
                 chunk = item.get("data")
@@ -353,6 +358,7 @@ def painel_controle():
                     elif modo == 1: BAYER_MODE = cv2.COLOR_BayerGB2BGR
                     elif modo == 2: BAYER_MODE = cv2.COLOR_BayerRG2BGR
                     elif modo == 3: BAYER_MODE = cv2.COLOR_BayerGR2BGR
+                    fila_escrita.put({"type": "set_bayer", "mode": BAYER_MODE})
                     print(f"[COR] Padrão Bayer alterado para o modo {modo}")
             elif cmd == 'wb':
                 if len(entrada) >= 3:
@@ -602,31 +608,36 @@ def generate_dashboard():
         time.sleep(0.06) 
         if ultimo_frame_bruto is None: continue
         
-        # Debayer preguiçoso apenas para a tela (15 fps)
+        new_h = int(RES_H * (640 / RES_W))
         if len(ultimo_frame_bruto.shape) == 2:
-            # PRIMEIRO debayeriza (para as cores nascerem), DEPOIS redimensiona!
-            # (Redimensionar o RAW puro destruía a grade de pixels coloridos)
             p_live_color = cv2.cvtColor(ultimo_frame_bruto, BAYER_MODE)
-            p_live = cv2.resize(p_live_color, (640, 420))
+            p_live = cv2.resize(p_live_color, (640, new_h))
         else:
-            p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
+            p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, new_h))
             
-        sx, sy = 640/RES_W, 420/RES_H
-        cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
+        sx, sy = 640/RES_W, new_h/RES_H
+        
+        # Fundo do Painel (1280x720)
+        canvas = np.zeros((720, 1280, 3), dtype=np.uint8)
+        
+        # Desenha a câmera principal (mantendo proporção correta)
+        canvas[0:new_h, 0:640] = p_live
+        
+        cv2.rectangle(canvas, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
         
         # Desenha a ROI do Audio (Amarelo)
         a_x = int((ROI_X + ROI_W + AUDIO_X_OFFSET) * sx)
         a_w = int(AUDIO_READ_W * sx)
-        cv2.rectangle(p_live, (a_x, int(ROI_Y*sy)), (a_x + a_w, int((ROI_Y+ROI_H)*sy)), (0, 255, 255), 1)
+        cv2.rectangle(canvas, (a_x, int(ROI_Y*sy)), (a_x + a_w, int((ROI_Y+ROI_H)*sy)), (0, 255, 255), 1)
         cor_gatilho = (0, 0, 255) if perfuracao_na_linha else (0, 255, 0)
         
         y_gl = ROI_Y + LINHA_GATILHO_Y
-        cv2.line(p_live, (int(ROI_X*sx), int(y_gl*sy)), (int((ROI_X+ROI_W)*sx), int(y_gl*sy)), cor_gatilho, 3)
-        cv2.line(p_live, (int(ROI_X*sx), int((y_gl - MARGEM_GATILHO)*sy)), (int((ROI_X+ROI_W)*sx), int((y_gl - MARGEM_GATILHO)*sy)), (50, 50, 50), 1)
-        cv2.line(p_live, (int(ROI_X*sx), int((y_gl + MARGEM_GATILHO)*sy)), (int((ROI_X+ROI_W)*sx), int((y_gl + MARGEM_GATILHO)*sy)), (50, 50, 50), 1)
+        cv2.line(canvas, (int(ROI_X*sx), int(y_gl*sy)), (int((ROI_X+ROI_W)*sx), int(y_gl*sy)), cor_gatilho, 3)
+        cv2.line(canvas, (int(ROI_X*sx), int((y_gl - MARGEM_GATILHO)*sy)), (int((ROI_X+ROI_W)*sx), int((y_gl - MARGEM_GATILHO)*sy)), (50, 50, 50), 1)
+        cv2.line(canvas, (int(ROI_X*sx), int((y_gl + MARGEM_GATILHO)*sy)), (int((ROI_X+ROI_W)*sx), int((y_gl + MARGEM_GATILHO)*sy)), (50, 50, 50), 1)
 
         for item in lista_contornos_debug:
-            x, y, w, h = item['rect']; cv2.rectangle(p_live, (int(x*sx), int(y*sy)), (int((x+w)*sx), int((y+h)*sy)), item['color'], 2)
+            x, y, w, h = item['rect']; cv2.rectangle(canvas, (int(x*sx), int(y*sy)), (int((x+w)*sx), int((y+h)*sy)), item['color'], 2)
         
         p_bin = np.zeros((420, 640, 3), dtype=np.uint8)
 
@@ -653,8 +664,9 @@ def generate_dashboard():
                 else:
                     audio_gray = cv2.cvtColor(audio_strip, cv2.COLOR_RGB2GRAY)
                     
+                # Ajuste Proporção do Áudio
                 audio_preview = cv2.resize(
-                    cv2.cvtColor(audio_gray, cv2.COLOR_GRAY2RGB), (290, 400)
+                    cv2.cvtColor(audio_gray, cv2.COLOR_GRAY2RGB), (140, 400)
                 )
                 p_bin[20:420, 330:620] = audio_preview
                 cv2.putText(p_bin, "PISTA AUDIO [Escala de Cinza]", (330, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (80, 220, 80), 1)
@@ -665,13 +677,16 @@ def generate_dashboard():
         p_inf = np.zeros((300, 1280, 3), dtype=np.uint8)
         if ultimo_crop_preview is not None and ultimo_crop_preview.size > 0:
             
+            # Ajuste de Proporção: Largura 100px para evitar que a perfuração fique obesa
+            crop_w_view = 100 
+            
             # Adaptação para suportar o RAW8 assíncrono (Debayer ANTES de redimensionar)
             if len(ultimo_crop_preview.shape) == 2:
                 crop_color = cv2.cvtColor(ultimo_crop_preview, BAYER_MODE)
-                crop_preview_color = cv2.resize(crop_color, (400, 280))
-                luma = cv2.resize(ultimo_crop_preview, (400, 280))
+                crop_preview_color = cv2.resize(crop_color, (crop_w_view, 280))
+                luma = cv2.resize(ultimo_crop_preview, (crop_w_view, 280))
             else:
-                crop_preview_color = cv2.resize(ultimo_crop_preview.copy(), (400, 280))
+                crop_preview_color = cv2.resize(ultimo_crop_preview.copy(), (crop_w_view, 280))
                 luma = cv2.cvtColor(crop_preview_color, cv2.COLOR_RGB2GRAY)
             
             zebra_overlay = crop_preview_color.copy()
@@ -679,9 +694,9 @@ def generate_dashboard():
             zebra_overlay[luma < 10]  = [255, 0, 0] 
             
             pos_y_zebra, pos_x_zebra = 10, 50
-            p_inf[pos_y_zebra : pos_y_zebra+280, pos_x_zebra : pos_x_zebra+400] = zebra_overlay
-            cv2.rectangle(p_inf, (pos_x_zebra, pos_y_zebra), (pos_x_zebra + 370, pos_y_zebra + 25), (0, 0, 0), -1)
-            cv2.putText(p_inf, "ZEBRA (VERM=ALTAS / AZUL=BAIXAS)", (pos_x_zebra + 5, pos_y_zebra + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+            p_inf[pos_y_zebra : pos_y_zebra+280, pos_x_zebra : pos_x_zebra+crop_w_view] = zebra_overlay
+            cv2.rectangle(p_inf, (pos_x_zebra, pos_y_zebra), (pos_x_zebra + crop_w_view + 40, pos_y_zebra + 25), (0, 0, 0), -1)
+            cv2.putText(p_inf, "ZEBRA", (pos_x_zebra + 5, pos_y_zebra + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
             
             hist = cv2.calcHist([luma], [0], None, [256], [0, 256])
             cv2.normalize(hist, hist, 0, 270, cv2.NORM_MINMAX)
