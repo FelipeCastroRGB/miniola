@@ -28,14 +28,13 @@ class XimeaAdapter(CameraProvider):
                     self.cam.set_param('wb_kb', 2.0) # Booster de Azul
                 except: pass
             
-            # Limite de Banda Seguro
-            # Subimos para 1500 Mbps (~187 MB/s) - Suporta os 90 FPS em RAW8 com folga, 
-            # sem chegar perto dos 2800 Mbps que crasham o Raspberry Pi.
+            # Limite de Banda Extremo (2000 Mbps) para atingir os 160 FPS
+            # Estamos tirando o limite de 1500 para permitir a taxa maciça de dados do RAW8.
             try:
                 self.cam.set_param('auto_bandwidth_calculation', 0)
             except: pass
             try:
-                self.cam.set_limit_bandwidth(1500) 
+                self.cam.set_limit_bandwidth(2000) 
             except: pass
 
             self.cam.set_exposure(shutter_speed) # em us
@@ -49,7 +48,7 @@ class XimeaAdapter(CameraProvider):
                 print(f"[WARN] Falha ao definir resolução Ximea {res_w}x{res_h}: {e}")
 
             # Tenta definir o FPS desejado. Se a matemática interna da Ximea rejeitar (ERROR 11),
-            # deixamos em FREE_RUN (vai rodar no máximo que a banda de 1500 Mbps permitir)
+            # deixamos em FREE_RUN (vai rodar no máximo que a banda de 2000 Mbps permitir)
             try:
                 self.cam.set_acq_timing_mode('XI_ACQ_TIMING_MODE_FRAME_RATE')
                 self.cam.set_framerate(fps)
@@ -78,15 +77,9 @@ class XimeaAdapter(CameraProvider):
         if not self.cam: return None
         try:
             self.cam.get_image(self.img, timeout=1000)
-            data = self.img.get_image_data_numpy()
-            
-            # Se for RAW8 (matriz 2D), debayerizamos na CPU com OpenCV
-            if len(data.shape) == 2:
-                import cv2
-                # A MQ042CG-CM geralmente usa padrão BGGR ou RGGB. O BG2BGR cobre a maioria dos casos.
-                data = cv2.cvtColor(data, cv2.COLOR_BayerBG2BGR)
-                
-            return data
+            # Retorna a matriz pura (RAW8 = 2D Array). 
+            # NÃO FAZEMOS DEBAYER AQUI para salvar CPU e conseguir 160 FPS.
+            return self.img.get_image_data_numpy()
         except Exception as e:
             err_str = str(e)
             import time

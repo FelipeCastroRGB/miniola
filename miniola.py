@@ -47,11 +47,12 @@ parser = argparse.ArgumentParser(description="Miniola Scanner")
 parser.add_argument('--camera', type=str, default='ximea', choices=['pi', 'ximea'], help='Qual hardware de câmera usar (pi ou ximea)')
 args = parser.parse_args()
 
-shutter_speed, gain, fps_cam = 600, 1.0, 90
+shutter_speed, gain, fps_cam = 600, 1.0, 160
 foco_atual, passo_foco = 14.5, 0.5
 
-# Resolução: HIGH-TALL (1024x2048) — Usa a altura máxima da Ximea para o filme 35mm
-RES_W, RES_H = 1024, 2048
+# Resolução: ULTRA-WIDE (1920x800) — Captura toda a largura do filme (ambas as bordas) 
+# e altura suficiente para as perfurações, mas garantindo 160 FPS.
+RES_W, RES_H = 1920, 800
 
 print(f"[SISTEMA] Inicializando provedor de câmera: {args.camera.upper()}")
 camera = get_camera_provider(args.camera)
@@ -221,6 +222,11 @@ def processo_escrita_disco(fila_in):
             except Exception: continue
 
         if img_bgr is None or not filename: continue
+
+        # Debayer Assíncrono: O loop principal da câmera manda o RAW8 cru e não gasta tempo.
+        # É este processo isolado (que roda em outro núcleo do processador) que faz o trabalho pesado de debayer.
+        if len(img_bgr.shape) == 2:
+            img_bgr = cv2.cvtColor(img_bgr, cv2.COLOR_BayerBG2BGR)
 
         # Salva como JPEG com cores corretas:
         # PIL espera RGB → convertemos BGR→RGB antes de fromarray.
@@ -579,7 +585,13 @@ def generate_dashboard():
         time.sleep(0.06) 
         if ultimo_frame_bruto is None: continue
         
-        p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
+        # Debayer preguiçoso apenas para a tela (15 fps)
+        if len(ultimo_frame_bruto.shape) == 2:
+            p_live_raw = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
+            p_live = cv2.cvtColor(p_live_raw, cv2.COLOR_BayerBG2BGR)
+        else:
+            p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
+            
         sx, sy = 640/RES_W, 420/RES_H
         cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
         
@@ -630,9 +642,16 @@ def generate_dashboard():
         p_inf = np.zeros((300, 1280, 3), dtype=np.uint8)
         if ultimo_crop_preview is not None and ultimo_crop_preview.size > 0:
             crop_preview = cv2.resize(ultimo_crop_preview.copy(), (400, 280))
-            luma = cv2.cvtColor(crop_preview, cv2.COLOR_RGB2GRAY)
             
-            zebra_overlay = crop_preview.copy()
+            # Adaptação para suportar o RAW8 assíncrono
+            if len(crop_preview.shape) == 2:
+                luma = crop_preview
+                crop_preview_color = cv2.cvtColor(crop_preview, cv2.COLOR_BayerBG2BGR)
+            else:
+                luma = cv2.cvtColor(crop_preview, cv2.COLOR_RGB2GRAY)
+                crop_preview_color = crop_preview.copy()
+            
+            zebra_overlay = crop_preview_color.copy()
             zebra_overlay[luma > 245] = [0, 0, 255] 
             zebra_overlay[luma < 10]  = [255, 0, 0] 
             
@@ -641,8 +660,7 @@ def generate_dashboard():
             cv2.rectangle(p_inf, (pos_x_zebra, pos_y_zebra), (pos_x_zebra + 370, pos_y_zebra + 25), (0, 0, 0), -1)
             cv2.putText(p_inf, "ZEBRA (VERM=ALTAS / AZUL=BAIXAS)", (pos_x_zebra + 5, pos_y_zebra + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
             
-            gray_crop = cv2.cvtColor(ultimo_crop_preview, cv2.COLOR_RGB2GRAY)
-            hist = cv2.calcHist([gray_crop], [0], None, [256], [0, 256])
+            hist = cv2.calcHist([luma], [0], None, [256], [0, 256])
             cv2.normalize(hist, hist, 0, 270, cv2.NORM_MINMAX)
             
             HIST_W, HIST_H = 512, 280

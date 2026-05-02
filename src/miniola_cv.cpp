@@ -36,7 +36,14 @@ public:
         int rows = buf.shape[0];
         int cols = buf.shape[1];
         
-        cv::Mat frame(rows, cols, CV_8UC3, buf.ptr);
+        cv::Mat frame;
+        if (buf.ndim == 2) {
+            frame = cv::Mat(rows, cols, CV_8UC1, buf.ptr);
+        } else if (buf.ndim == 3) {
+            frame = cv::Mat(rows, cols, CV_8UC3, buf.ptr);
+        } else {
+            py::dict err; err["capturar"] = false; return err;
+        }
         
         cv::Rect roi_rect(
             std::max(0, roi_x),
@@ -51,7 +58,13 @@ public:
 
         cv::Mat roi_color = frame(roi_rect);
         cv::Mat roi_gray, binary_small;
-        cv::cvtColor(roi_color, roi_gray, cv::COLOR_RGB2GRAY);
+        
+        // Se a imagem já for monocromática (RAW8), pulamos a conversão para cinza (economia gigante de CPU!)
+        if (frame.channels() == 3) {
+            cv::cvtColor(roi_color, roi_gray, cv::COLOR_RGB2GRAY);
+        } else {
+            roi_gray = roi_color;
+        }
         
         // Removido o cv::resize(0.5). Analisamos em resolução nativa para fluidez de tracking perfeita e síncrona
         cv::threshold(roi_gray, binary_small, thresh_val, 255, cv::THRESH_BINARY);
