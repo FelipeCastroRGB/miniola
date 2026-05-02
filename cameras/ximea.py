@@ -51,9 +51,14 @@ class XimeaAdapter(CameraProvider):
     def get_frame(self):
         if not self.cam: return None
         try:
-            self.cam.get_image(self.img)
+            # Timeout explícito de 1000ms (evita que o loop do Python quebre imediatamente)
+            self.cam.get_image(self.img, timeout=1000)
             return self.img.get_image_data_numpy()
-        except:
+        except Exception as e:
+            # O Erro 45 (Timeout) significa que o frame não chegou pelo cabo USB.
+            # Um pequeno sleep evita que o log do terminal seja "spammado" infinitamente.
+            import time
+            time.sleep(0.1)
             return None
 
     def set_exposure(self, value):
