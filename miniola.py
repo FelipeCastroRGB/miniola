@@ -52,7 +52,7 @@ foco_atual, passo_foco = 14.5, 0.5
 
 # Resolução: ULTRA-WIDE (1920x800) — Captura toda a largura do filme (ambas as bordas) 
 # e altura suficiente para as perfurações, mas garantindo 160 FPS.
-RES_W, RES_H = 1920, 800
+RES_W, RES_H = 2048, 2048
 
 print(f"[SISTEMA] Inicializando provedor de câmera: {args.camera.upper()}")
 camera = get_camera_provider(args.camera)
@@ -608,34 +608,44 @@ def generate_dashboard():
         time.sleep(0.06) 
         if ultimo_frame_bruto is None: continue
         
-        new_h = int(RES_H * (640 / RES_W))
+        ratio_w = 640 / RES_W
+        ratio_h = 420 / RES_H
+        scale = min(ratio_w, ratio_h)
+        new_w = int(RES_W * scale)
+        new_h = int(RES_H * scale)
+        
         if len(ultimo_frame_bruto.shape) == 2:
             p_live_color = cv2.cvtColor(ultimo_frame_bruto, BAYER_MODE)
-            p_live_resized = cv2.resize(p_live_color, (640, new_h))
+            p_live_resized = cv2.resize(p_live_color, (new_w, new_h))
         else:
-            p_live_resized = cv2.resize(ultimo_frame_bruto.copy(), (640, new_h))
+            p_live_resized = cv2.resize(ultimo_frame_bruto.copy(), (new_w, new_h))
             
-        sx, sy = 640/RES_W, new_h/RES_H
+        sx, sy = scale, scale
+        off_x = (640 - new_w) // 2
+        off_y = (420 - new_h) // 2
         
-        # Preenche com preto até a altura padrão 420 para não quebrar o np.hstack
+        # Função helper para não errarmos as coordenadas na tela
+        def px(val): return off_x + int(val * sx)
+        def py(val): return off_y + int(val * sy)
+        
         p_live = np.zeros((420, 640, 3), dtype=np.uint8)
-        p_live[0:new_h, 0:640] = p_live_resized
+        p_live[off_y:off_y+new_h, off_x:off_x+new_w] = p_live_resized
         
-        cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
+        cv2.rectangle(p_live, (px(ROI_X), py(ROI_Y)), (px(ROI_X+ROI_W), py(ROI_Y+ROI_H)), (150, 150, 150), 1)
         
         # Desenha a ROI do Audio (Amarelo)
-        a_x = int((ROI_X + ROI_W + AUDIO_X_OFFSET) * sx)
-        a_w = int(AUDIO_READ_W * sx)
-        cv2.rectangle(p_live, (a_x, int(ROI_Y*sy)), (a_x + a_w, int((ROI_Y+ROI_H)*sy)), (0, 255, 255), 1)
+        a_x = ROI_X + ROI_W + AUDIO_X_OFFSET
+        cv2.rectangle(p_live, (px(a_x), py(ROI_Y)), (px(a_x + AUDIO_READ_W), py(ROI_Y+ROI_H)), (0, 255, 255), 1)
         cor_gatilho = (0, 0, 255) if perfuracao_na_linha else (0, 255, 0)
         
         y_gl = ROI_Y + LINHA_GATILHO_Y
-        cv2.line(p_live, (int(ROI_X*sx), int(y_gl*sy)), (int((ROI_X+ROI_W)*sx), int(y_gl*sy)), cor_gatilho, 3)
-        cv2.line(p_live, (int(ROI_X*sx), int((y_gl - MARGEM_GATILHO)*sy)), (int((ROI_X+ROI_W)*sx), int((y_gl - MARGEM_GATILHO)*sy)), (50, 50, 50), 1)
-        cv2.line(p_live, (int(ROI_X*sx), int((y_gl + MARGEM_GATILHO)*sy)), (int((ROI_X+ROI_W)*sx), int((y_gl + MARGEM_GATILHO)*sy)), (50, 50, 50), 1)
+        cv2.line(p_live, (px(ROI_X), py(y_gl)), (px(ROI_X+ROI_W), py(y_gl)), cor_gatilho, 3)
+        cv2.line(p_live, (px(ROI_X), py(y_gl - MARGEM_GATILHO)), (px(ROI_X+ROI_W), py(y_gl - MARGEM_GATILHO)), (50, 50, 50), 1)
+        cv2.line(p_live, (px(ROI_X), py(y_gl + MARGEM_GATILHO)), (px(ROI_X+ROI_W), py(y_gl + MARGEM_GATILHO)), (50, 50, 50), 1)
 
         for item in lista_contornos_debug:
-            x, y, w, h = item['rect']; cv2.rectangle(p_live, (int(x*sx), int(y*sy)), (int((x+w)*sx), int((y+h)*sy)), item['color'], 2)
+            x, y, w, h = item['rect']
+            cv2.rectangle(p_live, (px(x), py(y)), (px(x+w), py(y+h)), item['color'], 2)
         
         p_bin = np.zeros((420, 640, 3), dtype=np.uint8)
 
