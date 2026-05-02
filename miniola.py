@@ -14,7 +14,8 @@ except ImportError:
     scanner_cv = None
 
 from flask import Flask, Response, request, render_template, send_from_directory, jsonify  # type: ignore
-from picamera2 import Picamera2  # type: ignore 
+import argparse
+from cameras import get_camera_provider 
 import cv2 
 import numpy as np 
 import threading 
@@ -41,23 +42,20 @@ log.setLevel(logging.ERROR)
 CAPTURE_PATH = "capturas"
 if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
 
-picam2 = Picamera2()
+# Parser de Argumentos
+parser = argparse.ArgumentParser(description="Miniola Scanner")
+parser.add_argument('--camera', type=str, default='pi', choices=['pi', 'ximea'], help='Qual hardware de câmera usar (pi ou ximea)')
+args = parser.parse_args()
+
 shutter_speed, gain, fps_cam = 600, 1.0, 90
 foco_atual, passo_foco = 14.5, 0.5
 
 # Resolução única: HIGH (1536x864) — recalibrar ROI/CROP no hardware
 RES_W, RES_H = 1536, 864
 
-config = picam2.create_video_configuration(main={"size": (RES_W, RES_H), "format": "RGB888"})
-picam2.configure(config)
-picam2.set_controls({
-    "ExposureTime": shutter_speed, 
-    "AnalogueGain": gain, 
-    "FrameRate": fps_cam, 
-    "LensPosition": foco_atual,
-    "ScalerCrop": (0, 0, 4608, 2592) # Trava o FOV Total
-})
-picam2.start()
+print(f"[SISTEMA] Inicializando provedor de câmera: {args.camera.upper()}")
+camera = get_camera_provider(args.camera)
+camera.start(RES_W, RES_H, fps_cam, shutter_speed, gain, foco_atual)
 
 # --- GEOMETRIA DO ROI E ESTADO ---
 GRAVANDO = False
@@ -359,30 +357,28 @@ def painel_controle():
             elif cmd == 'aw': AUDIO_READ_W = int(val)
             elif cmd == 'l':
                 foco_atual = round(foco_atual + passo_foco, 2)
-                picam2.set_controls({"LensPosition": foco_atual})
+                camera.set_focus(foco_atual)
             elif cmd == 'k':
                 foco_atual = max(0.0, round(foco_atual - passo_foco, 2))
-                picam2.set_controls({"LensPosition": foco_atual})
+                camera.set_focus(foco_atual)
             elif cmd == 'af':
                 print("[ÓPTICA] Destravando lente e ativando Modo Macro... (Aguarde)")
                 try:
-                    picam2.set_controls({"AfMode": 1, "AfRange": 2})
-                    time.sleep(0.5) 
                     print("[ÓPTICA] Iniciando varredura profunda...")
-                    picam2.autofocus_cycle()
-                    metadados = picam2.capture_metadata()
-                    if "LensPosition" in metadados:
-                        foco_atual = round(metadados["LensPosition"], 2)
-                        picam2.set_controls({"AfMode": 0, "LensPosition": foco_atual, "AfRange": 0})
-                        print(f"[ÓPTICA] Sucesso! Foco Macro cravado em: {foco_atual}")
+                    if camera.autofocus_cycle():
+                        metadados = camera.capture_metadata()
+                        if "LensPosition" in metadados:
+                            foco_atual = round(metadados["LensPosition"], 2)
+                            print(f"[ÓPTICA] Sucesso! Foco Macro cravado em: {foco_atual}")
+                            camera.set_focus(foco_atual)
+                        else:
+                            print("[ÓPTICA] Varredura concluída, mas posição não relatada pelo sensor.")
                     else:
-                        print("[ÓPTICA] Varredura concluída, mas posição não relatada pelo sensor.")
-                        picam2.set_controls({"AfMode": 0, "AfRange": 0}) 
+                        print("[ÓPTICA] Autofoco não suportado pela câmera atual.")
                 except Exception as e:
                     print(f"[ÓPTICA] Erro no Autofoco nativo: {e}")
-                    picam2.set_controls({"AfMode": 0, "AfRange": 0}) 
             elif cmd == 'e': 
-                shutter_speed = int(val); picam2.set_controls({"ExposureTime": shutter_speed})
+                shutter_speed = int(val); camera.set_exposure(shutter_speed)
             elif cmd == 'cal':
                 CALIBRANDO = True
                 print("[SISTEMA] MODO DE CALIBRAÇÃO ATIVADO!")
@@ -400,8 +396,8 @@ def painel_controle():
                     print(f"-> Filme Referência utilizado: {encolhimento_referencia}% de encolhimento.")
                     print(f"-> Novo Padrão (0%): {PITCH_PADRAO_PX:.2f}px")
                 else: print("[ERRO] Deixe o filme de referência rodar e estabilizar no dashboard antes de calibrar.")
-            elif cmd == 'g': gain = val; picam2.set_controls({"AnalogueGain": gain})
-            elif cmd == 'fps': fps_cam = int(val); picam2.set_controls({"FrameRate": fps_cam})
+            elif cmd == 'g': gain = val; camera.set_gain(gain)
+            elif cmd == 'fps': fps_cam = int(val); camera.set_fps(fps_cam)
             elif cmd == 't': THRESH_VAL = int(val)
             elif cmd == 'rec':
                 if not GRAVANDO:
@@ -444,7 +440,7 @@ def painel_controle():
         except Exception as e: print(f"Erro: {e}")
 
 def logica_scanner():
-    cap_array = picam2.capture_array
+    cap_array = camera.get_frame
     cv_cvt = cv2.cvtColor
     cv_resize = cv2.resize
     cv_thresh = cv2.threshold

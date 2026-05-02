@@ -7,9 +7,5 @@ Pillow
 # OpenCV no Windows
 opencv-python; sys_platform == "win32"
 
-# OpenCV no Raspberry Pi (Linux ARM)
+# OpenCV no Linux
 opencv-python-headless; sys_platform == "linux"
-
-# Bibliotecas específicas do Raspberry Pi
-picamera2; sys_platform == "linux"
-python-prctl; sys_platform == "linux"
