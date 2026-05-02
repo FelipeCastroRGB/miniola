@@ -668,7 +668,7 @@ def generate_dashboard():
                 audio_preview = cv2.resize(
                     cv2.cvtColor(audio_gray, cv2.COLOR_GRAY2RGB), (140, 400)
                 )
-                p_bin[20:420, 330:620] = audio_preview
+                p_bin[20:420, 330:470] = audio_preview
                 cv2.putText(p_bin, "PISTA AUDIO [Escala de Cinza]", (330, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (80, 220, 80), 1)
         else:
             cv2.putText(p_bin, "PISTA AUDIO", (330, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (80, 80, 80), 1)
