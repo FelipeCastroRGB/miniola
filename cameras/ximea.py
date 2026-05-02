@@ -17,9 +17,12 @@ class XimeaAdapter(CameraProvider):
             self.cam.set_imgdataformat('XI_RGB24')
             
             # Limite de Banda Seguro para o Raspberry Pi 4
-            # (Evitamos que a câmera tente puxar 3000+ Mbps e queime a controladora USB do Pi)
             try:
-                self.cam.set_auto_bandwidth_calculation('XI_OFF')
+                try: self.cam.set_limit_bandwidth_mode('XI_OFF')
+                except: pass
+                try: self.cam.set_auto_bandwidth_calculation('XI_OFF')
+                except: pass
+                
                 self.cam.set_limit_bandwidth(1000) # 1000 Mbps (~125 MB/s)
             except Exception as e:
                 print(f"[WARN] Não foi possível limitar a banda: {e}")
