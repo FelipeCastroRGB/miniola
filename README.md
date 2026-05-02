@@ -81,7 +81,20 @@ tar -xzf XIMEA_Linux_SP.tgz
 cd package
 ./install -cam_usb30
 ```
-> **Nota:** Para evitar a perda de frames devido ao alto fluxo de dados, a Ximea recomenda configurar adequadamente o tamanho do buffer USB no Linux (`usbfs_memory_mb`). Verifique o manual caso a câmera não alcance a taxa de quadros (FPS) máxima desejada no USB 3.0.
+> **IMPORTANTE: Aumento do Buffer USB (Obrigatório para Ximea)**
+> Para que a câmera atinja a taxa máxima de quadros (FPS) em USB 3.0 sem engasgos ou perda de pacotes, você **deve** aumentar a memória do buffer USB. No Raspberry Pi OS, faça o seguinte:
+>
+> **Temporário (perde ao reiniciar):**
+> ```bash
+> echo 1000 | sudo tee /sys/module/usbcore/parameters/usbfs_memory_mb
+> ```
+>
+> **Permanente (Recomendado):**
+> Adicione o parâmetro `usbcore.usbfs_memory_mb=1000` ao final da única linha existente no arquivo `/boot/firmware/cmdline.txt`.
+> ```bash
+> sudo nano /boot/firmware/cmdline.txt
+> ```
+> *(Após editar e salvar com `Ctrl+O` > `Enter` > `Ctrl+X`, reinicie o sistema).*
 
 ### 6) Atalho de execucao
 
