@@ -477,6 +477,25 @@ def render_stabilized_video_stream(
                 
     pitch_padrao = sum(valid_pitches) / len(valid_pitches) if valid_pitches else -1.0
     
+    # Extrai array de cx para aplicar Filtro Gaussiano de passa-baixa
+    # Isso elimina o jitter de alta frequência (tremor do limiar binário)
+    # mas mantém o weave natural e suave do filme.
+    raw_cx_array = []
+    last_valid_cx = ref_track["cx"]
+    for f in frames:
+        idx = int(f.stem.split('_')[-1])
+        if idx in tracking_data:
+            last_valid_cx = tracking_data[idx]["cx"]
+        raw_cx_array.append(last_valid_cx)
+        
+    try:
+        import scipy.ndimage as ndimage
+        smoothed_cx = ndimage.gaussian_filter1d(raw_cx_array, sigma=4.0)
+        print("[ESTABILIZAÇÃO] Filtro passa-baixa aplicado no Eixo X (Suavização de Threshold).")
+    except ImportError:
+        smoothed_cx = raw_cx_array
+        print("[WARN] Scipy não instalado. Filtro de suavização no Eixo X ignorado.")
+    
     print(f"[ESTABILIZAÇÃO] Iniciando ancoragem na perfuração. Crop: {crop_w}x{crop_h}")
     if pitch_padrao > 0:
         print(f"[ESTABILIZAÇÃO] Compensação de Rolling Shutter ativada (Pitch Padrão: {pitch_padrao:.2f}px)")
@@ -508,14 +527,17 @@ def render_stabilized_video_stream(
             track = tracking_data.get(f_idx)
             
             scale_y = 1.0
+            cx = smoothed_cx[i]
+            
             if track:
-                cx, cy, ox = track["cx"], track["cy"], track["ox"]
+                cy, ox = track["cy"], track["ox"]
                 pitch_inst = track.get("pitch_inst", -1.0)
                 if pitch_padrao > 0 and pitch_inst > 0:
                     scale_y = pitch_padrao / pitch_inst
             else:
                 # Fallback no centro se faltar tracking
-                cx, cy, ox = img.shape[1] / 2, img.shape[0] / 2, 0
+                cy, ox = img.shape[0] / 2, 0
+                cx = img.shape[1] / 2
                 
             center_x, center_y = cx + ox, cy
             
