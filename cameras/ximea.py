@@ -14,9 +14,19 @@ class XimeaAdapter(CameraProvider):
         try:
             self.cam.open_device()
             # Ximea config: 
-            # Voltando para RGB24! Como cravamos o limite em 1500 Mbps abaixo,
-            # vamos tentar deixar a Ximea entregar as cores lindas originais (com White Balance automático).
-            self.cam.set_imgdataformat('XI_RGB24')
+            # O RGB24 sufocou a CPU do Raspberry Pi (10 FPS). Voltamos para o formato RAW8 veloz!
+            self.cam.set_imgdataformat('XI_RAW8')
+            
+            # ATIVANDO CORES NO MODO RAW!
+            # Para não ficar desbotado/cinza, ligamos o White Balance direto no sensor de hardware.
+            try:
+                self.cam.set_param('auto_wb', 1) # Tenta ligar WB Automático
+            except:
+                try:
+                    # Se falhar o automático, forçamos um ganho manual (Red e Blue)
+                    self.cam.set_param('wb_kr', 2.0) # Booster de Vermelho
+                    self.cam.set_param('wb_kb', 2.0) # Booster de Azul
+                except: pass
             
             # Limite de Banda Seguro
             # Subimos para 1500 Mbps (~187 MB/s) - Suporta os 90 FPS em RAW8 com folga, 
