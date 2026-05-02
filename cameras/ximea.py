@@ -34,7 +34,7 @@ class XimeaAdapter(CameraProvider):
                 self.cam.set_param('auto_bandwidth_calculation', 0)
             except: pass
             try:
-                self.cam.set_limit_bandwidth(2000) 
+                self.cam.set_limit_bandwidth(1800) # 1800 é o limite físico seguro do chip VL805 do Pi4
             except: pass
 
             self.cam.set_exposure(shutter_speed) # em us
@@ -50,15 +50,13 @@ class XimeaAdapter(CameraProvider):
                 print(f"[WARN] Falha ao definir Geometria Ximea (Res:{res_w}x{res_h} Offset:{offset_x},{offset_y}): {e}")
 
             # Tenta definir o FPS desejado. Se a matemática interna da Ximea rejeitar (ERROR 11),
-            # deixamos em FREE_RUN (vai rodar no máximo que a banda de 2000 Mbps permitir)
+            # nós deixamos no modo de Framerate (seguro) mas com o valor máximo possível suportado.
             try:
                 self.cam.set_acq_timing_mode('XI_ACQ_TIMING_MODE_FRAME_RATE')
                 self.cam.set_framerate(fps)
             except Exception as e:
-                print(f"[WARN] Falha ao definir Framerate ({fps} FPS), ativando FREE_RUN: {e}")
-                try:
-                    self.cam.set_acq_timing_mode('XI_ACQ_TIMING_MODE_FREE_RUN')
-                except: pass
+                print(f"[WARN] Falha ao definir Framerate alvo de {fps} FPS: {e}")
+                # NÃO ATIVAR FREE_RUN (Causa estouro de Banda e desliga a câmera no RPi4 com Status 5!)
 
             self.cam.start_acquisition()
             from ximea import xiapi
