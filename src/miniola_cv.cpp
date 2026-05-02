@@ -172,7 +172,12 @@ public:
                         cv::Rect process_rect(safe_x, safe_y, safe_w, read_h);
                         cv::Mat slice_color = frame(process_rect);
                         cv::Mat slice_gray;
-                        cv::cvtColor(slice_color, slice_gray, cv::COLOR_RGB2GRAY);
+                        
+                        if (frame.channels() == 3) {
+                            cv::cvtColor(slice_color, slice_gray, cv::COLOR_RGB2GRAY);
+                        } else {
+                            slice_gray = slice_color;
+                        }
                         
                         std::vector<float> current_chunk;
                         current_chunk.reserve(read_h);
