@@ -44,7 +44,7 @@ if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
 
 # Parser de Argumentos
 parser = argparse.ArgumentParser(description="Miniola Scanner")
-parser.add_argument('--camera', type=str, default='pi', choices=['pi', 'ximea'], help='Qual hardware de câmera usar (pi ou ximea)')
+parser.add_argument('--camera', type=str, default='ximea', choices=['pi', 'ximea'], help='Qual hardware de câmera usar (pi ou ximea)')
 args = parser.parse_args()
 
 shutter_speed, gain, fps_cam = 600, 1.0, 90

@@ -67,19 +67,19 @@ pip install .
 
 O Miniola suporta diferentes modelos de câmera, com flexibilidade de hardware. Após instalar as dependências base, escolha e instale a opção de câmera que você for utilizar:
 
-#### Opção A: Raspberry Pi Camera Module 3 (Padrão)
-Se você estiver utilizando a câmera padrão do ecossistema Raspberry Pi, instale as dependências correspondentes:
-```bash
-pip install picamera2 python-prctl
-```
-
-#### Opção B: Câmera Ximea (MQ042MG-CM)
+#### Opção A: Câmera Ximea (MQ042MG-CM) - Padrão Atual
 Se o scanner utilizar a câmera industrial Ximea, instale o SDK oficial da fabricante (que inclui os drivers e a biblioteca em Python `ximea_api`). Acesse a documentação oficial da Ximea para sistemas ARM/Linux ou execute:
 ```bash
 wget -O XIMEA_Linux_SP.tgz https://updates.ximea.com/public/ximea_linux_arm_sp_beta.tgz
 tar -xzf XIMEA_Linux_SP.tgz
 cd package
 ./install -cam_usb30
+```
+
+#### Opção B: Raspberry Pi Camera Module 3 (Alternativa)
+Se você estiver utilizando a câmera padrão do ecossistema Raspberry Pi, instale as dependências correspondentes:
+```bash
+pip install picamera2 python-prctl
 ```
 > **IMPORTANTE: Aumento do Buffer USB (Obrigatório para Ximea)**
 > Para que a câmera atinja a taxa máxima de quadros (FPS) em USB 3.0 sem engasgos ou perda de pacotes, você **deve** aumentar a memória do buffer USB. No Raspberry Pi OS, faça o seguinte:
