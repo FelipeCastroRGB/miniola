@@ -77,7 +77,7 @@ pip install picamera2 python-prctl
 Se o scanner utilizar a câmera industrial Ximea, instale o SDK oficial da fabricante (que inclui os drivers e a biblioteca em Python `ximea_api`). Acesse a documentação oficial da Ximea para sistemas ARM/Linux ou execute:
 ```bash
 wget -O XIMEA_Linux_SP.tgz https://updates.ximea.com/public/ximea_linux_arm_sp_beta.tgz
-tar -xzf XIMEA_Linux_SP.tgz
+tar -xzf ximea_linux_arm_sp_beta.tgz
 cd package
 ./install -cam_usb30
 ```
