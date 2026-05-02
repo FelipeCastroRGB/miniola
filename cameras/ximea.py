@@ -34,7 +34,7 @@ class XimeaAdapter(CameraProvider):
                 self.cam.set_param('auto_bandwidth_calculation', 0)
             except: pass
             try:
-                self.cam.set_limit_bandwidth(1800) # 1800 é o limite físico seguro do chip VL805 do Pi4
+                self.cam.set_limit_bandwidth(2200) # 1800 é o limite físico seguro do chip VL805 do Pi4
             except: pass
 
             self.cam.set_exposure(shutter_speed) # em us
