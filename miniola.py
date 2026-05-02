@@ -587,8 +587,10 @@ def generate_dashboard():
         
         # Debayer preguiçoso apenas para a tela (15 fps)
         if len(ultimo_frame_bruto.shape) == 2:
-            p_live_raw = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
-            p_live = cv2.cvtColor(p_live_raw, cv2.COLOR_BayerBG2BGR)
+            # PRIMEIRO debayeriza (para as cores nascerem), DEPOIS redimensiona!
+            # (Redimensionar o RAW puro destruía a grade de pixels coloridos)
+            p_live_color = cv2.cvtColor(ultimo_frame_bruto, cv2.COLOR_BayerBG2BGR)
+            p_live = cv2.resize(p_live_color, (640, 420))
         else:
             p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
             
@@ -645,15 +647,15 @@ def generate_dashboard():
 
         p_inf = np.zeros((300, 1280, 3), dtype=np.uint8)
         if ultimo_crop_preview is not None and ultimo_crop_preview.size > 0:
-            crop_preview = cv2.resize(ultimo_crop_preview.copy(), (400, 280))
             
-            # Adaptação para suportar o RAW8 assíncrono
-            if len(crop_preview.shape) == 2:
-                luma = crop_preview
-                crop_preview_color = cv2.cvtColor(crop_preview, cv2.COLOR_BayerBG2BGR)
+            # Adaptação para suportar o RAW8 assíncrono (Debayer ANTES de redimensionar)
+            if len(ultimo_crop_preview.shape) == 2:
+                crop_color = cv2.cvtColor(ultimo_crop_preview, cv2.COLOR_BayerBG2BGR)
+                crop_preview_color = cv2.resize(crop_color, (400, 280))
+                luma = cv2.resize(ultimo_crop_preview, (400, 280))
             else:
-                luma = cv2.cvtColor(crop_preview, cv2.COLOR_RGB2GRAY)
-                crop_preview_color = crop_preview.copy()
+                crop_preview_color = cv2.resize(ultimo_crop_preview.copy(), (400, 280))
+                luma = cv2.cvtColor(crop_preview_color, cv2.COLOR_RGB2GRAY)
             
             zebra_overlay = crop_preview_color.copy()
             zebra_overlay[luma > 245] = [0, 0, 255] 
