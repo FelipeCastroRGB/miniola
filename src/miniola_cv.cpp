@@ -66,8 +66,9 @@ public:
             roi_gray = roi_color;
         }
         
-        // Removido o cv::resize(0.5). Analisamos em resolução nativa para fluidez de tracking perfeita e síncrona
-        cv::threshold(roi_gray, binary_small, thresh_val, 255, cv::THRESH_BINARY);
+        cv::Mat roi_small;
+        cv::resize(roi_gray, roi_small, cv::Size(), 0.5, 0.5, cv::INTER_NEAREST);
+        cv::threshold(roi_small, binary_small, thresh_val, 255, cv::THRESH_BINARY);
         
         std::vector<std::vector<cv::Point>> contours;
         cv::findContours(binary_small, contours, cv::RETR_LIST, cv::CHAIN_APPROX_SIMPLE);
@@ -87,17 +88,36 @@ public:
         py::list debug_visual;
         
         for(size_t i = 0; i < contours.size(); i++) {
-            cv::Rect rect = cv::boundingRect(contours[i]);
+            cv::Rect rect_small = cv::boundingRect(contours[i]);
+            
+            // Escala o Bounding Box de volta para Alta Resolução (1.0x)
+            cv::Rect rect(rect_small.x * 2, rect_small.y * 2, rect_small.width * 2, rect_small.height * 2);
+            
+            // Proteção de limites da matriz
+            rect.x = std::max(0, rect.x);
+            rect.y = std::max(0, rect.y);
+            rect.width = std::min(rect.width, roi_gray.cols - rect.x);
+            rect.height = std::min(rect.height, roi_gray.rows - rect.y);
+            
+            if (rect.width <= 0 || rect.height <= 0) continue;
+            
             double w_s = rect.width;
             double h_s = rect.height;
-            double area_aprox = w_s * h_s; // Multiplicador 4.0 varrido
+            double area_aprox = w_s * h_s;
             
+            // Filtro morfológico
             if(area_aprox > 200 && area_aprox < 10000 && (w_s/h_s) > 0.2 && (w_s/h_s) < 2.5) {
-                // Rastreamento Sub-pixel Espacial de Alta Precisão (Elimina Quantization Jitter de áudio)
-                cv::Moments M = cv::moments(contours[i]);
                 
-                double cx_roi = (M.m00 != 0) ? (M.m10 / M.m00) : (rect.x + rect.width / 2.0);
-                double cy_roi = (M.m00 != 0) ? (M.m01 / M.m00) : (rect.y + rect.height / 2.0);
+                // Rastreamento Sub-pixel Espacial de Alta Precisão!
+                // Em vez de calcular os momentos na imagem pequena, cortamos o quadrado exato
+                // da imagem em alta resolução e calculamos o centro de massa sub-pixel lá.
+                cv::Mat perf_crop = roi_gray(rect);
+                cv::Mat perf_bin;
+                cv::threshold(perf_crop, perf_bin, thresh_val, 255, cv::THRESH_BINARY);
+                cv::Moments M = cv::moments(perf_bin, true); // true = imagem binária
+                
+                double cx_roi = (M.m00 != 0) ? (M.m10 / M.m00) + rect.x : (rect.x + rect.width / 2.0);
+                double cy_roi = (M.m00 != 0) ? (M.m01 / M.m00) + rect.y : (rect.y + rect.height / 2.0);
                 
                 double cx_global = cx_roi + roi_rect.x;
                 double cy_global = cy_roi + roi_rect.y;
@@ -106,7 +126,6 @@ public:
                 furos_validos.push_back({cy_roi, cx_global, cy_global, acionou, rect});
                 
                 py::dict debug_item;
-                // Coordenadas diretas para o renderizador de tela
                 debug_item["rect"] = py::make_tuple(rect.x + roi_rect.x, rect.y + roi_rect.y, rect.width, rect.height);
                 debug_item["color"] = acionou ? py::make_tuple(0, 0, 255) : py::make_tuple(0, 255, 0); 
                 debug_visual.append(debug_item);
