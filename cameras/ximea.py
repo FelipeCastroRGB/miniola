@@ -13,32 +13,35 @@ class XimeaAdapter(CameraProvider):
         if not self.cam: return
         try:
             self.cam.open_device()
-            # Ximea config:
-            self.cam.set_imgdataformat('XI_RGB24')
+            # Ximea config: 
+            # Em vez de pedir RGB24 (que passa 3 bytes/pixel no cabo USB e frita o Pi 4),
+            # nós pedimos RAW8 (1 byte/pixel) e fazemos a conversão de cor via CPU no get_frame!
+            self.cam.set_imgdataformat('XI_RAW8')
             
-            # Limite de Banda Seguro para o Raspberry Pi 4
+            # Limite de Banda Conservador
             try:
-                try: self.cam.set_limit_bandwidth_mode('XI_OFF')
-                except: pass
-                try: self.cam.set_auto_bandwidth_calculation('XI_OFF')
-                except: pass
-                
-                self.cam.set_limit_bandwidth(1000) # 1000 Mbps (~125 MB/s)
-            except Exception as e:
-                print(f"[WARN] Não foi possível limitar a banda: {e}")
+                self.cam.set_param('auto_bandwidth_calculation', 0)
+            except: pass
+            try:
+                self.cam.set_limit_bandwidth(1000) 
+            except: pass
 
             self.cam.set_exposure(shutter_speed) # em us
             self.cam.set_gain(gain) # em dB
             
-            # Resolução
+            # Resolução nativa ou Crop
             try:
                 self.cam.set_width(res_w)
                 self.cam.set_height(res_h)
             except Exception as e:
                 print(f"[WARN] Falha ao definir resolução Ximea {res_w}x{res_h}: {e}")
 
-            # Deixamos a câmera em Free-Run (rodando o mais rápido possível dentro do limite de banda)
-            # Impor um Framerate estava causando o ERROR 11 (Invalid Arguments)
+            # Trava em 30 FPS para partida segura (previne pico de energia que gera o status 5)
+            try:
+                self.cam.set_acq_timing_mode('XI_ACQ_TIMING_MODE_FRAME_RATE')
+                self.cam.set_framerate(30)
+            except Exception as e:
+                print(f"[WARN] Falha ao definir Framerate Ximea (30 FPS): {e}")
 
             self.cam.start_acquisition()
             from ximea import xiapi
@@ -58,14 +61,24 @@ class XimeaAdapter(CameraProvider):
     def get_frame(self):
         if not self.cam: return None
         try:
-            # Timeout explícito de 1000ms (evita que o loop do Python quebre imediatamente)
             self.cam.get_image(self.img, timeout=1000)
-            return self.img.get_image_data_numpy()
+            data = self.img.get_image_data_numpy()
+            
+            # Se for RAW8 (matriz 2D), debayerizamos na CPU com OpenCV
+            if len(data.shape) == 2:
+                import cv2
+                # A MQ042CG-CM geralmente usa padrão BGGR ou RGGB. O BG2BGR cobre a maioria dos casos.
+                data = cv2.cvtColor(data, cv2.COLOR_BayerBG2BGR)
+                
+            return data
         except Exception as e:
-            # O Erro 45 (Timeout) significa que o frame não chegou pelo cabo USB.
-            # Um pequeno sleep evita que o log do terminal seja "spammado" infinitamente.
+            err_str = str(e)
             import time
             time.sleep(0.1)
+            # Se a câmera morrer (Erro 49 = Desconectado), paramos de tentar ler para evitar o Spam
+            if "49" in err_str or "disconnect" in err_str.lower():
+                print("[ERRO FATAL] A câmera desconectou do barramento USB (Status 5 / Erro 49).")
+                self.cam = None
             return None
 
     def set_exposure(self, value):
