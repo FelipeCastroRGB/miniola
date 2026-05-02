@@ -18,17 +18,20 @@ class XimeaAdapter(CameraProvider):
             self.cam.set_exposure(shutter_speed) # em us
             self.cam.set_gain(gain) # em dB
             
-            # Controle de FPS
-            self.cam.set_acq_timing_mode('XI_ACQ_TIMING_MODE_FRAME_RATE')
-            self.cam.set_framerate(fps)
-
-            # Resolução pode ser travada no hardware/ROI
-            # Algumas câmeras requerem incrementos específicos, então try/except é prudente
+            # Resolução pode ser travada no hardware/ROI ANTES do FPS!
+            # (Limitar o frame primeiro impede erro caso o FPS desejado só seja possível no crop)
             try:
                 self.cam.set_width(res_w)
                 self.cam.set_height(res_h)
             except Exception as e:
                 print(f"[WARN] Falha ao definir resolução Ximea {res_w}x{res_h}: {e}")
+
+            # Controle de FPS
+            try:
+                self.cam.set_acq_timing_mode('XI_ACQ_TIMING_MODE_FRAME_RATE')
+                self.cam.set_framerate(fps)
+            except Exception as e:
+                print(f"[WARN] Falha ao definir Framerate Ximea ({fps} FPS): {e}")
 
             self.cam.start_acquisition()
             from ximea import xiapi
