@@ -18,12 +18,14 @@ class XimeaAdapter(CameraProvider):
             # nós pedimos RAW8 (1 byte/pixel) e fazemos a conversão de cor via CPU no get_frame!
             self.cam.set_imgdataformat('XI_RAW8')
             
-            # Limite de Banda Conservador
+            # Limite de Banda Seguro
+            # Subimos para 1500 Mbps (~187 MB/s) - Suporta os 90 FPS em RAW8 com folga, 
+            # sem chegar perto dos 2800 Mbps que crasham o Raspberry Pi.
             try:
                 self.cam.set_param('auto_bandwidth_calculation', 0)
             except: pass
             try:
-                self.cam.set_limit_bandwidth(1000) 
+                self.cam.set_limit_bandwidth(1500) 
             except: pass
 
             self.cam.set_exposure(shutter_speed) # em us
@@ -36,12 +38,16 @@ class XimeaAdapter(CameraProvider):
             except Exception as e:
                 print(f"[WARN] Falha ao definir resolução Ximea {res_w}x{res_h}: {e}")
 
-            # Trava em 30 FPS para partida segura (previne pico de energia que gera o status 5)
+            # Tenta definir o FPS desejado. Se a matemática interna da Ximea rejeitar (ERROR 11),
+            # deixamos em FREE_RUN (vai rodar no máximo que a banda de 1500 Mbps permitir)
             try:
                 self.cam.set_acq_timing_mode('XI_ACQ_TIMING_MODE_FRAME_RATE')
-                self.cam.set_framerate(30)
+                self.cam.set_framerate(fps)
             except Exception as e:
-                print(f"[WARN] Falha ao definir Framerate Ximea (30 FPS): {e}")
+                print(f"[WARN] Falha ao definir Framerate ({fps} FPS), ativando FREE_RUN: {e}")
+                try:
+                    self.cam.set_acq_timing_mode('XI_ACQ_TIMING_MODE_FREE_RUN')
+                except: pass
 
             self.cam.start_acquisition()
             from ximea import xiapi
