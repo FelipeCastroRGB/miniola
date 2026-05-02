@@ -15,6 +15,14 @@ class XimeaAdapter(CameraProvider):
             self.cam.open_device()
             # Ximea config:
             self.cam.set_imgdataformat('XI_RGB24')
+            
+            # Limite de Banda Seguro para o Raspberry Pi 4
+            # (Evita o "failed with status 5" / "Camera has been reset" por excesso de tráfego/energia)
+            try:
+                self.cam.set_limit_bandwidth(1200) # 1200 Mbps (~150 MB/s) - Suficiente para 1536x864@90fps
+            except Exception as e:
+                print(f"[WARN] Não foi possível limitar a banda: {e}")
+
             self.cam.set_exposure(shutter_speed) # em us
             self.cam.set_gain(gain) # em dB
             
