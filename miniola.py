@@ -611,33 +611,31 @@ def generate_dashboard():
         new_h = int(RES_H * (640 / RES_W))
         if len(ultimo_frame_bruto.shape) == 2:
             p_live_color = cv2.cvtColor(ultimo_frame_bruto, BAYER_MODE)
-            p_live = cv2.resize(p_live_color, (640, new_h))
+            p_live_resized = cv2.resize(p_live_color, (640, new_h))
         else:
-            p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, new_h))
+            p_live_resized = cv2.resize(ultimo_frame_bruto.copy(), (640, new_h))
             
         sx, sy = 640/RES_W, new_h/RES_H
         
-        # Fundo do Painel (1280x720)
-        canvas = np.zeros((720, 1280, 3), dtype=np.uint8)
+        # Preenche com preto até a altura padrão 420 para não quebrar o np.hstack
+        p_live = np.zeros((420, 640, 3), dtype=np.uint8)
+        p_live[0:new_h, 0:640] = p_live_resized
         
-        # Desenha a câmera principal (mantendo proporção correta)
-        canvas[0:new_h, 0:640] = p_live
-        
-        cv2.rectangle(canvas, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
+        cv2.rectangle(p_live, (int(ROI_X*sx), int(ROI_Y*sy)), (int((ROI_X+ROI_W)*sx), int((ROI_Y+ROI_H)*sy)), (150, 150, 150), 1)
         
         # Desenha a ROI do Audio (Amarelo)
         a_x = int((ROI_X + ROI_W + AUDIO_X_OFFSET) * sx)
         a_w = int(AUDIO_READ_W * sx)
-        cv2.rectangle(canvas, (a_x, int(ROI_Y*sy)), (a_x + a_w, int((ROI_Y+ROI_H)*sy)), (0, 255, 255), 1)
+        cv2.rectangle(p_live, (a_x, int(ROI_Y*sy)), (a_x + a_w, int((ROI_Y+ROI_H)*sy)), (0, 255, 255), 1)
         cor_gatilho = (0, 0, 255) if perfuracao_na_linha else (0, 255, 0)
         
         y_gl = ROI_Y + LINHA_GATILHO_Y
-        cv2.line(canvas, (int(ROI_X*sx), int(y_gl*sy)), (int((ROI_X+ROI_W)*sx), int(y_gl*sy)), cor_gatilho, 3)
-        cv2.line(canvas, (int(ROI_X*sx), int((y_gl - MARGEM_GATILHO)*sy)), (int((ROI_X+ROI_W)*sx), int((y_gl - MARGEM_GATILHO)*sy)), (50, 50, 50), 1)
-        cv2.line(canvas, (int(ROI_X*sx), int((y_gl + MARGEM_GATILHO)*sy)), (int((ROI_X+ROI_W)*sx), int((y_gl + MARGEM_GATILHO)*sy)), (50, 50, 50), 1)
+        cv2.line(p_live, (int(ROI_X*sx), int(y_gl*sy)), (int((ROI_X+ROI_W)*sx), int(y_gl*sy)), cor_gatilho, 3)
+        cv2.line(p_live, (int(ROI_X*sx), int((y_gl - MARGEM_GATILHO)*sy)), (int((ROI_X+ROI_W)*sx), int((y_gl - MARGEM_GATILHO)*sy)), (50, 50, 50), 1)
+        cv2.line(p_live, (int(ROI_X*sx), int((y_gl + MARGEM_GATILHO)*sy)), (int((ROI_X+ROI_W)*sx), int((y_gl + MARGEM_GATILHO)*sy)), (50, 50, 50), 1)
 
         for item in lista_contornos_debug:
-            x, y, w, h = item['rect']; cv2.rectangle(canvas, (int(x*sx), int(y*sy)), (int((x+w)*sx), int((y+h)*sy)), item['color'], 2)
+            x, y, w, h = item['rect']; cv2.rectangle(p_live, (int(x*sx), int(y*sy)), (int((x+w)*sx), int((y+h)*sy)), item['color'], 2)
         
         p_bin = np.zeros((420, 640, 3), dtype=np.uint8)
 
