@@ -629,7 +629,11 @@ def generate_dashboard():
         if ultimo_frame_bruto is not None and safe_aw > 0 and ah_raw > 0:
             audio_strip = ultimo_frame_bruto[ay_raw : ay_raw + ah_raw, safe_ax : safe_ax + safe_aw]
             if audio_strip.size > 0:
-                audio_gray = cv2.cvtColor(audio_strip, cv2.COLOR_RGB2GRAY)
+                if len(audio_strip.shape) == 2:
+                    audio_gray = audio_strip
+                else:
+                    audio_gray = cv2.cvtColor(audio_strip, cv2.COLOR_RGB2GRAY)
+                    
                 audio_preview = cv2.resize(
                     cv2.cvtColor(audio_gray, cv2.COLOR_GRAY2RGB), (290, 400)
                 )
