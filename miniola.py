@@ -47,7 +47,7 @@ parser = argparse.ArgumentParser(description="Miniola Scanner")
 parser.add_argument('--camera', type=str, default='ximea', choices=['pi', 'ximea'], help='Qual hardware de câmera usar (pi ou ximea)')
 args = parser.parse_args()
 
-shutter_speed, gain, fps_cam = 600, 1.0, 100
+shutter_speed, gain, fps_cam = 600, 1.0, 80
 foco_atual, passo_foco = 14.5, 0.5
 
 # Resolução: ULTRA-WIDE (1920x800) — Captura toda a largura do filme (ambas as bordas) 
