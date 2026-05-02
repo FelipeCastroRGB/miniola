@@ -14,9 +14,9 @@ class XimeaAdapter(CameraProvider):
         try:
             self.cam.open_device()
             # Ximea config: 
-            # Em vez de pedir RGB24 (que passa 3 bytes/pixel no cabo USB e frita o Pi 4),
-            # nós pedimos RAW8 (1 byte/pixel) e fazemos a conversão de cor via CPU no get_frame!
-            self.cam.set_imgdataformat('XI_RAW8')
+            # Voltando para RGB24! Como cravamos o limite em 1500 Mbps abaixo,
+            # vamos tentar deixar a Ximea entregar as cores lindas originais (com White Balance automático).
+            self.cam.set_imgdataformat('XI_RGB24')
             
             # Limite de Banda Seguro
             # Subimos para 1500 Mbps (~187 MB/s) - Suporta os 90 FPS em RAW8 com folga, 

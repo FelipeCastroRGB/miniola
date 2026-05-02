@@ -50,8 +50,8 @@ args = parser.parse_args()
 shutter_speed, gain, fps_cam = 600, 1.0, 90
 foco_atual, passo_foco = 14.5, 0.5
 
-# Resolução única: HIGH (1536x864) — recalibrar ROI/CROP no hardware
-RES_W, RES_H = 1536, 864
+# Resolução: HIGH-TALL (1024x2048) — Usa a altura máxima da Ximea para o filme 35mm
+RES_W, RES_H = 1024, 2048
 
 print(f"[SISTEMA] Inicializando provedor de câmera: {args.camera.upper()}")
 camera = get_camera_provider(args.camera)
