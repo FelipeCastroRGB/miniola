@@ -25,3 +25,6 @@ class CameraProvider:
 
     def capture_metadata(self):
         raise NotImplementedError
+
+    def set_white_balance(self, kr, kb):
+        raise NotImplementedError

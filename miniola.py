@@ -58,6 +58,9 @@ print(f"[SISTEMA] Inicializando provedor de câmera: {args.camera.upper()}")
 camera = get_camera_provider(args.camera)
 camera.start(RES_W, RES_H, fps_cam, shutter_speed, gain, foco_atual)
 
+# Padrão Bayer Padrão (Pode ser alterado dinamicamente via painel)
+BAYER_MODE = cv2.COLOR_BayerBG2BGR
+
 # --- GEOMETRIA DO ROI E ESTADO ---
 GRAVANDO = False
 CALIBRANDO = False           # Trava de segurança da tela
@@ -226,7 +229,7 @@ def processo_escrita_disco(fila_in):
         # Debayer Assíncrono: O loop principal da câmera manda o RAW8 cru e não gasta tempo.
         # É este processo isolado (que roda em outro núcleo do processador) que faz o trabalho pesado de debayer.
         if len(img_bgr.shape) == 2:
-            img_bgr = cv2.cvtColor(img_bgr, cv2.COLOR_BayerBG2BGR)
+            img_bgr = cv2.cvtColor(img_bgr, BAYER_MODE)
 
         # Salva como JPEG com cores corretas:
         # PIL espera RGB → convertemos BGR→RGB antes de fromarray.
@@ -342,6 +345,20 @@ def painel_controle():
                     CV_ENGINE = "C++ [Pybind11]"
                     scanner_cv.reset_ciclo()
                     print(f"[MOTOR] ⚡ Motor alternado para: {CV_ENGINE}")
+            elif cmd == 'bayer':
+                global BAYER_MODE
+                if len(entrada) >= 2:
+                    modo = int(entrada[1])
+                    if modo == 0: BAYER_MODE = cv2.COLOR_BayerBG2BGR
+                    elif modo == 1: BAYER_MODE = cv2.COLOR_BayerGB2BGR
+                    elif modo == 2: BAYER_MODE = cv2.COLOR_BayerRG2BGR
+                    elif modo == 3: BAYER_MODE = cv2.COLOR_BayerGR2BGR
+                    print(f"[COR] Padrão Bayer alterado para o modo {modo}")
+            elif cmd == 'wb':
+                if len(entrada) >= 3:
+                    kr = float(entrada[1])
+                    kb = float(entrada[2])
+                    camera.set_white_balance(kr, kb)
             elif cmd == 'w': ROI_Y = max(0, ROI_Y - 5)
             elif cmd == 's': ROI_Y = min(RES_H - ROI_H, ROI_Y + 5)
             elif cmd == 'a': ROI_X = max(0, ROI_X - 5)
@@ -589,7 +606,7 @@ def generate_dashboard():
         if len(ultimo_frame_bruto.shape) == 2:
             # PRIMEIRO debayeriza (para as cores nascerem), DEPOIS redimensiona!
             # (Redimensionar o RAW puro destruía a grade de pixels coloridos)
-            p_live_color = cv2.cvtColor(ultimo_frame_bruto, cv2.COLOR_BayerBG2BGR)
+            p_live_color = cv2.cvtColor(ultimo_frame_bruto, BAYER_MODE)
             p_live = cv2.resize(p_live_color, (640, 420))
         else:
             p_live = cv2.resize(ultimo_frame_bruto.copy(), (640, 420))
@@ -650,7 +667,7 @@ def generate_dashboard():
             
             # Adaptação para suportar o RAW8 assíncrono (Debayer ANTES de redimensionar)
             if len(ultimo_crop_preview.shape) == 2:
-                crop_color = cv2.cvtColor(ultimo_crop_preview, cv2.COLOR_BayerBG2BGR)
+                crop_color = cv2.cvtColor(ultimo_crop_preview, BAYER_MODE)
                 crop_preview_color = cv2.resize(crop_color, (400, 280))
                 luma = cv2.resize(ultimo_crop_preview, (400, 280))
             else:

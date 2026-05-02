@@ -24,8 +24,8 @@ class XimeaAdapter(CameraProvider):
             except:
                 try:
                     # Se falhar o automático, forçamos um ganho manual (Red e Blue)
-                    self.cam.set_param('wb_kr', 2.0) # Booster de Vermelho
-                    self.cam.set_param('wb_kb', 2.0) # Booster de Azul
+                    self.cam.set_param('wb_kr', 1.0) # Booster de Vermelho
+                    self.cam.set_param('wb_kb', 1.0) # Booster de Azul
                 except: pass
             
             # Limite de Banda Extremo (2000 Mbps) para atingir os 160 FPS
@@ -116,3 +116,13 @@ class XimeaAdapter(CameraProvider):
     def capture_metadata(self):
         # Dummy para painel não quebrar
         return {}
+
+    def set_white_balance(self, kr: float, kb: float):
+        if self.cam:
+            try:
+                self.cam.set_param('auto_wb', 0)
+                self.cam.set_param('wb_kr', kr)
+                self.cam.set_param('wb_kb', kb)
+                print(f"[XIMEA] White Balance Manual Aplicado: R={kr} B={kb}")
+            except Exception as e:
+                print(f"[WARN] Falha ao ajustar White Balance: {e}")
