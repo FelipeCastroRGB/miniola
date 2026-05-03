@@ -54,9 +54,10 @@
             <div style="background:#111; padding:20px; border-top:1px solid #444; text-align:center;">
                 <h3 style="margin-top:0; color:#0aa;">Renderizar video H264</h3>
 
-                <button id="btn_processar" onclick="dispararProcessamento()"
-                    style="background:#800; color:#fff; border:1px solid #f00; padding:12px 20px; font-size:16px; font-weight:bold; cursor:pointer; width:100%; border-radius:5px; transition:0.3s;">GERAR
-                    MP4 (FFMPEG)</button>
+                <div style="display:flex; gap:10px; margin-bottom:15px;">
+                    <button id="btn_crop" onclick="iniciarCropVisual()" style="flex:1; background:#0055aa; color:#fff; border:1px solid #00aaff; padding:10px; font-weight:bold; cursor:pointer; border-radius:5px; transition:0.3s;">&#10025; DEFINIR CROP</button>
+                    <button id="btn_processar" onclick="dispararProcessamento()" style="flex:1; background:#800; color:#fff; border:1px solid #f00; padding:10px; font-weight:bold; cursor:pointer; border-radius:5px; transition:0.3s;">GERAR MP4</button>
+                </div>
 
                 <div id="status_lab"
                     style="margin-top:10px; font-size:14px; color:#ff0; display:none; border: 1px dashed #ff0; padding: 10px;">
@@ -85,6 +86,28 @@
         let isDrawing = false;
         let startX, startY;
         let modoCalibracao = false;
+        let modoCropWeb = false;
+
+        function iniciarCropVisual() {
+            if (modoCalibracao) return alert("Desative a calibração de pitch primeiro.");
+            modoCropWeb = !modoCropWeb;
+            const btn = document.getElementById('btn_crop');
+            
+            if (modoCropWeb) {
+                syncCanvasSize();
+                canvas.style.pointerEvents = 'auto';
+                canvas.style.cursor = 'crosshair';
+                wrapper.style.outline = '4px solid #00aaff';
+                btn.style.background = '#00aaff';
+                btn.innerText = 'DESENHE AGORA';
+            } else {
+                canvas.style.pointerEvents = 'none';
+                wrapper.style.outline = 'none';
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                btn.style.background = '#0055aa';
+                btn.innerText = '★ DEFINIR CROP';
+            }
+        }
 
         function syncCanvasSize() {
             // Sincroniza a resolução matemática do canvas com o tamanho físico da imagem na tela do seu navegador
@@ -245,7 +268,7 @@
 
         // Ações de Desenho do Mouse
         canvas.addEventListener('mousedown', (e) => {
-            if (!modoCalibracao) return;
+            if (!modoCalibracao && !modoCropWeb) return;
             isDrawing = true;
             const rect = canvas.getBoundingClientRect();
             startX = e.clientX - rect.left;
@@ -259,12 +282,23 @@
             const currentY = e.clientY - rect.top;
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.beginPath();
-            ctx.moveTo(startX, startY);
-            ctx.lineTo(currentX, currentY);
-            ctx.strokeStyle = '#00ff00';
-            ctx.lineWidth = 2;
-            ctx.stroke();
+            
+            if (modoCalibracao) {
+                ctx.beginPath();
+                ctx.moveTo(startX, startY);
+                ctx.lineTo(currentX, currentY);
+                ctx.strokeStyle = '#00ff00';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            } else if (modoCropWeb) {
+                const w = currentX - startX;
+                const h = currentY - startY;
+                ctx.strokeStyle = '#00aaff';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(startX, startY, w, h);
+                ctx.fillStyle = 'rgba(0, 170, 255, 0.2)';
+                ctx.fillRect(startX, startY, w, h);
+            }
         });
 
         canvas.addEventListener('mouseup', (e) => {
@@ -274,31 +308,59 @@
             const endX = e.clientX - rect.left;
             const endY = e.clientY - rect.top;
 
-            // 1. O painel completo de mosaico gerado no Python tem 1280x720.
-            const ratioX = 1280 / canvas.width;
-            const ratioY = 720 / canvas.height;
-
-            const distX_mosaico = Math.abs(endX - startX) * ratioX;
-            const distY_mosaico = Math.abs(endY - startY) * ratioY;
-
-            // 2. O Live View Colorido (onde você deve desenhar) ocupa um bloco de 640x420,
-            // que é um redimensionamento do sensor original.
             const escalaReversaX = (window.currentResW || 1080) / 640;
             const escalaReversaY = (window.currentResH || 720) / 420;
 
-            const distX_camera = distX_mosaico * escalaReversaX;
-            const distY_camera = distY_mosaico * escalaReversaY;
+            if (modoCalibracao) {
+                const ratioX = 1280 / canvas.width;
+                const ratioY = 720 / canvas.height;
+                const distX_mosaico = Math.abs(endX - startX) * ratioX;
+                const distY_mosaico = Math.abs(endY - startY) * ratioY;
+                const distX_camera = distX_mosaico * escalaReversaX;
+                const distY_camera = distY_mosaico * escalaReversaY;
+                const distRealPixels = Math.sqrt(Math.pow(distX_camera, 2) + Math.pow(distY_camera, 2));
 
-            const distRealPixels = Math.sqrt(Math.pow(distX_camera, 2) + Math.pow(distY_camera, 2));
-
-            const mm = prompt("Linha aferida! Qual a medida real em milímetros? (Pitch 35mm = 4.74)");
-
-            if (mm && !isNaN(mm) && mm > 0) {
-                fetch(`/calibrar?px=${distRealPixels}&mm=${mm}`).then(() => {
+                const mm = prompt("Linha aferida! Qual a medida real em milímetros? (Pitch 35mm = 4.74)");
+                if (mm && !isNaN(mm) && mm > 0) {
+                    fetch(`/calibrar?px=${distRealPixels}&mm=${mm}`).then(() => ctx.clearRect(0, 0, canvas.width, canvas.height));
+                } else {
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
-                });
-            } else {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                }
+            } else if (modoCropWeb) {
+                // Cálculo das proporções do retângulo para enviar ao Python
+                // O canvas ocupa fisicamente a imagem de 640x420, precisamos mapear de volta para a resolução real do sensor.
+                // Mas wait, canvas.width e canvas.height são iguais a videoImg.clientWidth.
+                // A imagem videoImg mostra o mosaico de 1280x720, onde o preview de 640x420 está no Top-Left (0 a 640, 0 a 420).
+                
+                const ratio_ui_x = 1280 / canvas.width;
+                const ratio_ui_y = 720 / canvas.height;
+                
+                const box_x_mosaic = Math.min(startX, endX) * ratio_ui_x;
+                const box_y_mosaic = Math.min(startY, endY) * ratio_ui_y;
+                const box_w_mosaic = Math.abs(endX - startX) * ratio_ui_x;
+                const box_h_mosaic = Math.abs(endY - startY) * ratio_ui_y;
+                
+                // Validação para garantir que o usuário não desenhou fora da área de Live View (640x420 do mosaico)
+                if (box_x_mosaic > 640 || box_y_mosaic > 420) {
+                    alert("Por favor, desenhe o Crop apenas dentro da área do Live View da câmera (Canto superior esquerdo).");
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    iniciarCropVisual();
+                    return;
+                }
+                
+                // Converter da coordenada 640x420 (mosaico) para a coordenada original (ex: 1420x880)
+                const real_x = box_x_mosaic * escalaReversaX;
+                const real_y = box_y_mosaic * escalaReversaY;
+                const real_w = box_w_mosaic * escalaReversaX;
+                const real_h = box_h_mosaic * escalaReversaY;
+                
+                if (confirm(`Aplicar Crop de ${Math.round(real_w)}x${Math.round(real_h)} pixels?`)) {
+                    fetch(`/set_crop?x=${real_x}&y=${real_y}&w=${real_w}&h=${real_h}`).then(() => {
+                        iniciarCropVisual(); // Desliga o modo e limpa a tela
+                    });
+                } else {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                }
             }
         });
     </script>

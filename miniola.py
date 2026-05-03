@@ -65,7 +65,8 @@ camera = get_camera_provider(args.camera)
 camera.start(RES_W, RES_H, fps_cam, shutter_speed, gain, foco_atual, CAM_OFFSET_X, CAM_OFFSET_Y)
 
 # Padrão Bayer Padrão (Pode ser alterado dinamicamente via painel)
-BAYER_MODE = cv2.COLOR_BayerBG2BGR
+# Mudando para RG2BGR porque o crop no sensor altera o alinhamento da matriz Bayer, causando a imagem rosa!
+BAYER_MODE = cv2.COLOR_BayerRG2BGR
 
 # --- GEOMETRIA DO ROI E ESTADO ---
 GRAVANDO = False
@@ -81,6 +82,7 @@ THRESH_VAL = 239 # Valor do threshold para binarização
 PITCH_PADRAO_PX = 195.0  # CALIBRE AQUI: Quantos pixels tem o pitch de um filme NOVO na sua lente?
 # --- PARÂMETROS DO CROP ---
 OFFSET_X = 470 
+OFFSET_Y_CROP = 0 # Deslocamento Y relativo à âncora (linha de gatilho)
 CROP_W, CROP_H = 918, 612 
 
 # --- EXTRAÇÃO DE ÁUDIO ÓTICO (CAPTURA AO VIVO) ---
@@ -258,6 +260,7 @@ def processo_escrita_disco(fila_in):
                 "cx": item.get("cx"),
                 "cy": item.get("cy"),
                 "ox": item.get("ox"),
+                "oy": item.get("oy"),
                 "cw": item.get("cw"),
                 "ch": item.get("ch"),
                 "pitch_inst": item.get("pitch_inst", -1.0)
@@ -265,9 +268,9 @@ def processo_escrita_disco(fila_in):
             arquivo_tracking.write(log_linha + "\n")
 
 def processar_captura(frame, cx_global, cy_global, n_frame, pitch_inst=-1.0):
-    global OFFSET_X, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
+    global OFFSET_X, OFFSET_Y_CROP, CROP_W, CROP_H, ultimo_crop_preview, GRAVANDO
     
-    fx, fy = cx_global + OFFSET_X, cy_global
+    fx, fy = cx_global + OFFSET_X, cy_global + OFFSET_Y_CROP
     x1, y1 = max(0, int(fx - (CROP_W // 2))), max(0, int(fy - (CROP_H // 2)))
     x2, y2 = min(frame.shape[1], x1 + CROP_W), min(frame.shape[0], y1 + CROP_H)
     
@@ -287,6 +290,7 @@ def processar_captura(frame, cx_global, cy_global, n_frame, pitch_inst=-1.0):
                         "cx": float(cx_global),
                         "cy": float(cy_global),
                         "ox": int(OFFSET_X),
+                        "oy": int(OFFSET_Y_CROP),
                         "cw": int(CROP_W),
                         "ch": int(CROP_H),
                         "pitch_inst": float(pitch_inst)
@@ -739,6 +743,36 @@ def generate_dashboard():
         _, buffer = cv2.imencode('.jpg', dashboard, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
+@app.route('/set_crop')
+def set_crop():
+    global OFFSET_X, OFFSET_Y_CROP, CROP_W, CROP_H
+    try:
+        x_web = float(request.args.get('x', 0))
+        y_web = float(request.args.get('y', 0))
+        w_web = float(request.args.get('w', 0))
+        h_web = float(request.args.get('h', 0))
+        
+        # Calcular centro do Crop na coordenada Web
+        cx_web = x_web + (w_web / 2)
+        cy_web = y_web + (h_web / 2)
+        
+        # O centro do furo na Web é aproximadamente ROI_X + ROI_W/2 e ROI_Y + LINHA_GATILHO_Y
+        cx_furo_web = ROI_X + (ROI_W / 2)
+        cy_furo_web = ROI_Y + LINHA_GATILHO_Y
+        
+        OFFSET_X = int(cx_web - cx_furo_web)
+        OFFSET_Y_CROP = int(cy_web - cy_furo_web)
+        CROP_W = int(w_web)
+        CROP_H = int(h_web)
+        
+        print(f"\n[GEOMETRIA] CROP AJUSTADO VISUALMENTE VIA WEB!")
+        print(f"-> Novo CROP: {CROP_W} x {CROP_H}")
+        print(f"-> Offsets da Âncora (Furo): X={OFFSET_X}, Y={OFFSET_Y_CROP}")
+        
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        return jsonify({"status": "error", "msg": str(e)})
+
 @app.route('/status')
 def get_status():
     cpu_percent, ram_percent, cpu_temp = 0.0, 0.0, 0.0
@@ -762,10 +796,10 @@ def get_status():
         "rec": "GRAVANDO" if GRAVANDO else "PARADO", "cor": "#ff0000" if GRAVANDO else "#00ff00",
         "ciclo": f"{contador_perfs_ciclo}/4", "total": frame_count, "fps_proc": f"{fps_real_proc:.1f} FPS", "ms_ciclo": f"{tempo_ms_ciclo:.1f} ms",
         "queue": fila_gravacao.qsize(), "arquivos": total_arquivos, "espaco": f"{espaco_livre_mb:.0f}MB", "foco": f"{foco_atual:.2f}",
-        "exp": shutter_speed, "gain": f"{gain:.1f}", "fps_cam": fps_cam, "shrink": f"{encolhimento_atual_pct:.1f}%",
+        "exp": shutter_speed, "gain": f"{gain:.1f}", "fps_cam": fps_cam, "shrink": f"{encolhimento_atual_pct:.2f}%",
         "calibrando": CALIBRANDO, "thresh": THRESH_VAL,
         "roi_x": ROI_X, "roi_y": ROI_Y, "roi_w": ROI_W, "roi_h": ROI_H, "crop_w": CROP_W, "crop_h": CROP_H, "ox": OFFSET_X,
-        "gatilho_y": LINHA_GATILHO_Y, "margem": MARGEM_GATILHO, "res_w": RES_W, "res_h": RES_H, "fps_projecao": FPS_PROJECAO,
+        "oy": OFFSET_Y_CROP, "gatilho_y": LINHA_GATILHO_Y, "margem": MARGEM_GATILHO, "res_w": RES_W, "res_h": RES_H, "fps_projecao": FPS_PROJECAO,
         "motor_cor": "PIL/RGB" if HAS_PIL else "cv2/BGR-fallback",
     }
 

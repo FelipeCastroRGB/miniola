@@ -531,24 +531,27 @@ def render_stabilized_video_stream(
             
             if track:
                 cy, ox = track["cy"], track["ox"]
+                oy = track.get("oy", 0) # Fallback para vídeos gravados antes do Crop Dinâmico
+                cw, ch = track.get("cw", crop_w), track.get("ch", crop_h)
                 pitch_inst = track.get("pitch_inst", -1.0)
                 if pitch_padrao > 0 and pitch_inst > 0:
                     scale_y = pitch_padrao / pitch_inst
             else:
                 # Fallback no centro se faltar tracking
-                cy, ox = img.shape[0] / 2, 0
+                cy, ox, oy = img.shape[0] / 2, 0, 0
                 cx = img.shape[1] / 2
+                cw, ch = crop_w, crop_h
                 
-            center_x, center_y = cx + ox, cy
+            center_x, center_y = cx + ox, cy + oy
             
             # Matriz Afim: Translação X, e (Escala Y + Translação Y)
             # Para que o center_y original caia exatamente no meio do crop_h após o redimensionamento.
-            tx = crop_w / 2.0 - center_x
-            ty = crop_h / 2.0 - (scale_y * center_y)
+            tx = cw / 2.0 - center_x
+            ty = ch / 2.0 - (scale_y * center_y)
             
             # warpAffine aplica shift sub-pixel e correção de stretch do rolling shutter ao mesmo tempo!
             M = np.float32([[1.0, 0.0, tx], [0.0, scale_y, ty]])
-            dst = cv2.warpAffine(img, M, (crop_w, crop_h), flags=cv2.INTER_LINEAR)
+            dst = cv2.warpAffine(img, M, (cw, ch), flags=cv2.INTER_LINEAR)
             
             proc.stdin.write(dst.tobytes())
     finally:

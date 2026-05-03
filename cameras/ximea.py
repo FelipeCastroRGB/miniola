@@ -20,13 +20,11 @@ class XimeaAdapter(CameraProvider):
             # ATIVANDO CORES NO MODO RAW!
             # Para não ficar desbotado/cinza, ligamos o White Balance direto no sensor de hardware.
             try:
-                self.cam.set_param('auto_wb', 1) # Tenta ligar WB Automático
-            except:
-                try:
-                    # Se falhar o automático, forçamos um ganho manual (Red e Blue)
-                    self.cam.set_param('wb_kr', 1.0) # Booster de Vermelho
-                    self.cam.set_param('wb_kb', 1.0) # Booster de Azul
-                except: pass
+                self.cam.set_param('auto_wb', 0) # Desliga WB Automático para evitar Flicker de Cor
+                self.cam.set_param('wb_kr', 1.5) # Booster de Vermelho (estimativa de filme incandescente/padrão)
+                self.cam.set_param('wb_kg', 1.0) # Booster de Verde
+                self.cam.set_param('wb_kb', 1.5) # Booster de Azul
+            except: pass
             
             # Limite de Banda Extremo (2000 Mbps) para atingir os 160 FPS
             # Estamos tirando o limite de 1500 para permitir a taxa maciça de dados do RAW8.
