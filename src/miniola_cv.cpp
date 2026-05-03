@@ -334,8 +334,13 @@ public:
                         }
                     }
                     
-                    // ÂNCORA VERTICAL DETERMINÍSTICA:
-                    cy_a = (long)(roi_rect.y + linha_gatilho_y);
+                    // ÂNCORA VERTICAL DE ALTA PRECISÃO (Sub-pixel PLL Tracking):
+                    // Para absorver os DROPS de frame da USB, o crop não pode ser fixo.
+                    // Se o frame atrasou 30ms, o filme andou. O 'erro_fase' contém exatamente 
+                    // a quantidade de pixels que o filme "passou" da linha de gatilho nesse atraso!
+                    // Subtraindo o erro_fase (que é negativo após cruzar), nós empurramos 
+                    // o crop exatamente para onde o buraco foi parar, mantendo o quadro perfeitamente imóvel!
+                    cy_a = (long)std::round((linha_gatilho_y + roi_rect.y) - erro_fase);
                     capturar = true;
                     contador_perfs_ciclo = 0;
                 }
