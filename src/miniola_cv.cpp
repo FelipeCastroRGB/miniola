@@ -329,7 +329,7 @@ public:
         result["encolhimento_atual_pct"] = encolhimento_atual_pct;
         result["ultimo_pitch_medio"] = ultimo_pitch_medio;
         result["pitch_instantaneo"] = ultimo_pitch_instantaneo;
-        result["achou_furo"] = furo_detectado_agora;
+        result["achou_furo"] = furo_na_zona_agora;
         result["audio_chunk"] = audio_numpy; 
         
         return result;
