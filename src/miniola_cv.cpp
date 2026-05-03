@@ -20,8 +20,9 @@ private:
     // Tracking para o Virtual Rotary Encoder (Audio)
     double last_perf_y = -1.0;
     
-    // Spatial Debounce (Gatilho Imune a Velocidade)
-    double ultimo_furo_rastreado_y = -1000.0;
+    // Gatilho de Fase Circular (PLL - Phase-Locked Loop)
+    bool gatilho_fase_armado = false;
+    double last_erro_fase = 0.0;
     
     // Tracking de Autocorrelação (Auto-Stitching)
     std::vector<float> audio_tail;
@@ -250,102 +251,100 @@ public:
         }
         // --- FIM DO AUDIO LINE-SCANNER ---
 
-        // --- DETECÇÃO DE BORDA E SPATIAL DEBOUNCE ---
+        // --- DETECÇÃO DE BORDA VIA FASE CIRCULAR (PLL) ---
+        // Em vez de rastrear furos individuais que podem sumir e confundir o sistema,
+        // nós tratamos a película inteira como uma onda contínua.
+        // Calculamos a "Fase" média da onda (0 a pitch_padrao) baseada em todos os furos visíveis.
         
-        // 1. Rastreamento espacial: usa cy_g (posição GLOBAL no frame)
-        //    Cada perfuração tem um cy_g único. cy_roi é inútil aqui pois
-        //    todos os furos que cruzam a linha de gatilho têm cy_roi ≈ linha_gatilho_y.
-        if (ultimo_furo_rastreado_y > -500.0) {
-            double min_dist = 1e9;
-            double melhor_cy_g = -1000.0;
+        double fase_filme = -1.0;
+        bool furo_na_zona_agora = false;
+        
+        if (!furos_validos.empty()) {
+            furo_na_zona_agora = true; // Simplificação para a UI Python
+            
+            double soma_seno = 0.0;
+            double soma_cosseno = 0.0;
+            
             for (const auto& f : furos_validos) {
-                double dist = std::abs(f.cy_g - ultimo_furo_rastreado_y);
-                if (dist < min_dist) {
-                    min_dist = dist;
-                    melhor_cy_g = f.cy_g;
-                }
+                // Mapeia o cy_global do furo para um ângulo na circunferência do Pitch
+                double angulo = (f.cy_g / pitch_padrao) * 2.0 * M_PI;
+                soma_seno += std::sin(angulo);
+                soma_cosseno += std::cos(angulo);
             }
-            // Atualiza seguindo o furo enquanto ele desce na tela
-            if (min_dist < pitch_padrao * 0.4) {
-                ultimo_furo_rastreado_y = melhor_cy_g;
-            }
+            
+            // Tira a média dos ângulos (isso imuniza o sistema contra furos sumindo e encolhimentos locais!)
+            double angulo_medio = std::atan2(soma_seno, soma_cosseno);
+            if (angulo_medio < 0) angulo_medio += 2.0 * M_PI;
+            
+            // Converte de volta para pixels na régua da Fase
+            fase_filme = (angulo_medio / (2.0 * M_PI)) * pitch_padrao;
         }
         
-        // 2. Procura o furo MAIS PRÓXIMO da linha de gatilho
-        bool furo_na_zona_agora = false;
         long cx_a = -1, cy_a = -1;
         bool capturar = false;
         
-        const Furo* melhor_furo = nullptr;
-        double menor_dist = 1e9;
-        for (const auto& f : furos_validos) {
-            if (f.acionou) {
-                double dist = std::abs(f.cy_roi - linha_gatilho_y);
-                if (dist < menor_dist) {
-                    menor_dist = dist;
-                    melhor_furo = &f;
-                }
+        // A Linha de Gatilho também tem uma Fase fixa
+        double fase_gatilho = std::fmod((double)(linha_gatilho_y + roi_rect.y), pitch_padrao);
+        
+        if (fase_filme >= 0) {
+            double erro_fase = fase_gatilho - fase_filme;
+            
+            // Normaliza o erro para o caminho mais curto [-pitch/2 a +pitch/2]
+            while (erro_fase < -(pitch_padrao * 0.5)) erro_fase += pitch_padrao;
+            while (erro_fase >=  (pitch_padrao * 0.5)) erro_fase -= pitch_padrao;
+            
+            // Histerese Matemática: Arma o gatilho quando a fase do filme está "atrás" 
+            // da linha de gatilho em pelo menos 15% do pitch (ex: ~40 pixels de distância).
+            if (erro_fase > pitch_padrao * 0.15) {
+                gatilho_fase_armado = true;
             }
-        }
-        
-        if (melhor_furo != nullptr) {
-            furo_na_zona_agora = true;
-        }
-        
-        // 3. Gatilho Espacial: compara cy_g (global) para distinguir perfurações distintas
-        if (furo_na_zona_agora) {
-            double dist_para_ultimo_tiro = std::abs(melhor_furo->cy_g - ultimo_furo_rastreado_y);
             
-            // É um FURO NOVO se sua posição global for diferente do último furo registrado
-            // (> 50% do pitch = ~134px de diferença global → impossível ser o mesmo furo)
-            bool furo_novo = (ultimo_furo_rastreado_y < -500.0) || (dist_para_ultimo_tiro > pitch_padrao * 0.5);
-            
-            if (furo_novo) {
+            // DISPARO: Ocorre exatamente quando o erro cruza o zero (de positivo para negativo).
+            // Isso significa que a fase do filme acabou de ultrapassar a fase do gatilho!
+            if (gatilho_fase_armado && last_erro_fase > 0 && erro_fase <= 0) {
+                gatilho_fase_armado = false; // Desarma
                 perfuracao_na_linha = true;
                 contador_perfs_ciclo++;
-                // Ancora o rastreador na posição GLOBAL deste furo
-                ultimo_furo_rastreado_y = melhor_furo->cy_g;
-            
-            if(contador_perfs_ciclo >= 4) {
-                int qtd = std::min(4, (int)furos_validos.size());
                 
-                long sum_cx = 0;
-                for(int i=0; i<qtd; i++) sum_cx += furos_validos[i].cx_g;
-                cx_a = sum_cx / qtd;
-                
-                if(qtd > 1) {
-                    double soma_pitch = 0;
-                    for(int i=1; i<qtd; i++) soma_pitch += (furos_validos[i].cy_g - furos_validos[i-1].cy_g);
-                    double pitch_instantaneo = soma_pitch / (qtd - 1);
-                    ultimo_pitch_instantaneo = pitch_instantaneo;
+                if(contador_perfs_ciclo >= 4) {
+                    int qtd = std::min(4, (int)furos_validos.size());
                     
-                    if(pitch_instantaneo > 0) {
-                        buffer_pitches.push_back(pitch_instantaneo);
-                        if(buffer_pitches.size() >= 10) {
-                            double p_medio = 0;
-                            for(auto p : buffer_pitches) p_medio += p;
-                            ultimo_pitch_medio = p_medio / buffer_pitches.size();
-                            
-                            double calc_pct = (1.0 - (ultimo_pitch_medio / pitch_padrao)) * 100.0;
-                            encolhimento_atual_pct = std::max(-5.0, std::min(10.0, calc_pct));
-                            buffer_pitches.clear();
+                    long sum_cx = 0;
+                    for(int i=0; i<qtd; i++) sum_cx += furos_validos[i].cx_g;
+                    cx_a = sum_cx / std::max(1, qtd);
+                    
+                    // Cálculo do pitch dinâmico (mantido do legado Python para telemetria)
+                    if(qtd > 1) {
+                        double soma_pitch = 0;
+                        for(int i=1; i<qtd; i++) soma_pitch += (furos_validos[i].cy_g - furos_validos[i-1].cy_g);
+                        double pitch_instantaneo = soma_pitch / (qtd - 1);
+                        ultimo_pitch_instantaneo = pitch_instantaneo;
+                        
+                        if(pitch_instantaneo > 0) {
+                            buffer_pitches.push_back(pitch_instantaneo);
+                            if(buffer_pitches.size() >= 10) {
+                                double p_medio = 0;
+                                for(auto p : buffer_pitches) p_medio += p;
+                                ultimo_pitch_medio = p_medio / buffer_pitches.size();
+                                
+                                double calc_pct = (1.0 - (ultimo_pitch_medio / pitch_padrao)) * 100.0;
+                                encolhimento_atual_pct = std::max(-5.0, std::min(10.0, calc_pct));
+                                buffer_pitches.clear();
+                            }
                         }
                     }
+                    
+                    // ÂNCORA VERTICAL DETERMINÍSTICA:
+                    cy_a = (long)(roi_rect.y + linha_gatilho_y);
+                    capturar = true;
+                    contador_perfs_ciclo = 0;
                 }
-                
-                // ÂNCORA VERTICAL DETERMINÍSTICA:
-                // cy_a é SEMPRE a mesma linha absoluta no frame: roi_rect.y + linha_gatilho_y
-                // Isso elimina o drift causado pelo furo disparar em posições diferentes da zona a cada captura.
-                // O furo pode estar em qualquer ponto da zona quando dispara, mas o crop sempre
-                // é ancorado na mesma linha geométrica — resultando em estabilização perfeita.
-                cy_a = (long)(roi_rect.y + linha_gatilho_y);
-                capturar = true;
-                contador_perfs_ciclo = 0;
+            } else {
+                perfuracao_na_linha = false;
             }
-        } // Fecha: if (dist_para_ultimo_tiro > pitch_padrao * 0.5)
-    } // Fecha: if (furo_na_zona_agora)
-        
-        if (!furo_na_zona_agora) {
+            
+            last_erro_fase = erro_fase;
+        } else {
             perfuracao_na_linha = false;
         }
         
@@ -376,7 +375,8 @@ public:
     void reset_ciclo() {
         contador_perfs_ciclo = 0;
         last_perf_y = -1.0;
-        ultimo_furo_rastreado_y = -1000.0;
+        gatilho_fase_armado = false;
+        last_erro_fase = 0.0;
         audio_tail.clear();
     }
 };
