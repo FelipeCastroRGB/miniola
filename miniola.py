@@ -368,7 +368,7 @@ def painel_controle():
                     elif modo == 1: BAYER_MODE = cv2.COLOR_BayerGB2BGR
                     elif modo == 2: BAYER_MODE = cv2.COLOR_BayerRG2BGR
                     elif modo == 3: BAYER_MODE = cv2.COLOR_BayerGR2BGR
-                    fila_escrita.put({"type": "set_bayer", "mode": BAYER_MODE})
+                    fila_gravacao.put({"type": "set_bayer", "mode": BAYER_MODE})
                     print(f"[COR] Padrão Bayer alterado para o modo {modo}")
             elif cmd == 'wb':
                 if len(entrada) >= 3:
@@ -764,6 +764,11 @@ def set_crop():
         OFFSET_Y_CROP = int(cy_web - cy_furo_web)
         CROP_W = int(w_web)
         CROP_H = int(h_web)
+        
+        # O encoder H264 (libx264) EXIGE que a largura e altura sejam números pares (divisíveis por 2)
+        # por causa do subsampling de chroma (YUV420p). Se não for, o FFmpeg crasha.
+        if CROP_W % 2 != 0: CROP_W += 1
+        if CROP_H % 2 != 0: CROP_H += 1
         
         print(f"\n[GEOMETRIA] CROP AJUSTADO VISUALMENTE VIA WEB!")
         print(f"-> Novo CROP: {CROP_W} x {CROP_H}")
