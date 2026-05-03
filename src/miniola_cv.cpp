@@ -20,9 +20,8 @@ private:
     // Tracking para o Virtual Rotary Encoder (Audio)
     double last_perf_y = -1.0;
     
-    // Estado anterior da zona de gatilho (para deteção de borda RISING EDGE)
-    bool prev_perf_in_zone = false;
-    int frames_zona_vazia = 0; // Debounce: quantos frames consecutivos a zona está vazia
+    // Spatial Debounce (Gatilho Imune a Velocidade)
+    double ultimo_furo_rastreado_y = -1000.0;
     
     // Tracking de Autocorrelação (Auto-Stitching)
     std::vector<float> audio_tail;
@@ -251,8 +250,26 @@ public:
         }
         // --- FIM DO AUDIO LINE-SCANNER ---
 
-        // --- DETECÇÃO DE BORDA (RISING EDGE) ---
-        // Procura o furo MAIS PRÓXIMO da linha de gatilho (não apenas o [0] que é o mais ao topo)
+        // --- DETECÇÃO DE BORDA E SPATIAL DEBOUNCE ---
+        
+        // 1. Tenta atualizar a posição do furo que já foi disparado
+        if (ultimo_furo_rastreado_y > -500.0) {
+            double min_dist = 1e9;
+            double melhor_y = -1000.0;
+            for (const auto& f : furos_validos) {
+                double dist = std::abs(f.cy_roi - ultimo_furo_rastreado_y);
+                if (dist < min_dist) {
+                    min_dist = dist;
+                    melhor_y = f.cy_roi;
+                }
+            }
+            // Se o furo está por perto, atualiza a posição dele (sobrevive a flickers e saltos rápidos)
+            if (min_dist < pitch_padrao * 0.4) {
+                ultimo_furo_rastreado_y = melhor_y;
+            }
+        }
+        
+        // 2. Procura o furo MAIS PRÓXIMO da linha de gatilho
         bool furo_na_zona_agora = false;
         long cx_a = -1, cy_a = -1;
         bool capturar = false;
@@ -273,10 +290,19 @@ public:
             furo_na_zona_agora = true;
         }
         
-        // Detecção de RISING EDGE: só conta quando a zona TRANSICIONA de vazia para ocupada
-        if (furo_na_zona_agora && !prev_perf_in_zone) {
-            perfuracao_na_linha = true;
-            contador_perfs_ciclo++;
+        // 3. O "Gatilho Inteligente" (Spatial Debounce)
+        if (furo_na_zona_agora) {
+            // Verifica se este furo É O MESMO que já atirou antes
+            double dist_para_ultimo_tiro = std::abs(melhor_furo->cy_roi - ultimo_furo_rastreado_y);
+            
+            // Se a distância for GRANDE (> 50% do pitch), é garantido que é um FURO NOVO!
+            // (Mesmo que o filme esteja super rápido ou que a câmera tenha "piscado" no escuro)
+            if (dist_para_ultimo_tiro > pitch_padrao * 0.5) {
+                perfuracao_na_linha = true;
+                contador_perfs_ciclo++;
+                
+                // Agora ESTE furo passa a ser o furo rastreado (para não atirar nele de novo enquanto estiver na zona)
+                ultimo_furo_rastreado_y = melhor_furo->cy_roi;
             
             if(contador_perfs_ciclo >= 4) {
                 int qtd = std::min(4, (int)furos_validos.size());
@@ -317,16 +343,7 @@ public:
         }
         
         if (!furo_na_zona_agora) {
-            frames_zona_vazia++;
-            // Só considera a zona "limpa" após 3 frames consecutivos sem furo
-            // Isso evita RISING EDGE duplo causado por ruido/flickering do RAW8
-            if (frames_zona_vazia >= 3) {
-                perfuracao_na_linha = false;
-                prev_perf_in_zone = false;
-            }
-        } else {
-            frames_zona_vazia = 0;
-            prev_perf_in_zone = true;
+            perfuracao_na_linha = false;
         }
         
         py::array_t<uint8_t> result_array({binary_small.rows, binary_small.cols});
@@ -356,6 +373,7 @@ public:
     void reset_ciclo() {
         contador_perfs_ciclo = 0;
         last_perf_y = -1.0;
+        ultimo_furo_rastreado_y = -1000.0;
         audio_tail.clear();
     }
 };
