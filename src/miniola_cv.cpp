@@ -267,15 +267,41 @@ public:
         long cx_a = -1, cy_a = -1;
         bool capturar = false;
         
+        // 0. Limpeza Antirruído: Se a sujeira quebrar um furo em dois na projeção 1D, nós os fundimos novamente.
+        std::vector<Furo> furos_limpos;
+        for (const auto& f : furos_validos) {
+            if (furos_limpos.empty()) {
+                furos_limpos.push_back(f);
+            } else {
+                Furo& last_f = furos_limpos.back();
+                // Se a distância entre dois furos for menor que 50% do pitch padrão, é o mesmo furo quebrado!
+                if (std::abs(f.cy_g - last_f.cy_g) < pitch_padrao * 0.5) {
+                    // Funde os dois furos (faz a média das posições)
+                    last_f.cy_g = (last_f.cy_g + f.cy_g) / 2.0;
+                    last_f.cy_roi = (last_f.cy_roi + f.cy_roi) / 2.0;
+                    last_f.cx_g = (last_f.cx_g + f.cx_g) / 2.0;
+                    // Atualiza o bounding box para envolver os dois pedaços
+                    int new_y = std::min(last_f.rect.y, f.rect.y);
+                    int new_bottom = std::max(last_f.rect.y + last_f.rect.height, f.rect.y + f.rect.height);
+                    last_f.rect.y = new_y;
+                    last_f.rect.height = new_bottom - new_y;
+                } else {
+                    furos_limpos.push_back(f);
+                }
+            }
+        }
+        furos_validos = furos_limpos;
+        
         // 1. Atualiza o Pitch Dinâmico a cada frame (se houver mais de 1 furo visível)
         int qtd = furos_validos.size();
         if(qtd > 1) {
             double soma_pitch = 0;
             for(int i=1; i<qtd; i++) soma_pitch += (furos_validos[i].cy_g - furos_validos[i-1].cy_g);
             double pitch_instantaneo = soma_pitch / (qtd - 1);
-            ultimo_pitch_instantaneo = pitch_instantaneo;
             
-            if(pitch_instantaneo > 0) {
+            // Trava de Segurança: Só aceita o pitch se ele fizer sentido fisicamente (+- 20% do padrão)
+            if(pitch_instantaneo > pitch_padrao * 0.8 && pitch_instantaneo < pitch_padrao * 1.2) {
+                ultimo_pitch_instantaneo = pitch_instantaneo;
                 buffer_pitches.push_back(pitch_instantaneo);
                 if(buffer_pitches.size() >= 10) { // Média móvel a cada 10 leituras válidas
                     double p_medio = 0;
