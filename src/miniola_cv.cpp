@@ -77,8 +77,14 @@ public:
         cv::resize(roi_gray, roi_small, cv::Size(), 0.5, 0.5, cv::INTER_NEAREST);
         cv::threshold(roi_small, binary_small, thresh_val, 255, cv::THRESH_BINARY);
         
-        int limite_superior = linha_gatilho_y - margem_gatilho;
-        int limite_inferior = linha_gatilho_y + margem_gatilho;
+        // Histerese Espacial (Schmitt Trigger) para imunidade absoluta a vibração manual!
+        // Se a zona já estava armada, usamos a margem LARGA (Outer) para não perdê-la na trepidação.
+        // Se a zona estava desarmada, usamos a margem ESTREITA (Inner) para disparar com precisão.
+        int margem_inner = std::max(10, margem_gatilho / 2);
+        int margem_outer = margem_gatilho;
+        
+        int limite_superior = prev_perf_in_zone ? (linha_gatilho_y - margem_outer) : (linha_gatilho_y - margem_inner);
+        int limite_inferior = prev_perf_in_zone ? (linha_gatilho_y + margem_outer) : (linha_gatilho_y + margem_inner);
         
         struct Furo {
             double cy_roi;
@@ -317,17 +323,11 @@ public:
         }
         
         if (!furo_na_zona_agora) {
-            frames_zona_vazia++;
-            // Só considera a zona "limpa" após 3 frames consecutivos sem furo
-            // Isso evita RISING EDGE duplo causado por ruido/flickering do RAW8
-            if (frames_zona_vazia >= 3) {
-                perfuracao_na_linha = false;
-                prev_perf_in_zone = false;
-            }
-        } else {
-            frames_zona_vazia = 0;
-            prev_perf_in_zone = true;
+            perfuracao_na_linha = false;
         }
+        
+        // Atualiza o estado da Histerese Espacial
+        prev_perf_in_zone = furo_na_zona_agora;
         
         py::array_t<uint8_t> result_array({binary_small.rows, binary_small.cols});
         py::buffer_info buf_res = result_array.request();
