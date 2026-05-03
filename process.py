@@ -451,6 +451,7 @@ def render_stabilized_video_stream(
     frames: list[Path],
     tracking_data: dict[int, dict],
     fps: float,
+    disable_rs_comp: bool,
     outputs: list[tuple[Path, str]],
 ):
     """Lê frames, recorta e alinha perfeitamente usando sub-pixel warpAffine, e envia pro ffmpeg via pipe."""
@@ -497,8 +498,10 @@ def render_stabilized_video_stream(
         print("[WARN] Scipy não instalado. Filtro de suavização no Eixo X ignorado.")
     
     print(f"[ESTABILIZAÇÃO] Iniciando ancoragem na perfuração. Crop: {crop_w}x{crop_h}")
-    if pitch_padrao > 0:
+    if pitch_padrao > 0 and not disable_rs_comp:
         print(f"[ESTABILIZAÇÃO] Compensação de Rolling Shutter ativada (Pitch Padrão: {pitch_padrao:.2f}px)")
+    elif disable_rs_comp:
+        print(f"[ESTABILIZAÇÃO] Compensação de Rolling Shutter DESATIVADA (Modo Global Shutter).")
 
     # Monta comando FFmpeg recebendo RAW de stdin e gerando MÚLTIPLAS saídas simultâneas
     cmd = [
@@ -533,8 +536,11 @@ def render_stabilized_video_stream(
                 cy, ox = track["cy"], track["ox"]
                 oy = track.get("oy", 0) # Fallback para vídeos gravados antes do Crop Dinâmico
                 cw, ch = track.get("cw", crop_w), track.get("ch", crop_h)
+                
+                # Para sensores Rolling Shutter (ex: Raspberry Pi V3), usamos o stretch vertical.
+                # Para sensores Global Shutter (ex: XIMEA), desativamos para evitar "vertical breathing".
                 pitch_inst = track.get("pitch_inst", -1.0)
-                if pitch_padrao > 0 and pitch_inst > 0:
+                if pitch_padrao > 0 and pitch_inst > 0 and not disable_rs_comp:
                     scale_y = pitch_padrao / pitch_inst
             else:
                 # Fallback no centro se faltar tracking
@@ -593,6 +599,11 @@ def parse_args() -> argparse.Namespace:
         "--extract-audio",
         action="store_true",
         help="Extrai áudio da trilha ótica e salva WAV (prioriza sidecar ao vivo, fallback em ROI).",
+    )
+    parser.add_argument(
+        "--disable-rs-comp",
+        action="store_true",
+        help="Desativa compensação de Rolling Shutter (Ideal para câmeras Global Shutter como XIMEA).",
     )
     parser.add_argument(
         "--audio-roi",
@@ -722,7 +733,8 @@ def main() -> int:
                 output_path = output_dir / f"{args.name}_{timestamp}.{extension_map[output_type]}"
                 plan_outputs.append((output_path, output_type))
                 outputs.append(output_path)
-            render_stabilized_video_stream(ffmpeg, frames, tracking_data, args.fps, plan_outputs)
+        
+            render_stabilized_video_stream(ffmpeg, frames, tracking_data, args.fps, args.disable_rs_comp, plan_outputs)
         else:
             print("[INFO] Sem telemetria detectada. Processando concatenação nativa rápida.")
             for output_type in output_types:

@@ -305,8 +305,12 @@ def disparar_processamento():
     PROCESSANDO_VIDEO = True
     print("\n[Compilador FFmpeg iniciado e Scanner pausado")
     try:
+        cmd = [sys.executable, "process.py", "--fps", str(FPS_PROJECAO), "--extract-audio"]
+        if args.camera == "ximea":
+            cmd.append("--disable-rs-comp")
+            
         proc = subprocess.run(
-            [sys.executable, "process.py", "--fps", str(FPS_PROJECAO), "--extract-audio"],
+            cmd,
             capture_output=True,
             text=True,
         )
