@@ -289,16 +289,14 @@ public:
                             buffer_pitches.clear();
                         }
                     }
-                    
-                    double soma_centros_y = 0;
-                    for(int i=0; i<qtd; i++) {
-                        double multiplicador = 1.5 - (double)i;
-                        soma_centros_y += ((double)furos_validos[i].cy_g + (multiplicador * pitch_instantaneo));
-                    }
-                    cy_a = std::round(soma_centros_y / qtd);
-                } else {
-                    cy_a = melhor_furo->cy_g + 150;
                 }
+                
+                // Âncora de estabilização: cy_a é SEMPRE a posição global do furo que cruzou a linha de gatilho.
+                // Como o RISING EDGE só dispara quando o furo entra na zona, melhor_furo->cy_g
+                // representa um ponto CONSISTENTE e REPETÍVEL no ciclo do filme.
+                // Isso elimina a deriva causada pela fórmula antiga que dependia de furos_validos[0]
+                // (que muda de posição dependendo de quantos furos estão visíveis no frame).
+                cy_a = (long)std::round(melhor_furo->cy_g);
                 capturar = true;
                 contador_perfs_ciclo = 0;
             }
