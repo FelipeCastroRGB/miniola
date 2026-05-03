@@ -22,6 +22,7 @@ private:
     
     // Estado anterior da zona de gatilho (para deteção de borda RISING EDGE)
     bool prev_perf_in_zone = false;
+    int frames_zona_vazia = 0; // Debounce: quantos frames consecutivos a zona está vazia
     
     // Tracking de Autocorrelação (Auto-Stitching)
     std::vector<float> audio_tail;
@@ -69,12 +70,12 @@ public:
             roi_gray = roi_color;
         }
         
+        // --- INÍCIO DA PROJEÇÃO 1D HÍBRIDA ---
+        
+        // Mantemos a imagem pequena apenas para preview no painel UI (reduz uso de banda de vídeo)
         cv::Mat roi_small;
         cv::resize(roi_gray, roi_small, cv::Size(), 0.5, 0.5, cv::INTER_NEAREST);
         cv::threshold(roi_small, binary_small, thresh_val, 255, cv::THRESH_BINARY);
-        
-        std::vector<std::vector<cv::Point>> contours;
-        cv::findContours(binary_small, contours, cv::RETR_LIST, cv::CHAIN_APPROX_SIMPLE);
         
         int limite_superior = linha_gatilho_y - margem_gatilho;
         int limite_inferior = linha_gatilho_y + margem_gatilho;
@@ -90,50 +91,63 @@ public:
         std::vector<Furo> furos_validos;
         py::list debug_visual;
         
-        for(size_t i = 0; i < contours.size(); i++) {
-            cv::Rect rect_small = cv::boundingRect(contours[i]);
+        // 1. Binarização na resolução total para máxima precisão na projeção
+        cv::Mat binary_full;
+        cv::threshold(roi_gray, binary_full, thresh_val, 255, cv::THRESH_BINARY);
+        
+        // 2. Scanline Profiling: Conta pixels brancos por linha
+        int min_width_px = std::max(2, binary_full.cols / 10); // Tolerância a sujeira (ex: mín 8px para ROI de 80px)
+        bool in_hole = false;
+        int start_y = 0;
+        
+        for (int y = 0; y < binary_full.rows; ++y) {
+            int count_white = 0;
+            const uint8_t* ptr = binary_full.ptr<uint8_t>(y);
+            for (int x = 0; x < binary_full.cols; ++x) {
+                if (ptr[x] > 0) count_white++;
+            }
             
-            // Escala o Bounding Box de volta para Alta Resolução (1.0x)
-            cv::Rect rect(rect_small.x * 2, rect_small.y * 2, rect_small.width * 2, rect_small.height * 2);
+            bool is_bright = count_white >= min_width_px;
             
-            // Proteção de limites da matriz
-            rect.x = std::max(0, rect.x);
-            rect.y = std::max(0, rect.y);
-            rect.width = std::min(rect.width, roi_gray.cols - rect.x);
-            rect.height = std::min(rect.height, roi_gray.rows - rect.y);
-            
-            if (rect.width <= 0 || rect.height <= 0) continue;
-            
-            double w_s = rect.width;
-            double h_s = rect.height;
-            double area_aprox = w_s * h_s;
-            
-            // Filtro morfológico
-            if(area_aprox > 200 && area_aprox < 10000 && (w_s/h_s) > 0.2 && (w_s/h_s) < 2.5) {
+            // Força fechamento se o furo encostar no rodapé do ROI
+            if (y == binary_full.rows - 1 && in_hole && is_bright) {
+                is_bright = false;
+            }
+
+            if (is_bright && !in_hole) {
+                in_hole = true;
+                start_y = y;
+            } else if (!is_bright && in_hole) {
+                in_hole = false;
+                int end_y = y - 1;
+                int h = end_y - start_y + 1;
                 
-                // Rastreamento Sub-pixel Espacial de Alta Precisão!
-                // Em vez de calcular os momentos na imagem pequena, cortamos o quadrado exato
-                // da imagem em alta resolução e calculamos o centro de massa sub-pixel lá.
-                cv::Mat perf_crop = roi_gray(rect);
-                cv::Mat perf_bin;
-                cv::threshold(perf_crop, perf_bin, thresh_val, 255, cv::THRESH_BINARY);
-                cv::Moments M = cv::moments(perf_bin, true); // true = imagem binária
-                
-                double cx_roi = (M.m00 != 0) ? (M.m10 / M.m00) + rect.x : (rect.x + rect.width / 2.0);
-                double cy_roi = (M.m00 != 0) ? (M.m01 / M.m00) + rect.y : (rect.y + rect.height / 2.0);
-                
-                double cx_global = cx_roi + roi_rect.x;
-                double cy_global = cy_roi + roi_rect.y;
-                
-                bool acionou = (cy_roi >= limite_superior && cy_roi <= limite_inferior);
-                furos_validos.push_back({cy_roi, cx_global, cy_global, acionou, rect});
-                
-                py::dict debug_item;
-                debug_item["rect"] = py::make_tuple(rect.x + roi_rect.x, rect.y + roi_rect.y, rect.width, rect.height);
-                debug_item["color"] = acionou ? py::make_tuple(0, 0, 255) : py::make_tuple(0, 255, 0); 
-                debug_visual.append(debug_item);
+                // Filtro 1D super robusto: basta ter entre 10 e 150 pixels de altura
+                if (h >= 10 && h <= std::max(150, binary_full.rows / 2)) {
+                    
+                    cv::Rect rect(0, start_y, binary_full.cols, h);
+                    
+                    // 3. O TIRO DE PRECISÃO: Momentos 2D sub-pixel apenas dentro da "gaiola" 1D
+                    cv::Mat perf_crop = binary_full(rect); // Já temos a binária!
+                    cv::Moments M = cv::moments(perf_crop, true);
+                    
+                    double cx_roi = (M.m00 != 0) ? (M.m10 / M.m00) + rect.x : (rect.x + rect.width / 2.0);
+                    double cy_roi = (M.m00 != 0) ? (M.m01 / M.m00) + rect.y : (rect.y + rect.height / 2.0);
+                    
+                    double cx_global = cx_roi + roi_rect.x;
+                    double cy_global = cy_roi + roi_rect.y;
+                    
+                    bool acionou = (cy_roi >= limite_superior && cy_roi <= limite_inferior);
+                    furos_validos.push_back({cy_roi, cx_global, cy_global, acionou, rect});
+                    
+                    py::dict debug_item;
+                    debug_item["rect"] = py::make_tuple(rect.x + roi_rect.x, rect.y + roi_rect.y, rect.width, rect.height);
+                    debug_item["color"] = acionou ? py::make_tuple(0, 0, 255) : py::make_tuple(0, 255, 0); 
+                    debug_visual.append(debug_item);
+                }
             }
         }
+        // --- FIM DA PROJEÇÃO 1D HÍBRIDA ---
         
         std::sort(furos_validos.begin(), furos_validos.end(), [](const Furo& a, const Furo& b) {
             return a.cy_roi < b.cy_roi;
@@ -289,27 +303,31 @@ public:
                             buffer_pitches.clear();
                         }
                     }
-                    
-                    double soma_centros_y = 0;
-                    for(int i=0; i<qtd; i++) {
-                        double multiplicador = 1.5 - (double)i;
-                        soma_centros_y += ((double)furos_validos[i].cy_g + (multiplicador * pitch_instantaneo));
-                    }
-                    cy_a = std::round(soma_centros_y / qtd);
-                } else {
-                    cy_a = melhor_furo->cy_g + 150;
                 }
+                
+                // Âncora de estabilização: cy_a é SEMPRE a posição global do furo que cruzou a linha de gatilho.
+                // Como o RISING EDGE só dispara quando o furo entra na zona, melhor_furo->cy_g
+                // representa um ponto CONSISTENTE e REPETÍVEL no ciclo do filme.
+                // Isso elimina a deriva causada pela fórmula antiga que dependia de furos_validos[0]
+                // (que muda de posição dependendo de quantos furos estão visíveis no frame).
+                cy_a = (long)std::round(melhor_furo->cy_g);
                 capturar = true;
                 contador_perfs_ciclo = 0;
             }
         }
         
         if (!furo_na_zona_agora) {
-            perfuracao_na_linha = false;
+            frames_zona_vazia++;
+            // Só considera a zona "limpa" após 3 frames consecutivos sem furo
+            // Isso evita RISING EDGE duplo causado por ruido/flickering do RAW8
+            if (frames_zona_vazia >= 3) {
+                perfuracao_na_linha = false;
+                prev_perf_in_zone = false;
+            }
+        } else {
+            frames_zona_vazia = 0;
+            prev_perf_in_zone = true;
         }
-        
-        // Guarda o estado atual para comparar no próximo frame (a magia do RISING EDGE)
-        prev_perf_in_zone = furo_na_zona_agora;
         
         py::array_t<uint8_t> result_array({binary_small.rows, binary_small.cols});
         py::buffer_info buf_res = result_array.request();
