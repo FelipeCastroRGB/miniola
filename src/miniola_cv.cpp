@@ -20,14 +20,8 @@ private:
     // Tracking para o Virtual Rotary Encoder (Audio)
     double last_perf_y = -1.0;
     
-    // Estado do Gatilho
+    // Estado anterior da zona de gatilho (para deteção de borda RISING EDGE)
     bool prev_perf_in_zone = false;
-    
-    // Telemetria (Odômetro)
-    double last_tracked_cy_g = -1.0;
-    double distancia_acumulada = 0.0;
-    double frame_delta_y = 0.0;
-    int frames_zona_vazia = 0; // Debounce: quantos frames consecutivos a zona está vazia
     
     // Tracking de Autocorrelação (Auto-Stitching)
     std::vector<float> audio_tail;
@@ -75,21 +69,15 @@ public:
             roi_gray = roi_color;
         }
         
-        // --- INÍCIO DA PROJEÇÃO 1D HÍBRIDA ---
-        
-        // Mantemos a imagem pequena apenas para preview no painel UI (reduz uso de banda de vídeo)
         cv::Mat roi_small;
         cv::resize(roi_gray, roi_small, cv::Size(), 0.5, 0.5, cv::INTER_NEAREST);
         cv::threshold(roi_small, binary_small, thresh_val, 255, cv::THRESH_BINARY);
         
-        // Histerese Espacial (Schmitt Trigger) para imunidade absoluta a vibração manual!
-        // Se a zona já estava armada, usamos a margem LARGA (Outer) para não perdê-la na trepidação.
-        // Se a zona estava desarmada, usamos a margem ESTREITA (Inner) para disparar com precisão.
-        int margem_inner = std::max(10, margem_gatilho / 2);
-        int margem_outer = margem_gatilho;
+        std::vector<std::vector<cv::Point>> contours;
+        cv::findContours(binary_small, contours, cv::RETR_LIST, cv::CHAIN_APPROX_SIMPLE);
         
-        int limite_superior = prev_perf_in_zone ? (linha_gatilho_y - margem_outer) : (linha_gatilho_y - margem_inner);
-        int limite_inferior = prev_perf_in_zone ? (linha_gatilho_y + margem_outer) : (linha_gatilho_y + margem_inner);
+        int limite_superior = linha_gatilho_y - margem_gatilho;
+        int limite_inferior = linha_gatilho_y + margem_gatilho;
         
         struct Furo {
             double cy_roi;
@@ -102,62 +90,50 @@ public:
         std::vector<Furo> furos_validos;
         py::list debug_visual;
         
-        // 1. Binarização na resolução total para máxima precisão na projeção
-        cv::Mat binary_full;
-        cv::threshold(roi_gray, binary_full, thresh_val, 255, cv::THRESH_BINARY);
-        
-        // 2. Scanline Profiling: Usando aceleração SIMD por hardware (cv::reduce)
-        cv::Mat row_sums;
-        cv::reduce(binary_full, row_sums, 1, cv::REDUCE_SUM, CV_32S);
-        
-        int min_width_px = std::max(2, binary_full.cols / 10); // Tolerância a sujeira
-        bool in_hole = false;
-        int start_y = 0;
-        
-        for (int y = 0; y < binary_full.rows; ++y) {
-            int count_white = row_sums.at<int>(y, 0) / 255;
+        for(size_t i = 0; i < contours.size(); i++) {
+            cv::Rect rect_small = cv::boundingRect(contours[i]);
             
-            bool is_bright = count_white >= min_width_px;
+            // Escala o Bounding Box de volta para Alta Resolução (1.0x)
+            cv::Rect rect(rect_small.x * 2, rect_small.y * 2, rect_small.width * 2, rect_small.height * 2);
             
-            // Força fechamento se o furo encostar no rodapé do ROI
-            if (y == binary_full.rows - 1 && in_hole && is_bright) {
-                is_bright = false;
-            }
-
-            if (is_bright && !in_hole) {
-                in_hole = true;
-                start_y = y;
-            } else if (!is_bright && in_hole) {
-                in_hole = false;
-                int end_y = y - 1;
-                int h = end_y - start_y + 1;
+            // Proteção de limites da matriz
+            rect.x = std::max(0, rect.x);
+            rect.y = std::max(0, rect.y);
+            rect.width = std::min(rect.width, roi_gray.cols - rect.x);
+            rect.height = std::min(rect.height, roi_gray.rows - rect.y);
+            
+            if (rect.width <= 0 || rect.height <= 0) continue;
+            
+            double w_s = rect.width;
+            double h_s = rect.height;
+            double area_aprox = w_s * h_s;
+            
+            // Filtro morfológico
+            if(area_aprox > 200 && area_aprox < 10000 && (w_s/h_s) > 0.2 && (w_s/h_s) < 2.5) {
                 
-                // Filtro 1D super robusto: basta ter entre 10 e 150 pixels de altura
-                if (h >= 10 && h <= std::max(150, binary_full.rows / 2)) {
-                    
-                    cv::Rect rect(0, start_y, binary_full.cols, h);
-                    
-                    // 3. O TIRO DE PRECISÃO: Momentos 2D sub-pixel apenas dentro da "gaiola" 1D
-                    cv::Mat perf_crop = binary_full(rect); // Já temos a binária!
-                    cv::Moments M = cv::moments(perf_crop, true);
-                    
-                    double cx_roi = (M.m00 != 0) ? (M.m10 / M.m00) + rect.x : (rect.x + rect.width / 2.0);
-                    double cy_roi = (M.m00 != 0) ? (M.m01 / M.m00) + rect.y : (rect.y + rect.height / 2.0);
-                    
-                    double cx_global = cx_roi + roi_rect.x;
-                    double cy_global = cy_roi + roi_rect.y;
-                    
-                    bool acionou = (cy_roi >= limite_superior && cy_roi <= limite_inferior);
-                    furos_validos.push_back({cy_roi, cx_global, cy_global, acionou, rect});
-                    
-                    py::dict debug_item;
-                    debug_item["rect"] = py::make_tuple(rect.x + roi_rect.x, rect.y + roi_rect.y, rect.width, rect.height);
-                    debug_item["color"] = acionou ? py::make_tuple(0, 0, 255) : py::make_tuple(0, 255, 0); 
-                    debug_visual.append(debug_item);
-                }
+                // Rastreamento Sub-pixel Espacial de Alta Precisão!
+                // Em vez de calcular os momentos na imagem pequena, cortamos o quadrado exato
+                // da imagem em alta resolução e calculamos o centro de massa sub-pixel lá.
+                cv::Mat perf_crop = roi_gray(rect);
+                cv::Mat perf_bin;
+                cv::threshold(perf_crop, perf_bin, thresh_val, 255, cv::THRESH_BINARY);
+                cv::Moments M = cv::moments(perf_bin, true); // true = imagem binária
+                
+                double cx_roi = (M.m00 != 0) ? (M.m10 / M.m00) + rect.x : (rect.x + rect.width / 2.0);
+                double cy_roi = (M.m00 != 0) ? (M.m01 / M.m00) + rect.y : (rect.y + rect.height / 2.0);
+                
+                double cx_global = cx_roi + roi_rect.x;
+                double cy_global = cy_roi + roi_rect.y;
+                
+                bool acionou = (cy_roi >= limite_superior && cy_roi <= limite_inferior);
+                furos_validos.push_back({cy_roi, cx_global, cy_global, acionou, rect});
+                
+                py::dict debug_item;
+                debug_item["rect"] = py::make_tuple(rect.x + roi_rect.x, rect.y + roi_rect.y, rect.width, rect.height);
+                debug_item["color"] = acionou ? py::make_tuple(0, 0, 255) : py::make_tuple(0, 255, 0); 
+                debug_visual.append(debug_item);
             }
         }
-        // --- FIM DA PROJEÇÃO 1D HÍBRIDA ---
         
         std::sort(furos_validos.begin(), furos_validos.end(), [](const Furo& a, const Furo& b) {
             return a.cy_roi < b.cy_roi;
@@ -244,14 +220,14 @@ public:
                         } 
                         
                         // Anexa o áudio costurado à prova de lente
-                        for (int i = start_copy_idx; i < (int)current_chunk.size(); ++i) {
+                        for (int i = start_copy_idx; i < current_chunk.size(); ++i) {
                             audio_samples.push_back(current_chunk[i]);
                         }
                         
                         // Corta e guarda os últimos 'tail_size' pixéis como molde para o frame seguinte
                         audio_tail.clear();
                         int tail_start = std::max(0, (int)current_chunk.size() - tail_size);
-                        for (int i = tail_start; i < (int)current_chunk.size(); ++i) {
+                        for (int i = tail_start; i < current_chunk.size(); ++i) {
                             audio_tail.push_back(current_chunk[i]);
                         }
                     }
@@ -261,132 +237,68 @@ public:
         }
         // --- FIM DO AUDIO LINE-SCANNER ---
 
-        // --- INÍCIO DA FASE CONTÍNUA (DIGITAL PIN REGISTRY) ---
+        // --- DETECÇÃO DE BORDA (RISING EDGE) ---
+        // Procura o furo MAIS PRÓXIMO da linha de gatilho (não apenas o [0] que é o mais ao topo)
+        bool furo_na_zona_agora = false;
         long cx_a = -1, cy_a = -1;
         bool capturar = false;
         
-        // 0. Limpeza Antirruído: Se a sujeira quebrar um furo em dois na projeção 1D, nós os fundimos novamente.
-        std::vector<Furo> furos_limpos;
-        for (const auto& f : furos_validos) {
-            if (furos_limpos.empty()) {
-                furos_limpos.push_back(f);
-            } else {
-                Furo& last_f = furos_limpos.back();
-                // Se a distância entre dois furos for menor que 50% do pitch padrão, é o mesmo furo quebrado!
-                if (std::abs(f.cy_g - last_f.cy_g) < pitch_padrao * 0.5) {
-                    // Funde os dois furos (faz a média das posições)
-                    last_f.cy_g = (last_f.cy_g + f.cy_g) / 2.0;
-                    last_f.cy_roi = (last_f.cy_roi + f.cy_roi) / 2.0;
-                    last_f.cx_g = (last_f.cx_g + f.cx_g) / 2.0;
-                    // Atualiza o bounding box para envolver os dois pedaços
-                    int new_y = std::min(last_f.rect.y, f.rect.y);
-                    int new_bottom = std::max(last_f.rect.y + last_f.rect.height, f.rect.y + f.rect.height);
-                    last_f.rect.y = new_y;
-                    last_f.rect.height = new_bottom - new_y;
-                } else {
-                    furos_limpos.push_back(f);
-                }
-            }
-        }
-        furos_validos = furos_limpos;
-        
-        // 1. Atualiza o Pitch Dinâmico a cada frame (se houver mais de 1 furo visível)
-        int qtd = furos_validos.size();
-        if(qtd > 1) {
-            double soma_pitch = 0;
-            for(int i=1; i<qtd; i++) soma_pitch += (furos_validos[i].cy_g - furos_validos[i-1].cy_g);
-            double pitch_instantaneo = soma_pitch / (qtd - 1);
-            
-            // Trava de Segurança: Só aceita o pitch se ele fizer sentido fisicamente (+- 20% do padrão)
-            if(pitch_instantaneo > pitch_padrao * 0.8 && pitch_instantaneo < pitch_padrao * 1.2) {
-                ultimo_pitch_instantaneo = pitch_instantaneo;
-                buffer_pitches.push_back(pitch_instantaneo);
-                if(buffer_pitches.size() >= 10) { // Média móvel a cada 10 leituras válidas
-                    double p_medio = 0;
-                    for(auto p : buffer_pitches) p_medio += p;
-                    ultimo_pitch_medio = p_medio / buffer_pitches.size();
-                    
-                    double calc_pct = (1.0 - (ultimo_pitch_medio / pitch_padrao)) * 100.0;
-                    encolhimento_atual_pct = std::max(-5.0, std::min(10.0, calc_pct));
-                    buffer_pitches.clear();
-                }
-            }
-        }
-        
-        double pitch = (ultimo_pitch_medio > 0) ? ultimo_pitch_medio : pitch_padrao;
-        
-        // --- TELEMETRIA (ODÔMETRO DE FILME) ---
-        frame_delta_y = 0;
-        if (!furos_validos.empty()) {
-            if (last_tracked_cy_g > 0) {
-                double min_diff = 1e9;
-                for (const auto& f : furos_validos) {
-                    double diff = f.cy_g - last_tracked_cy_g;
-                    if (std::abs(diff) < min_diff && std::abs(diff) < pitch_padrao * 0.4) {
-                        min_diff = std::abs(diff);
-                        frame_delta_y = diff;
-                    }
-                }
-                if (min_diff < 1e9) {
-                    distancia_acumulada += frame_delta_y;
-                    last_tracked_cy_g += frame_delta_y;
-                } else {
-                    last_tracked_cy_g = furos_validos[0].cy_g;
-                }
-            } else {
-                last_tracked_cy_g = furos_validos[0].cy_g;
-            }
-        }
-        
-        // --- DETECÇÃO DE BORDA (LINE CROSSING + SCHMITT TRIGGER) ---
-        bool furo_na_zona_agora = false;
-        bool cruzou_a_linha = false;
         const Furo* melhor_furo = nullptr;
         double menor_dist = 1e9;
-        
-        // Transição de Arquitetura Baseada em Velocidade:
-        // Se a velocidade for alta (> ~6 FPS do filme), usamos a matemática pura do Line Crossing (imune a saltos).
-        // Se a velocidade for baixa ou houver trepidação, blindamos com o Schmitt Trigger (imune a jitter).
-        bool is_high_speed = (frame_delta_y < -15.0);
-        
         for (const auto& f : furos_validos) {
-            // Histerese Espacial Clássica
             if (f.acionou) {
                 double dist = std::abs(f.cy_roi - linha_gatilho_y);
                 if (dist < menor_dist) {
                     menor_dist = dist;
                     melhor_furo = &f;
-                    furo_na_zona_agora = true;
-                }
-            }
-            
-            // LINE CROSSING: Atua apenas em alta velocidade para prevenir o duplo-gatilho
-            if (is_high_speed) {
-                double prev_y = f.cy_roi - frame_delta_y; 
-                if (prev_y >= linha_gatilho_y && f.cy_roi < linha_gatilho_y) {
-                    cruzou_a_linha = true;
-                    if (melhor_furo == nullptr) melhor_furo = &f;
                 }
             }
         }
         
-        // Se estivermos em baixa velocidade, o Line Crossing é desligado e o Schmitt Trigger assume o comando
-        if (!is_high_speed) {
-            if (furo_na_zona_agora && !prev_perf_in_zone) {
-                cruzou_a_linha = true;
-            }
+        if (melhor_furo != nullptr) {
+            furo_na_zona_agora = true;
         }
         
-        if (cruzou_a_linha) {
+        // Detecção de RISING EDGE: só conta quando a zona TRANSICIONA de vazia para ocupada
+        if (furo_na_zona_agora && !prev_perf_in_zone) {
             perfuracao_na_linha = true;
             contador_perfs_ciclo++;
             
             if(contador_perfs_ciclo >= 4) {
+                int qtd = std::min(4, (int)furos_validos.size());
+                
                 long sum_cx = 0;
                 for(int i=0; i<qtd; i++) sum_cx += furos_validos[i].cx_g;
-                cx_a = sum_cx / std::max(1, qtd);
+                cx_a = sum_cx / qtd;
                 
-                cy_a = (long)std::round(melhor_furo->cy_g);
+                if(qtd > 1) {
+                    double soma_pitch = 0;
+                    for(int i=1; i<qtd; i++) soma_pitch += (furos_validos[i].cy_g - furos_validos[i-1].cy_g);
+                    double pitch_instantaneo = soma_pitch / (qtd - 1);
+                    ultimo_pitch_instantaneo = pitch_instantaneo;
+                    
+                    if(pitch_instantaneo > 0) {
+                        buffer_pitches.push_back(pitch_instantaneo);
+                        if(buffer_pitches.size() >= 10) {
+                            double p_medio = 0;
+                            for(auto p : buffer_pitches) p_medio += p;
+                            ultimo_pitch_medio = p_medio / buffer_pitches.size();
+                            
+                            double calc_pct = (1.0 - (ultimo_pitch_medio / pitch_padrao)) * 100.0;
+                            encolhimento_atual_pct = std::max(-5.0, std::min(10.0, calc_pct));
+                            buffer_pitches.clear();
+                        }
+                    }
+                    
+                    double soma_centros_y = 0;
+                    for(int i=0; i<qtd; i++) {
+                        double multiplicador = 1.5 - (double)i;
+                        soma_centros_y += ((double)furos_validos[i].cy_g + (multiplicador * pitch_instantaneo));
+                    }
+                    cy_a = std::round(soma_centros_y / qtd);
+                } else {
+                    cy_a = melhor_furo->cy_g + 150;
+                }
                 capturar = true;
                 contador_perfs_ciclo = 0;
             }
@@ -396,9 +308,8 @@ public:
             perfuracao_na_linha = false;
         }
         
-        // Atualiza o estado da Histerese Espacial
+        // Guarda o estado atual para comparar no próximo frame (a magia do RISING EDGE)
         prev_perf_in_zone = furo_na_zona_agora;
-        // --- FIM DA DETECÇÃO DE BORDA (SCHMITT TRIGGER) ---
         
         py::array_t<uint8_t> result_array({binary_small.rows, binary_small.cols});
         py::buffer_info buf_res = result_array.request();
@@ -418,14 +329,8 @@ public:
         result["encolhimento_atual_pct"] = encolhimento_atual_pct;
         result["ultimo_pitch_medio"] = ultimo_pitch_medio;
         result["pitch_instantaneo"] = ultimo_pitch_instantaneo;
-        result["distancia_acumulada"] = distancia_acumulada; // Telemetria
-        result["achou_furo"] = !furos_validos.empty();
+        result["achou_furo"] = furo_na_zona_agora;
         result["audio_chunk"] = audio_numpy; 
-        
-        // Zera o odômetro apenas APÓS enviar o resultado de captura
-        if (capturar) {
-            distancia_acumulada = 0;
-        } 
         
         return result;
     }
