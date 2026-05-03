@@ -20,8 +20,14 @@ private:
     // Tracking para o Virtual Rotary Encoder (Audio)
     double last_perf_y = -1.0;
     
-    // Estado anterior da zona de gatilho (para deteção de borda RISING EDGE)
+    // Estado anterior da zona de gatilho (mantido para compatibilidade, mas o Phase Tracking não usará)
     bool prev_perf_in_zone = false;
+    
+    // Digital Pin Registry (Phase Tracking)
+    bool phase_initialized = false;
+    double absolute_film_position = 0.0;
+    double last_phase = 0.0;
+    int last_perf_index = 0;
     int frames_zona_vazia = 0; // Debounce: quantos frames consecutivos a zona está vazia
     
     // Tracking de Autocorrelação (Auto-Stitching)
@@ -257,77 +263,118 @@ public:
         }
         // --- FIM DO AUDIO LINE-SCANNER ---
 
-        // --- DETECÇÃO DE BORDA (RISING EDGE) ---
-        // Procura o furo MAIS PRÓXIMO da linha de gatilho (não apenas o [0] que é o mais ao topo)
-        bool furo_na_zona_agora = false;
+        // --- INÍCIO DA FASE CONTÍNUA (DIGITAL PIN REGISTRY) ---
         long cx_a = -1, cy_a = -1;
         bool capturar = false;
         
-        const Furo* melhor_furo = nullptr;
-        double menor_dist = 1e9;
-        for (const auto& f : furos_validos) {
-            if (f.acionou) {
-                double dist = std::abs(f.cy_roi - linha_gatilho_y);
-                if (dist < menor_dist) {
-                    menor_dist = dist;
-                    melhor_furo = &f;
-                }
-            }
-        }
-        
-        if (melhor_furo != nullptr) {
-            furo_na_zona_agora = true;
-        }
-        
-        // Detecção de RISING EDGE: só conta quando a zona TRANSICIONA de vazia para ocupada
-        if (furo_na_zona_agora && !prev_perf_in_zone) {
-            perfuracao_na_linha = true;
-            contador_perfs_ciclo++;
+        // 1. Atualiza o Pitch Dinâmico a cada frame (se houver mais de 1 furo visível)
+        int qtd = furos_validos.size();
+        if(qtd > 1) {
+            double soma_pitch = 0;
+            for(int i=1; i<qtd; i++) soma_pitch += (furos_validos[i].cy_g - furos_validos[i-1].cy_g);
+            double pitch_instantaneo = soma_pitch / (qtd - 1);
+            ultimo_pitch_instantaneo = pitch_instantaneo;
             
-            if(contador_perfs_ciclo >= 4) {
-                int qtd = std::min(4, (int)furos_validos.size());
-                
-                long sum_cx = 0;
-                for(int i=0; i<qtd; i++) sum_cx += furos_validos[i].cx_g;
-                cx_a = sum_cx / qtd;
-                
-                if(qtd > 1) {
-                    double soma_pitch = 0;
-                    for(int i=1; i<qtd; i++) soma_pitch += (furos_validos[i].cy_g - furos_validos[i-1].cy_g);
-                    double pitch_instantaneo = soma_pitch / (qtd - 1);
-                    ultimo_pitch_instantaneo = pitch_instantaneo;
+            if(pitch_instantaneo > 0) {
+                buffer_pitches.push_back(pitch_instantaneo);
+                if(buffer_pitches.size() >= 10) { // Média móvel a cada 10 leituras válidas
+                    double p_medio = 0;
+                    for(auto p : buffer_pitches) p_medio += p;
+                    ultimo_pitch_medio = p_medio / buffer_pitches.size();
                     
-                    if(pitch_instantaneo > 0) {
-                        buffer_pitches.push_back(pitch_instantaneo);
-                        if(buffer_pitches.size() >= 10) {
-                            double p_medio = 0;
-                            for(auto p : buffer_pitches) p_medio += p;
-                            ultimo_pitch_medio = p_medio / buffer_pitches.size();
-                            
-                            double calc_pct = (1.0 - (ultimo_pitch_medio / pitch_padrao)) * 100.0;
-                            encolhimento_atual_pct = std::max(-5.0, std::min(10.0, calc_pct));
-                            buffer_pitches.clear();
-                        }
-                    }
+                    double calc_pct = (1.0 - (ultimo_pitch_medio / pitch_padrao)) * 100.0;
+                    encolhimento_atual_pct = std::max(-5.0, std::min(10.0, calc_pct));
+                    buffer_pitches.clear();
                 }
-                
-                // Âncora de estabilização: cy_a é SEMPRE a posição global do furo que cruzou a linha de gatilho.
-                // Como o RISING EDGE só dispara quando o furo entra na zona, melhor_furo->cy_g
-                // representa um ponto CONSISTENTE e REPETÍVEL no ciclo do filme.
-                // Isso elimina a deriva causada pela fórmula antiga que dependia de furos_validos[0]
-                // (que muda de posição dependendo de quantos furos estão visíveis no frame).
-                cy_a = (long)std::round(melhor_furo->cy_g);
-                capturar = true;
-                contador_perfs_ciclo = 0;
             }
         }
         
-        if (!furo_na_zona_agora) {
+        double pitch = (ultimo_pitch_medio > 0) ? ultimo_pitch_medio : pitch_padrao;
+        
+        // 2. Calcula a Fase Angular Global do Filme
+        if (qtd > 0 && pitch > 0) {
+            double sum_sin = 0;
+            double sum_cos = 0;
+            long sum_cx = 0;
+            
+            for (const auto& f : furos_validos) {
+                // Converte a posição linear (Y) em ângulo no círculo do pitch
+                double theta = (f.cy_g / pitch) * 2.0 * M_PI;
+                sum_sin += std::sin(theta);
+                sum_cos += std::cos(theta);
+                sum_cx += f.cx_g;
+            }
+            
+            // X-Anchor médio de todos os furos visíveis (estabilização horizontal)
+            cx_a = sum_cx / qtd;
+            
+            // Fase média da engrenagem virtual
+            double theta_avg = std::atan2(sum_sin, sum_cos);
+            if (theta_avg < 0) theta_avg += 2.0 * M_PI;
+            
+            double current_phase = (theta_avg / (2.0 * M_PI)) * pitch;
+            
+            if (!phase_initialized) {
+                last_phase = current_phase;
+                absolute_film_position = current_phase;
+                last_perf_index = std::floor(-absolute_film_position / pitch);
+                phase_initialized = true;
+            } else {
+                double delta_phase = current_phase - last_phase;
+                
+                // 3. Lidando com o Wrap-around (O Encoder Absoluto)
+                // Se o filme avança (Y diminui), delta é negativo.
+                // Ao cruzar o 0, a fase pula para 'pitch' (delta gigante positivo).
+                if (delta_phase > (pitch / 2.0)) {
+                    delta_phase -= pitch; // Filme avançando e cruzou a linha do pitch
+                } else if (delta_phase < -(pitch / 2.0)) {
+                    delta_phase += pitch; // Filme recuando (backlash) e cruzou a linha do pitch
+                }
+                
+                absolute_film_position += delta_phase;
+                last_phase = current_phase;
+                
+                // Calcula em qual "dente" da engrenagem nós estamos agora
+                int current_perf_index = std::floor(-absolute_film_position / pitch);
+                
+                if (current_perf_index > last_perf_index) {
+                    // O filme avançou 1 perfuração exata!
+                    contador_perfs_ciclo += (current_perf_index - last_perf_index);
+                    last_perf_index = current_perf_index;
+                    
+                    if (contador_perfs_ciclo >= 4) {
+                        capturar = true;
+                        contador_perfs_ciclo = 0; // Resto da divisão mantém o sync se pular!
+                        // Mas para segurança do frame timing, zeramos.
+                    }
+                } else if (current_perf_index < last_perf_index) {
+                    // Backlash: o filme recuou fisicamente.
+                    contador_perfs_ciclo -= (last_perf_index - current_perf_index);
+                    last_perf_index = current_perf_index;
+                }
+            }
+            
+            // Estado visual para o painel piscar
+            perfuracao_na_linha = (contador_perfs_ciclo == 0);
+            
+            // 4. O Segredo da Estabilização Vertical (cy_a Sintético)
+            // Calculamos a posição do furo "virtual" perfeito mais próximo da linha de gatilho
+            double ideal_cy_g = roi_rect.y + linha_gatilho_y;
+            double diff = std::fmod(ideal_cy_g - current_phase, pitch);
+            if (diff < 0) diff += pitch; 
+            
+            // Trava o cy_a no dente mais próximo da linha ideal
+            if (diff > pitch / 2.0) {
+                cy_a = (long)std::round(ideal_cy_g - diff + pitch);
+            } else {
+                cy_a = (long)std::round(ideal_cy_g - diff);
+            }
+            
+        } else {
+            // Se nenhum furo está visível (ex: dedo na frente da câmera), pausa o encoder
             perfuracao_na_linha = false;
         }
-        
-        // Atualiza o estado da Histerese Espacial
-        prev_perf_in_zone = furo_na_zona_agora;
+        // --- FIM DA FASE CONTÍNUA (DIGITAL PIN REGISTRY) ---
         
         py::array_t<uint8_t> result_array({binary_small.rows, binary_small.cols});
         py::buffer_info buf_res = result_array.request();
