@@ -51,8 +51,10 @@ shutter_speed, gain, fps_cam = 600, 1.0, 120
 foco_atual, passo_foco = 14.5, 0.5
 
 
-# Resolução: Valores Exatos do CamTool do Usuário (2026-05-02)
-RES_W, RES_H = 1620, 1130
+# Resolução: Corte de Hardware para aliviar a porta USB do Raspberry Pi 4
+# Largura 1420 acomoda a imagem (1388) e Altura 880 acomoda a ROI (840).
+# Redução de 32% no tráfego de dados!
+RES_W, RES_H = 1420, 880
 
 # Offsets Exatos do CamTool do Usuário
 CAM_OFFSET_X = 272
