@@ -22,6 +22,7 @@ private:
     
     // Estado anterior da zona de gatilho (para deteção de borda RISING EDGE)
     bool prev_perf_in_zone = false;
+    int frames_zona_vazia = 0; // Debounce: quantos frames consecutivos a zona está vazia
     
     // Tracking de Autocorrelação (Auto-Stitching)
     std::vector<float> audio_tail;
@@ -289,27 +290,31 @@ public:
                             buffer_pitches.clear();
                         }
                     }
-                    
-                    double soma_centros_y = 0;
-                    for(int i=0; i<qtd; i++) {
-                        double multiplicador = 1.5 - (double)i;
-                        soma_centros_y += ((double)furos_validos[i].cy_g + (multiplicador * pitch_instantaneo));
-                    }
-                    cy_a = std::round(soma_centros_y / qtd);
-                } else {
-                    cy_a = melhor_furo->cy_g + 150;
                 }
+                
+                // Âncora de estabilização: cy_a é SEMPRE a posição global do furo que cruzou a linha de gatilho.
+                // Como o RISING EDGE só dispara quando o furo entra na zona, melhor_furo->cy_g
+                // representa um ponto CONSISTENTE e REPETÍVEL no ciclo do filme.
+                // Isso elimina a deriva causada pela fórmula antiga que dependia de furos_validos[0]
+                // (que muda de posição dependendo de quantos furos estão visíveis no frame).
+                cy_a = (long)std::round(melhor_furo->cy_g);
                 capturar = true;
                 contador_perfs_ciclo = 0;
             }
         }
         
         if (!furo_na_zona_agora) {
-            perfuracao_na_linha = false;
+            frames_zona_vazia++;
+            // Só considera a zona "limpa" após 3 frames consecutivos sem furo
+            // Isso evita RISING EDGE duplo causado por ruido/flickering do RAW8
+            if (frames_zona_vazia >= 3) {
+                perfuracao_na_linha = false;
+                prev_perf_in_zone = false;
+            }
+        } else {
+            frames_zona_vazia = 0;
+            prev_perf_in_zone = true;
         }
-        
-        // Guarda o estado atual para comparar no próximo frame (a magia do RISING EDGE)
-        prev_perf_in_zone = furo_na_zona_agora;
         
         py::array_t<uint8_t> result_array({binary_small.rows, binary_small.cols});
         py::buffer_info buf_res = result_array.request();
