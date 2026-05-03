@@ -22,6 +22,7 @@ private:
     
     // Estado anterior da zona de gatilho (para deteção de borda RISING EDGE)
     bool prev_perf_in_zone = false;
+    int frames_zona_vazia = 0; // Debounce: quantos frames consecutivos a zona está vazia
     
     // Tracking de Autocorrelação (Auto-Stitching)
     std::vector<float> audio_tail;
@@ -303,11 +304,17 @@ public:
         }
         
         if (!furo_na_zona_agora) {
-            perfuracao_na_linha = false;
+            frames_zona_vazia++;
+            // Só considera a zona "limpa" após 3 frames consecutivos sem furo
+            // Isso evita RISING EDGE duplo causado por ruido/flickering do RAW8
+            if (frames_zona_vazia >= 3) {
+                perfuracao_na_linha = false;
+                prev_perf_in_zone = false;
+            }
+        } else {
+            frames_zona_vazia = 0;
+            prev_perf_in_zone = true;
         }
-        
-        // Guarda o estado atual para comparar no próximo frame (a magia do RISING EDGE)
-        prev_perf_in_zone = furo_na_zona_agora;
         
         py::array_t<uint8_t> result_array({binary_small.rows, binary_small.cols});
         py::buffer_info buf_res = result_array.request();
