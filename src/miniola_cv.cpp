@@ -344,6 +344,11 @@ public:
         const Furo* melhor_furo = nullptr;
         double menor_dist = 1e9;
         
+        // Transição de Arquitetura Baseada em Velocidade:
+        // Se a velocidade for alta (> ~6 FPS do filme), usamos a matemática pura do Line Crossing (imune a saltos).
+        // Se a velocidade for baixa ou houver trepidação, blindamos com o Schmitt Trigger (imune a jitter).
+        bool is_high_speed = (frame_delta_y < -15.0);
+        
         for (const auto& f : furos_validos) {
             // Histerese Espacial Clássica
             if (f.acionou) {
@@ -355,19 +360,21 @@ public:
                 }
             }
             
-            // LINE CROSSING: Previne o "Ponto Cego" de saltos em alta velocidade
-            // Calcula onde o furo estava no frame anterior baseado na telemetria
-            double prev_y = f.cy_roi - frame_delta_y; 
-            // Se o filme avança (Y diminui), verifica se o furo "pulou" a linha
-            if (prev_y >= linha_gatilho_y && f.cy_roi < linha_gatilho_y) {
-                cruzou_a_linha = true;
-                if (melhor_furo == nullptr) melhor_furo = &f;
+            // LINE CROSSING: Atua apenas em alta velocidade para prevenir o duplo-gatilho
+            if (is_high_speed) {
+                double prev_y = f.cy_roi - frame_delta_y; 
+                if (prev_y >= linha_gatilho_y && f.cy_roi < linha_gatilho_y) {
+                    cruzou_a_linha = true;
+                    if (melhor_furo == nullptr) melhor_furo = &f;
+                }
             }
         }
         
-        // Dispara quando o filme cruza fisicamente a linha ou entra na zona armadilha (Fallback)
-        if (furo_na_zona_agora && !prev_perf_in_zone) {
-            cruzou_a_linha = true;
+        // Se estivermos em baixa velocidade, o Line Crossing é desligado e o Schmitt Trigger assume o comando
+        if (!is_high_speed) {
+            if (furo_na_zona_agora && !prev_perf_in_zone) {
+                cruzou_a_linha = true;
+            }
         }
         
         if (cruzou_a_linha) {
