@@ -83,6 +83,15 @@ class XimeaAdapter(CameraProvider):
         if not self.cam: return None
         try:
             self.cam.get_image(self.img, timeout=1000)
+            
+            # Checagem de Hardware de Drop Frames (Baseado no contador do Sensor)
+            current_nframe = self.img.nframe
+            if hasattr(self, 'last_nframe'):
+                diff = current_nframe - self.last_nframe
+                if diff > 1:
+                    print(f"[ALERTA DE HARDWARE] DROP FRAME DETECTADO NA USB! Perdemos {diff - 1} frames entre o quadro {self.last_nframe} e {current_nframe}.")
+            self.last_nframe = current_nframe
+            
             # Retorna a matriz pura (RAW8 = 2D Array). 
             # NÃO FAZEMOS DEBAYER AQUI para salvar CPU e conseguir 160 FPS.
             return self.img.get_image_data_numpy()
