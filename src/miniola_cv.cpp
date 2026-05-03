@@ -20,6 +20,9 @@ private:
     // Tracking para o Virtual Rotary Encoder (Audio)
     double last_perf_y = -1.0;
     
+    // Estado anterior da zona de gatilho (para deteção de borda RISING EDGE)
+    bool prev_perf_in_zone = false;
+    
     // Tracking de Autocorrelação (Auto-Stitching)
     std::vector<float> audio_tail;
 
@@ -234,60 +237,79 @@ public:
         }
         // --- FIM DO AUDIO LINE-SCANNER ---
 
-        bool furo_detectado_agora = false;
+        // --- DETECÇÃO DE BORDA (RISING EDGE) ---
+        // Procura o furo MAIS PRÓXIMO da linha de gatilho (não apenas o [0] que é o mais ao topo)
+        bool furo_na_zona_agora = false;
         long cx_a = -1, cy_a = -1;
         bool capturar = false;
         
-        if(!furos_validos.empty() && furos_validos[0].acionou) {
-            furo_detectado_agora = true;
-            if(!perfuracao_na_linha) {
-                contador_perfs_ciclo++;
-                perfuracao_na_linha = true;
-                
-                if(contador_perfs_ciclo >= 4) { // Assumindo ciclo de 4 furos para frame cheio no 35mm
-                    int qtd = std::min(4, (int)furos_validos.size());
-                    
-                    long sum_cx = 0;
-                    for(int i=0; i<qtd; i++) sum_cx += furos_validos[i].cx_g;
-                    cx_a = sum_cx / qtd;
-                    
-                    if(qtd > 1) {
-                        double soma_pitch = 0;
-                        for(int i=1; i<qtd; i++) soma_pitch += (furos_validos[i].cy_g - furos_validos[i-1].cy_g);
-                        double pitch_instantaneo = soma_pitch / (qtd - 1);
-                        ultimo_pitch_instantaneo = pitch_instantaneo;
-                        
-                        if(pitch_instantaneo > 0) {
-                            buffer_pitches.push_back(pitch_instantaneo);
-                            if(buffer_pitches.size() >= 10) {
-                                double p_medio = 0;
-                                for(auto p : buffer_pitches) p_medio += p;
-                                ultimo_pitch_medio = p_medio / buffer_pitches.size();
-                                
-                                double calc_pct = (1.0 - (ultimo_pitch_medio / pitch_padrao)) * 100.0;
-                                encolhimento_atual_pct = std::max(-5.0, std::min(10.0, calc_pct));
-                                buffer_pitches.clear();
-                            }
-                        }
-                        
-                        double soma_centros_y = 0;
-                        for(int i=0; i<qtd; i++) {
-                            double multiplicador = 1.5 - (double)i;
-                            soma_centros_y += ((double)furos_validos[i].cy_g + (multiplicador * pitch_instantaneo));
-                        }
-                        cy_a = std::round(soma_centros_y / qtd);
-                    } else {
-                        cy_a = furos_validos[0].cy_g + 150;
-                    }
-                    capturar = true;
-                    contador_perfs_ciclo = 0;
+        const Furo* melhor_furo = nullptr;
+        double menor_dist = 1e9;
+        for (const auto& f : furos_validos) {
+            if (f.acionou) {
+                double dist = std::abs(f.cy_roi - linha_gatilho_y);
+                if (dist < menor_dist) {
+                    menor_dist = dist;
+                    melhor_furo = &f;
                 }
             }
         }
         
-        if(!furo_detectado_agora) {
+        if (melhor_furo != nullptr) {
+            furo_na_zona_agora = true;
+        }
+        
+        // Detecção de RISING EDGE: só conta quando a zona TRANSICIONA de vazia para ocupada
+        if (furo_na_zona_agora && !prev_perf_in_zone) {
+            perfuracao_na_linha = true;
+            contador_perfs_ciclo++;
+            
+            if(contador_perfs_ciclo >= 4) {
+                int qtd = std::min(4, (int)furos_validos.size());
+                
+                long sum_cx = 0;
+                for(int i=0; i<qtd; i++) sum_cx += furos_validos[i].cx_g;
+                cx_a = sum_cx / qtd;
+                
+                if(qtd > 1) {
+                    double soma_pitch = 0;
+                    for(int i=1; i<qtd; i++) soma_pitch += (furos_validos[i].cy_g - furos_validos[i-1].cy_g);
+                    double pitch_instantaneo = soma_pitch / (qtd - 1);
+                    ultimo_pitch_instantaneo = pitch_instantaneo;
+                    
+                    if(pitch_instantaneo > 0) {
+                        buffer_pitches.push_back(pitch_instantaneo);
+                        if(buffer_pitches.size() >= 10) {
+                            double p_medio = 0;
+                            for(auto p : buffer_pitches) p_medio += p;
+                            ultimo_pitch_medio = p_medio / buffer_pitches.size();
+                            
+                            double calc_pct = (1.0 - (ultimo_pitch_medio / pitch_padrao)) * 100.0;
+                            encolhimento_atual_pct = std::max(-5.0, std::min(10.0, calc_pct));
+                            buffer_pitches.clear();
+                        }
+                    }
+                    
+                    double soma_centros_y = 0;
+                    for(int i=0; i<qtd; i++) {
+                        double multiplicador = 1.5 - (double)i;
+                        soma_centros_y += ((double)furos_validos[i].cy_g + (multiplicador * pitch_instantaneo));
+                    }
+                    cy_a = std::round(soma_centros_y / qtd);
+                } else {
+                    cy_a = melhor_furo->cy_g + 150;
+                }
+                capturar = true;
+                contador_perfs_ciclo = 0;
+            }
+        }
+        
+        if (!furo_na_zona_agora) {
             perfuracao_na_linha = false;
         }
+        
+        // Guarda o estado atual para comparar no próximo frame (a magia do RISING EDGE)
+        prev_perf_in_zone = furo_na_zona_agora;
         
         py::array_t<uint8_t> result_array({binary_small.rows, binary_small.cols});
         py::buffer_info buf_res = result_array.request();
