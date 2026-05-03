@@ -333,12 +333,12 @@ public:
                     }
                 }
                 
-                // Âncora de estabilização: cy_a é SEMPRE a posição global do furo que cruzou a linha de gatilho.
-                // Como o RISING EDGE só dispara quando o furo entra na zona, melhor_furo->cy_g
-                // representa um ponto CONSISTENTE e REPETÍVEL no ciclo do filme.
-                // Isso elimina a deriva causada pela fórmula antiga que dependia de furos_validos[0]
-                // (que muda de posição dependendo de quantos furos estão visíveis no frame).
-                cy_a = (long)std::round(melhor_furo->cy_g);
+                // ÂNCORA VERTICAL DETERMINÍSTICA:
+                // cy_a é SEMPRE a mesma linha absoluta no frame: roi_rect.y + linha_gatilho_y
+                // Isso elimina o drift causado pelo furo disparar em posições diferentes da zona a cada captura.
+                // O furo pode estar em qualquer ponto da zona quando dispara, mas o crop sempre
+                // é ancorado na mesma linha geométrica — resultando em estabilização perfeita.
+                cy_a = (long)(roi_rect.y + linha_gatilho_y);
                 capturar = true;
                 contador_perfs_ciclo = 0;
             }
