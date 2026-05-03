@@ -340,7 +340,8 @@ public:
                 capturar = true;
                 contador_perfs_ciclo = 0;
             }
-        }
+        } // Fecha: if (dist_para_ultimo_tiro > pitch_padrao * 0.5)
+    } // Fecha: if (furo_na_zona_agora)
         
         if (!furo_na_zona_agora) {
             perfuracao_na_linha = false;
