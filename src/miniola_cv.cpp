@@ -252,20 +252,22 @@ public:
 
         // --- DETECÇÃO DE BORDA E SPATIAL DEBOUNCE ---
         
-        // 1. Tenta atualizar a posição do furo que já foi disparado
+        // 1. Rastreamento espacial: usa cy_g (posição GLOBAL no frame)
+        //    Cada perfuração tem um cy_g único. cy_roi é inútil aqui pois
+        //    todos os furos que cruzam a linha de gatilho têm cy_roi ≈ linha_gatilho_y.
         if (ultimo_furo_rastreado_y > -500.0) {
             double min_dist = 1e9;
-            double melhor_y = -1000.0;
+            double melhor_cy_g = -1000.0;
             for (const auto& f : furos_validos) {
-                double dist = std::abs(f.cy_roi - ultimo_furo_rastreado_y);
+                double dist = std::abs(f.cy_g - ultimo_furo_rastreado_y);
                 if (dist < min_dist) {
                     min_dist = dist;
-                    melhor_y = f.cy_roi;
+                    melhor_cy_g = f.cy_g;
                 }
             }
-            // Se o furo está por perto, atualiza a posição dele (sobrevive a flickers e saltos rápidos)
+            // Atualiza seguindo o furo enquanto ele desce na tela
             if (min_dist < pitch_padrao * 0.4) {
-                ultimo_furo_rastreado_y = melhor_y;
+                ultimo_furo_rastreado_y = melhor_cy_g;
             }
         }
         
@@ -290,19 +292,19 @@ public:
             furo_na_zona_agora = true;
         }
         
-        // 3. O "Gatilho Inteligente" (Spatial Debounce)
+        // 3. Gatilho Espacial: compara cy_g (global) para distinguir perfurações distintas
         if (furo_na_zona_agora) {
-            // Verifica se este furo É O MESMO que já atirou antes
-            double dist_para_ultimo_tiro = std::abs(melhor_furo->cy_roi - ultimo_furo_rastreado_y);
+            double dist_para_ultimo_tiro = std::abs(melhor_furo->cy_g - ultimo_furo_rastreado_y);
             
-            // Se a distância for GRANDE (> 50% do pitch), é garantido que é um FURO NOVO!
-            // (Mesmo que o filme esteja super rápido ou que a câmera tenha "piscado" no escuro)
-            if (dist_para_ultimo_tiro > pitch_padrao * 0.5) {
+            // É um FURO NOVO se sua posição global for diferente do último furo registrado
+            // (> 50% do pitch = ~134px de diferença global → impossível ser o mesmo furo)
+            bool furo_novo = (ultimo_furo_rastreado_y < -500.0) || (dist_para_ultimo_tiro > pitch_padrao * 0.5);
+            
+            if (furo_novo) {
                 perfuracao_na_linha = true;
                 contador_perfs_ciclo++;
-                
-                // Agora ESTE furo passa a ser o furo rastreado (para não atirar nele de novo enquanto estiver na zona)
-                ultimo_furo_rastreado_y = melhor_furo->cy_roi;
+                // Ancora o rastreador na posição GLOBAL deste furo
+                ultimo_furo_rastreado_y = melhor_furo->cy_g;
             
             if(contador_perfs_ciclo >= 4) {
                 int qtd = std::min(4, (int)furos_validos.size());
