@@ -27,3 +27,8 @@ output/
 .vscode/
 *.swp
 *.swo
+
+# Pacotes e SDKs externos (Ximea / Drivers Câmera)
+package/
+*.tgz
+*.tar.gz
