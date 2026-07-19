@@ -19,12 +19,12 @@ Esta especificação formaliza a interface abstrata `CameraProvider` (`cameras/b
 - `[RF-01]`: O sistema deve prover uma função fábrica `get_camera_provider(provider_name: str) -> CameraProvider` em `cameras/__init__.py`.
 - `[RF-02]`: Todos os drivers de câmera devem herdar de `CameraProvider` e implementar obrigatoriamente os métodos: `start(...)`, `get_frame() -> np.ndarray`, `set_exposure(...)`, `set_gain(...)`, `set_fps(...)` e `stop()`.
 - `[RF-03]`: O método `get_frame()` deve retornar rapidamente (`non-blocking` ou com timeout curto) um quadro RAW ou BGR do tamanho configurado no `start()`.
-- `[RF-04]`: O driver `ximea` (`cameras/ximea.py`) deve aplicar crop por hardware (`CAM_OFFSET_X`, `CAM_OFFSET_Y`) diretamente nos registradores do sensor via `xiAPI` para maximizar o frame rate no barramento USB 3.0.
+- `[RF-04]`: O driver `ximea` (`cameras/ximea.py`) deve aplicar crop por hardware (`CAM_OFFSET_X`, `CAM_OFFSET_Y`) diretamente nos registradores do sensor via `xiAPI` para maximizar o frame rate no barramento USB 3.0, ou utilizar negociação automática (`auto_bandwidth_calculation = 1`) com fallback `FREE_RUN` e `timeout=2000` em barramentos xHCI.
 - `[RF-05]`: O driver `pi` (`cameras/pi.py`) deve instanciar `Picamera2`, configurar controles manuais (exposição, ganho) e capturar frames contínuos em memória.
 - `[RF-06]`: A arquitetura deve permitir registrar novos provedores (como `uvc` e `mock`) dinamicamente para rodar em hardware x86_64 que não possui CSI de Raspberry Pi.
 
 ## 3. Requisitos Não-Funcionais e Performance
-- `[RNF-01]`: A obtenção do quadro em `get_frame()` deve retornar sem alocar cópias redundantes de memória (uso de buffers diretos do SDK quando possível ou reaproveitamento de arrays).
+- `[RNF-01]`: A obtenção do quadro em `get_frame()` deve retornar sem alocar cópias redundantes de memória, EXCETO quando o provedor retornar um ponteiro sobre um buffer C mutável externo (como em `XimeaAdapter`, onde `get_image_data_numpy().copy()` é obrigatório para evitar colisão de concorrência com threads consumidoras do OpenCV/Flask).
 - `[RNF-02]`: O tempo entre chamadas sucessivas de `get_frame()` deve ser estável para suportar 120 FPS (`< 8.33 ms` por frame).
 
 ---

@@ -37,7 +37,7 @@ Esta é a **primeira especificação estrutural e evolutiva do nosso fluxo de Sp
 | Plataforma | Ações e Comportamentos do Perfil |
 | :--- | :--- |
 | **Raspberry Pi 5/4 (`arm64` / `aarch64`)** | Perfil `rpi`: Ativa mock de `pykms` em ambiente sem monitor, restringe buffer de processamento para aliviar USB 3.0 em modelos RPi 4, e utiliza o provedor `pi` (`picamera2`) como alternativa ao `ximea`. |
-| **Mac Mini / MiniPCs (`x86_64`)** | Perfil `minipc_x86_64`: Pula inicializações específicas do ecossistema Pi (`picamera2`), ativa suporte nativo ao SDK Ximea Linux para arquitetura x86_64 ou câmeras `uvc`/`mock`. Permite utilizar SSD de alta velocidade para `capturas/` além de `tmpfs`. |
+| **Mac Mini / MiniPCs (`x86_64`)** | Perfil `minipc_x86_64`: Pula inicializações exclusivas do ecossistema Pi (`picamera2`), ativa suporte nativo ao SDK Ximea Linux para arquitetura x86_64 ou câmeras `uvc`/`mock`. Em controladoras USB 3.0 xHCI (ex: Mac Mini Late 2012 com processador Ivy Bridge), a largura de banda do sensor Ximea deve usar negociação dinâmica (`auto_bandwidth_calculation=1`) e o `processo_escrita_disco` deve usar obrigatoriamente gravação nativa C++ `cv2.imwrite` com libjpeg-turbo, evitando gargalos de I/O na CPU/USB durante capturas com `REC` ativo. Requer `ffmpeg` instalado via `apt` para compilação final em `process.py`. |
 
 ---
 

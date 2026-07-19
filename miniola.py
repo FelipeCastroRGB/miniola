@@ -244,14 +244,10 @@ def processo_escrita_disco(fila_in):
         if len(img_bgr.shape) == 2:
             img_bgr = cv2.cvtColor(img_bgr, BAYER_MODE)
 
-        # Salva como JPEG com cores corretas:
-        # PIL espera RGB → convertemos BGR→RGB antes de fromarray.
-        # subsampling=0 → 4:4:4 (sem perda de croma, ideal para skin tones e grãos de prata).
-        if HAS_PIL:
-            PILImage.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)).save(filename, quality=99, subsampling=0)
-        else:
-            # Fallback: PIL não disponível. img_bgr já está em BGR, cv2.imwrite espera BGR → direto.
-            cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 99])
+        # Salva como JPEG com cores corretas usando libjpeg-turbo C++ nativo (cv2.imwrite):
+        # A velocidade de escrita cai de ~35ms para ~3ms por quadro, evitando que o buffer de memória do Python
+        # sature a controladora USB 3.0 e cause queda de pacotes (dropframes) na câmera Ximea.
+        cv2.imwrite(filename, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
 
         # Gravar as coordenadas matemáticas de registro deste fotograma
         if arquivo_tracking and "cy" in item:
@@ -620,19 +616,30 @@ def generate_dashboard():
     global perfuracao_na_linha
     while True:
         time.sleep(0.06) 
-        if ultimo_frame_bruto is None: continue
-        
-        ratio_w = 640 / RES_W
-        ratio_h = 420 / RES_H
-        scale = min(ratio_w, ratio_h)
-        new_w = int(RES_W * scale)
-        new_h = int(RES_H * scale)
-        
-        if len(ultimo_frame_bruto.shape) == 2:
-            p_live_color = cv2.cvtColor(ultimo_frame_bruto, BAYER_MODE)
-            p_live_resized = cv2.resize(p_live_color, (new_w, new_h))
-        else:
-            p_live_resized = cv2.resize(ultimo_frame_bruto.copy(), (new_w, new_h))
+        try:
+            if ultimo_frame_bruto is None:
+                p_vazio = np.zeros((420, 640, 3), dtype=np.uint8)
+                cv2.putText(p_vazio, "SEM SINAL DA CAMERA / CONECTANDO...", (130, 210), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 255), 2)
+                cv2.putText(p_vazio, f"Modo atual: {CAMERA_MODE.upper()}", (230, 245), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1)
+                _, buffer = cv2.imencode('.jpg', p_vazio, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+                continue
+            
+            ratio_w = 640 / RES_W
+            ratio_h = 420 / RES_H
+            scale = min(ratio_w, ratio_h)
+            new_w = int(RES_W * scale)
+            new_h = int(RES_H * scale)
+            
+            if len(ultimo_frame_bruto.shape) == 2:
+                p_live_color = cv2.cvtColor(ultimo_frame_bruto, BAYER_MODE)
+                p_live_resized = cv2.resize(p_live_color, (new_w, new_h))
+            else:
+                p_live_resized = cv2.resize(ultimo_frame_bruto.copy(), (new_w, new_h))
+        except Exception as e:
+            print(f"[ERRO DASHBOARD] Falha ao renderizar p_live: {e}")
+            time.sleep(0.1)
+            continue
             
         sx, sy = scale, scale
         off_x = (640 - new_w) // 2
@@ -729,7 +736,7 @@ def generate_dashboard():
             
             for i in range(256):
                 x0 = i * 2; x1 = x0 + 2
-                valor_y = int(hist[i][0])
+                valor_y = int(hist.ravel()[i])
                 cor = (255, 255, 255) if i > 200 else (80, 200, 80)
                 cv2.rectangle(grafico_h, (x0, HIST_H), (x1, HIST_H - valor_y), cor, -1)
             

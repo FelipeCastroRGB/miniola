@@ -20,11 +20,12 @@ Esta especificação define a arquitetura de gravação assíncrona em núcleo i
 - `[RF-02]`: Quando o gatilho da perfuração disparar e `GRAVANDO == True`, o frame inteiro de overscan (`img_bgr`) e os metadados matemáticos de registro (`cx`, `cy`, `ox`, `oy`, `cw`, `ch`, `pitch_inst`) devem ser inseridos em `fila_gravacao` sem bloquear o loop de visão (`block=False`).
 - `[RF-03]`: Se `fila_gravacao` estiver cheia (por saturação momentânea de I/O), o quadro excedente deve ser descartado com aviso de log (`[WARN] Fila de gravação cheia`), mas sem travar a captura da câmera.
 - `[RF-04]`: O `processo_escrita_disco` deve rodar como um processo separado da CPU (desonerando o Core 0/1) e processar mensagens de gravação de imagens (`miniola_{n:06d}.jpg`), pedaços de áudio e telemetria de registro em arquivos `.jsonl` (`miniola_tracking_{session_id}.jsonl`).
-- `[RF-05]`: Se a imagem for entregue em formato RAW8 Bayer de 1 canal (`len(shape) == 2`), o `processo_escrita_disco` deve executar o debayering assíncrono para BGR/RGB (`cv2.cvtColor(..., BAYER_MODE)`) antes de comprimir e salvar o JPEG de máxima qualidade (`subsampling=0`).
+- `[RF-05]`: Se a imagem for entregue em formato RAW8 Bayer de 1 canal (`len(shape) == 2`), o `processo_escrita_disco` deve executar o debayering assíncrono para BGR (`cv2.cvtColor(..., BAYER_MODE)`) e comprimir via `cv2.imwrite` com qualidade 95 (`libjpeg-turbo` C++ nativo), evitando conversões duplas para RGB ou compilações lentas via PIL.
+- `[RF-06]`: A pós-compilação dos fotogramas gravados e da trilha de áudio ótico via `process.py` requer obrigatoriamente a presença do executável de sistema `ffmpeg` no `PATH` do SO host (`sudo apt-get install -y ffmpeg`).
 
 ## 3. Requisitos Não-Funcionais e Performance
 - `[RNF-01]`: A gravação assíncrona deve garantir que o tempo gasto pela função `processar_captura` no loop da câmera seja inferior a 0.5 ms.
-- `[RNF-02]`: A compressão JPEG via `PILImage.fromarray(...).save(..., quality=99, subsampling=0)` (ou `cv2.imwrite`) no processo isolado deve atingir cadência suficiente para esvaziar a fila sem acumular lag permanente na sessão.
+- `[RNF-02]`: A compressão JPEG via `cv2.imwrite(..., quality=95)` no processo isolado deve manter tempo de execução inferior a 5 ms por quadro, esvaziando a fila de IPC instantaneamente sem causar saturação de memória ou queda de pacotes no barramento USB 3.0 (`dropframes`).
 
 ---
 

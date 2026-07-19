@@ -1,19 +1,30 @@
 #!/bin/bash
+# ==============================================================================
+# SCRIPT DE INICIALIZAÇÃO RÁPIDA - MINIOLA
+# ==============================================================================
 
-echo "========================================"
+echo "================================================================="
 echo " INICIANDO SISTEMA MINIOLA"
-echo "========================================"
+echo "================================================================="
 
-# Navega até a pasta raiz do projeto
-cd /home/felipe/miniola
+# 1. Determina a raiz do projeto de forma dinâmica
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+cd "$ROOT_DIR"
+echo "[SISTEMA] Raiz do projeto detectada: $ROOT_DIR"
 
-# Atualiza os arquivos diretamente da branch de trabalho
-echo "[SISTEMA] Sincronizando código fonte..."
-git pull origin desenvolvimento
+# 2. Sincroniza o código fonte da branch atual
+CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
+echo "[SISTEMA] Sincronizando código fonte (branch: $CURRENT_BRANCH)..."
+git pull origin "$CURRENT_BRANCH" || echo "[WARN] Falha ao sincronizar com o remoto (verifique conexão ou commits). Continuando..."
 
-# Ativa o isolamento de bibliotecas
-source venv/bin/activate
+# 3. Ativa o ambiente virtual Python
+if [ -f "venv/bin/activate" ]; then
+    source venv/bin/activate
+else
+    echo "[ERRO] Ambiente virtual não encontrado em $ROOT_DIR/venv. Execute primeiro: ./scripts/setup_venv.sh"
+    exit 1
+fi
 
-# Executa o software de digitalização
-echo "[SISTEMA] Ligando Camera Module 3 e Motor de Captura..."
-python3 miniola.py
+# 4. Executa o software principal
+echo "[SISTEMA] Iniciando motor de captura e painel Miniola..."
+python3 miniola.py "$@"

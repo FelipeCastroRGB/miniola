@@ -55,7 +55,15 @@ Aplicar montagem:
 sudo systemctl daemon-reload && sudo mount -a
 ```
 
-### 4) Ambiente Python (Dependências Base)
+### 4) Dependências de Sistema Multi-Plataforma (FFMPEG e Compiladores)
+
+O Miniola compila extensões C++ nativas (`miniola_cv`) e utiliza o **FFMPEG** para montagem final de vídeo sincronizado com áudio (`process.py`). Em qualquer plataforma Linux (**Mac Mini / MiniPCs `x86_64`** ou **Raspberry Pi `arm64`**), instale os pacotes de sistema obrigatórios:
+
+```bash
+sudo apt-get update && sudo apt-get install -y ffmpeg build-essential python3-dev python3-venv libopencv-dev
+```
+
+### 5) Ambiente Python (Dependências Base)
 
 ```bash
 python3 -m venv --system-site-packages venv
@@ -65,7 +73,7 @@ pip install -r requirements.txt
 pip install .
 ```
 
-### 5) Instalação Específica da Câmera
+### 6) Instalação Específica da Câmera
 
 O Miniola suporta diferentes modelos de câmera, com flexibilidade de hardware. Após instalar as dependências base, escolha e instale a opção de câmera que você for utilizar:
 
@@ -108,11 +116,12 @@ pip install picamera2 python-prctl
 > ```
 > *(Após editar e salvar com `Ctrl+O` > `Enter` > `Ctrl+X`, reinicie o sistema).*
 
-### 6) Atalho de execucao
+### 6) Atalho de execução (Comando `miniola` global)
 
+Para poder rodar o comando `miniola` de qualquer pasta no terminal, estando na raiz do projeto execute:
 ```bash
-chmod +x ~/miniola/start.sh
-echo "alias miniola='~/miniola/start.sh'" >> ~/.bashrc
+chmod +x start.sh
+echo "alias miniola=\"$(pwd)/start.sh\"" >> ~/.bashrc
 source ~/.bashrc
 ```
 

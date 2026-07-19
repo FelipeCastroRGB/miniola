@@ -23,7 +23,7 @@ echo "Arquitetura detectada: $(uname -m)"
 # 2. Criar ambiente virtual
 echo ""
 echo "[1/4] Criando ambiente virtual em ./venv..."
-python3 -m venv venv
+python3 -m venv --system-site-packages venv
 
 # 3. Ativar e instalar dependências
 echo "[2/4] Instalando dependências e ferramentas de build via pip..."

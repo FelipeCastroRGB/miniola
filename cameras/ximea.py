@@ -27,14 +27,13 @@ class XimeaAdapter(CameraProvider):
                 self.cam.set_param('gammaY', 0.5) # COMPRESSÃO DE SOMBRAS (Luminosity Gamma) -> Salva os tons escuros no RAW8!
             except: pass
             
-            # Limite de Banda Extremo (2000 Mbps) para atingir os 160 FPS
-            # Estamos tirando o limite de 1500 para permitir a taxa maciça de dados do RAW8.
+            # Cálculo de Banda Automático via Hardware (como no xiSample que funcionou perfeitamente)
             try:
-                self.cam.set_param('auto_bandwidth_calculation', 0)
-            except: pass
-            try:
-                self.cam.set_limit_bandwidth(2200) # 1800 é o limite físico seguro do chip VL805 do Pi4
-            except: pass
+                self.cam.set_param('auto_bandwidth_calculation', 1)
+            except Exception as e:
+                try:
+                    self.cam.set_limit_bandwidth(2200)
+                except: pass
 
             # Força o Global Shutter explicitamente para evitar distorções de movimento em alta velocidade
             try:
@@ -54,14 +53,15 @@ class XimeaAdapter(CameraProvider):
             except Exception as e:
                 print(f"[WARN] Falha ao definir Geometria Ximea (Res:{res_w}x{res_h} Offset:{offset_x},{offset_y}): {e}")
 
-            # Tenta definir o FPS desejado. Se a matemática interna da Ximea rejeitar (ERROR 11),
-            # nós deixamos no modo de Framerate (seguro) mas com o valor máximo possível suportado.
+            # Tenta definir o FPS desejado. Se rejeitado pelo cálculo da Ximea, mantém no modo Free Run automático.
             try:
                 self.cam.set_acq_timing_mode('XI_ACQ_TIMING_MODE_FRAME_RATE')
                 self.cam.set_framerate(fps)
             except Exception as e:
-                print(f"[WARN] Falha ao definir Framerate alvo de {fps} FPS: {e}")
-                # NÃO ATIVAR FREE_RUN (Causa estouro de Banda e desliga a câmera no RPi4 com Status 5!)
+                print(f"[WARN] Falha ao definir Framerate fixo de {fps} FPS ({e}). Usando modo Free Run/Auto...")
+                try:
+                    self.cam.set_acq_timing_mode('XI_ACQ_TIMING_MODE_FREE_RUN')
+                except: pass
 
             self.cam.start_acquisition()
             from ximea import xiapi
@@ -81,7 +81,7 @@ class XimeaAdapter(CameraProvider):
     def get_frame(self):
         if not self.cam: return None
         try:
-            self.cam.get_image(self.img, timeout=1000)
+            self.cam.get_image(self.img, timeout=2000)
             
             # Checagem de Hardware de Drop Frames (Baseado no contador do Sensor)
             current_nframe = self.img.nframe
@@ -91,9 +91,8 @@ class XimeaAdapter(CameraProvider):
                     print(f"[ALERTA DE HARDWARE] DROP FRAME DETECTADO NA USB! Perdemos {diff - 1} frames entre o quadro {self.last_nframe} e {current_nframe}.")
             self.last_nframe = current_nframe
             
-            # Retorna a matriz pura (RAW8 = 2D Array). 
-            # NÃO FAZEMOS DEBAYER AQUI para salvar CPU e conseguir 160 FPS.
-            return self.img.get_image_data_numpy()
+            # Retorna uma cópia limpa do array para evitar colisão de memória C com a thread do Flask/OpenCV
+            return self.img.get_image_data_numpy().copy()
         except Exception as e:
             err_str = str(e)
             import time
