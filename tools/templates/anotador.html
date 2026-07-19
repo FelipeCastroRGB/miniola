@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Miniola - Ferramenta de criação de fotogramas de referência</title>
+    <style>
+        :root {
+            --bg-main: #121212;
+            --bg-panel: #1e1e1e;
+            --bg-input: #2d2d2d;
+            --text-main: #e0e0e0;
+            --text-muted: #9e9e9e;
+            --accent: #eec230;
+            --roi-green: #4caf50;
+            --crop-blue: #2196f3;
+            --perf-yellow: #ffeb3b;
+            --border: #333333;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        header {
+            background-color: var(--bg-panel);
+            padding: 12px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        header h1 {
+            font-size: 1.2rem;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* Área do Canvas */
+        .canvas-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: #0a0a0a;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .toolbar {
+            background-color: var(--bg-panel);
+            padding: 8px 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .tool-btn {
+            background-color: var(--bg-input);
+            color: var(--text-main);
+            border: 1px solid var(--border);
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+
+        .tool-btn:hover {
+            border-color: var(--text-muted);
+        }
+
+        .tool-btn.active.green {
+            background-color: rgba(76, 175, 80, 0.2);
+            border-color: var(--roi-green);
+            color: var(--roi-green);
+        }
+
+        .tool-btn.active.blue {
+            background-color: rgba(33, 150, 243, 0.2);
+            border-color: var(--crop-blue);
+            color: var(--crop-blue);
+        }
+
+        .tool-btn.active.yellow {
+            background-color: rgba(255, 235, 59, 0.2);
+            border-color: var(--perf-yellow);
+            color: var(--perf-yellow);
+        }
+
+        .canvas-container {
+            flex: 1;
+            overflow: auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        canvas {
+            border: 1px solid var(--border);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+            cursor: crosshair;
+            background-color: #000;
+        }
+
+        /* Painel Lateral Direito */
+        .sidebar {
+            width: 440px;
+            background-color: var(--bg-panel);
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .section-title {
+            background-color: var(--bg-main);
+            padding: 10px 16px;
+            font-size: 0.9rem;
+            font-weight: bold;
+            color: var(--accent);
+            border-bottom: 1px solid var(--border);
+            border-top: 1px solid var(--border);
+        }
+
+        .form-group {
+            padding: 10px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .form-row {
+            display: flex;
+            gap: 10px;
+        }
+
+        .form-row .form-group {
+            flex: 1;
+            padding: 0;
+            border: none;
+        }
+
+        label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        input,
+        select,
+        textarea {
+            background-color: var(--bg-input);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 0.85rem;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .readonly-box {
+            background-color: #161616;
+            color: var(--accent);
+            font-family: monospace;
+            font-size: 0.85rem;
+            padding: 6px 10px;
+            border-radius: 4px;
+            border: 1px dashed var(--border);
+        }
+
+        .btn-save {
+            background-color: var(--roi-green);
+            color: #000;
+            font-weight: bold;
+            border: none;
+            padding: 14px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: opacity 0.2s;
+            margin: 16px;
+            border-radius: 6px;
+        }
+
+        .btn-save:hover {
+            opacity: 0.9;
+        }
+
+        .status-badge {
+            font-size: 0.75rem;
+            padding: 2px 8px;
+            border-radius: 12px;
+            background-color: #333;
+        }
+
+        .status-badge.has-json {
+            background-color: rgba(76, 175, 80, 0.3);
+            color: #81c784;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: var(--bg-panel);
+            border: 1px solid var(--accent);
+            padding: 12px 24px;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            display: none;
+            z-index: 1000;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>Miniola - Criação de fotogramas de referência</h1>
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <label style="color: var(--text-main);">Selecione a imagem:</label>
+            <select id="imageSelector" style="width: 280px;" onchange="loadImage(this.value)">
+                <option value="">-- Carregando imagens... --</option>
+            </select>
+            <button class="tool-btn" onclick="fetchImages()">Atualizar</button>
+        </div>
+    </header>
+
+    <div class="main-container">
+        <!-- Área do Canvas e Desenho -->
+        <div class="canvas-area">
+            <div class="toolbar">
+                <span style="font-size: 0.8rem; color: var(--text-muted);">MODOS DE ANOTAÇÃO:</span>
+                <button id="btnToolROI" class="tool-btn active green" onclick="setTool('roi')">
+                    <span style="color: var(--roi-green);">■</span> 1. ROI da área das perfurações (Verde)
+                </button>
+                <button id="btnToolCrop" class="tool-btn blue" onclick="setTool('crop')">
+                    <span style="color: var(--crop-blue);">■</span> 2. Crop Fotograma (Azul)
+                </button>
+                <button id="btnToolPerf" class="tool-btn yellow" onclick="setTool('perf')">
+                    <span style="color: var(--perf-yellow);">●</span> 3. Marcar 4 Perfurações (Amarelo)
+                </button>
+                <button class="tool-btn" onclick="clearPerfs()" style="margin-left: auto;"> Limpar Pontos</button>
+            </div>
+            <div class="canvas-container">
+                <canvas id="imageCanvas"></canvas>
+            </div>
+        </div>
+
+        <!-- Painel de Metadados -->
+        <div class="sidebar">
+            <div class="section-title">1. Identificação e Origem (`provenance`)</div>
+            <div class="form-group">
+                <label>ID da Amostra</label>
+                <input type="text" id="metaId" placeholder="Ex: SAMPLE-001">
+            </div>
+            <div class="form-group">
+                <label>Título Descritivo</label>
+                <input type="text" id="metaTitulo" placeholder="Ex: Anotação FilmColors 1935">
+            </div>
+            <div class="form-group">
+                <label>Origem / Acervo</label>
+                <input type="text" id="metaOrigem" placeholder="Ex: FilmColors / Scan Pessoal">
+            </div>
+            <div class="form-group">
+                <label>URL de Referência (opcional)</label>
+                <input type="text" id="metaUrl" placeholder="https://filmcolors.org/...">
+            </div>
+            <div style="padding: 10px 16px;">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Ano Estimado</label>
+                        <input type="number" id="metaAno" placeholder="1935">
+                    </div>
+                    <div class="form-group">
+                        <label>Processo de Cor</label>
+                        <input type="text" id="metaProcesso" placeholder="Technicolor / Prata">
+                    </div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Estoque do Filme</label>
+                <input type="text" id="metaEstoque" placeholder="Eastman Kodak Nitrate / Safety">
+            </div>
+
+            <div class="section-title">2. Geometria da Película (`geometry`)</div>
+            <div style="padding: 10px 16px;">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Bitola</label>
+                        <select id="metaBitola">
+                            <option value="35mm">35mm</option>
+                            <option value="Super35">Super35</option>
+                            <option value="16mm">16mm</option>
+                            <option value="Super16">Super16</option>
+                            <option value="8mm">8mm</option>
+                            <option value="Super8">Super8</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Tipo Perfuração</label>
+                        <select id="metaPerfTipo">
+                            <option value="KS">KS (Kodak Standard)</option>
+                            <option value="BH">BH (Bell & Howell)</option>
+                            <option value="CS">CS (CinemaScope)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Furos/Quadro</label>
+                        <input type="number" id="metaFuros" value="4">
+                    </div>
+                </div>
+            </div>
+            <div style="padding: 10px 16px;">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Pitch Nominal (mm)</label>
+                        <input type="number" step="0.01" id="metaPitchMm" placeholder="4.75 (ou vazio)">
+                    </div>
+                    <div class="form-group">
+                        <label>Encolhimento %</label>
+                        <input type="number" step="0.1" id="metaEncolhimento" placeholder="0.0 (ou vazio)">
+                    </div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Estado de Conservação</label>
+                <select id="metaEstado">
+                    <option value="bom">Bom</option>
+                    <option value="regular">Regular</option>
+                    <option value="ruim">Ruim</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Notas Físicas</label>
+                <textarea id="metaNotas" rows="2" placeholder="Observações de conservação ou danos visíveis"></textarea>
+            </div>
+
+            <div class="section-title">3. Áudio Óptico (`audio_track`)</div>
+            <div style="padding: 10px 16px;">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Possui Áudio?</label>
+                        <select id="metaPossuiAudio">
+                            <option value="true">Sim (true)</option>
+                            <option value="false">Não (false)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Tipo de Áudio</label>
+                        <select id="metaTipoAudio">
+                            <option value="densidade_variavel">Densidade Variável (DV)</option>
+                            <option value="area_variavel">Área Variável (AV)</option>
+                            <option value="sem_audio">Sem Áudio</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section-title">4. Ground Truth para Visão C++ (`cv_ground_truth`)</div>
+            <div class="form-group">
+                <label>ROI de Visão (Verde) [x, y, w, h]</label>
+                <div id="dispRoi" class="readonly-box">[200, 10, 80, 840]</div>
+            </div>
+            <div class="form-group">
+                <label>Crop de Fotograma (Azul) [x, y, w, h]</label>
+                <div id="dispCrop" class="readonly-box">[0, 0, 1420, 880]</div>
+            </div>
+            <div style="padding: 10px 16px;">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Pitch Calculado (px)</label>
+                        <input type="number" step="0.01" id="metaPitchPx" value="195.0">
+                    </div>
+                    <div class="form-group">
+                        <label>Threshold Binarização</label>
+                        <input type="number" id="metaThresh" value="239">
+                    </div>
+                </div>
+            </div>
+            <div style="padding: 10px 16px;">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Linha Gatilho Y Ideal</label>
+                        <input type="number" id="metaGatilhoY" value="110">
+                    </div>
+                    <div class="form-group">
+                        <label>Tolerância Pitch %</label>
+                        <input type="number" step="0.1" id="metaTol" value="1.5">
+                    </div>
+                </div>
+            </div>
+
+            <button class="btn-save" onclick="saveSidecar()">Salvar Sidecar JSON (.json)</button>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+        const canvas = document.getElementById('imageCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let currentImage = null;
+        let currentFilePath = '';
+        let currentTool = 'roi'; // 'roi', 'crop', 'perf'
+
+        // Estado das anotações
+        let roiBox = [200, 10, 80, 840];
+        let cropBox = [0, 0, 1420, 880];
+        let perfPoints = []; // [{x, y}, ...]
+
+        // Estado do mouse para desenho
+        let isDrawing = false;
+        let startX = 0, startY = 0;
+
+        // Lista de imagens disponíveis na inicialização
+        window.addEventListener('load', () => {
+            fetchImages();
+        });
+
+        function showToast(msg, color = '#00ffd5') {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.style.borderColor = color;
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 3500);
+        }
+
+        async function fetchImages() {
+            try {
+                const res = await fetch('/api/images');
+                const data = await res.json();
+                const selector = document.getElementById('imageSelector');
+                selector.innerHTML = '<option value="">-- Selecione uma Amostra --</option>';
+
+                data.images.forEach(item => {
+                    const opt = document.createElement('option');
+                    opt.value = item.filepath;
+                    const check = item.has_json ? ' [com .json]' : ' [sem .json]';
+                    opt.textContent = item.filepath + check;
+                    selector.appendChild(opt);
+                });
+
+                if (data.images.length > 0 && !currentFilePath) {
+                    selector.value = data.images[0].filepath;
+                    loadImage(data.images[0].filepath);
+                }
+            } catch (err) {
+                console.error('Erro ao buscar imagens:', err);
+                showToast('Erro ao listar imagens', '#f44336');
+            }
+        }
+
+        async function loadImage(filepath) {
+            if (!filepath) return;
+            currentFilePath = filepath;
+
+            // Carregar imagem
+            const img = new Image();
+            img.src = `/api/image_data/${filepath}`;
+            img.onload = () => {
+                currentImage = img;
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                cropBox = [0, 0, img.naturalWidth, img.naturalHeight];
+
+                // Buscar JSON sidecar existente se houver
+                fetchSidecar(filepath);
+            };
+        }
+
+        async function fetchSidecar(filepath) {
+            try {
+                const res = await fetch(`/api/sidecar/${filepath}`);
+                if (res.ok) {
+                    const json = await res.json();
+                    populateForm(json);
+                    showToast('✅ Sidecar JSON existente carregado!', '#4caf50');
+                } else {
+                    // Resetar formulário com defaults para nova imagem
+                    resetFormForNewImage(filepath);
+                }
+                redraw();
+            } catch (err) {
+                resetFormForNewImage(filepath);
+                redraw();
+            }
+        }
+
+        function populateForm(json) {
+            document.getElementById('metaId').value = json.id || 'SAMPLE-001';
+            document.getElementById('metaTitulo').value = json.titulo || '';
+            if (json.provenance) {
+                document.getElementById('metaOrigem').value = json.provenance.origem || '';
+                document.getElementById('metaUrl').value = json.provenance.url_referencia || '';
+                document.getElementById('metaAno').value = json.provenance.ano_estimado || '';
+                document.getElementById('metaProcesso').value = json.provenance.processo_cor || '';
+                document.getElementById('metaEstoque').value = json.provenance.estoque_filme || '';
+            }
+            if (json.geometry) {
+                document.getElementById('metaBitola').value = json.geometry.bitola || '35mm';
+                document.getElementById('metaPerfTipo').value = json.geometry.tipo_perfuracao || 'KS';
+                document.getElementById('metaFuros').value = json.geometry.furos_por_fotograma || 4;
+                document.getElementById('metaPitchMm').value = json.geometry.pitch_nominal_mm !== null ? json.geometry.pitch_nominal_mm : '';
+                document.getElementById('metaEncolhimento').value = json.geometry.encolhimento_estimado_pct !== null ? json.geometry.encolhimento_estimado_pct : '';
+                document.getElementById('metaEstado').value = json.geometry.estado_conservacao || 'bom';
+                document.getElementById('metaNotas').value = json.geometry.notas_fisicas || '';
+            }
+            if (json.audio_track) {
+                document.getElementById('metaPossuiAudio').value = json.audio_track.possui_audio_optico ? 'true' : 'false';
+                document.getElementById('metaTipoAudio').value = json.audio_track.tipo_audio || 'densidade_variavel';
+            }
+            if (json.cv_ground_truth) {
+                if (json.cv_ground_truth.caixa_delimitadora_roi_recomendada) {
+                    roiBox = json.cv_ground_truth.caixa_delimitadora_roi_recomendada;
+                }
+                if (json.cv_ground_truth.crop_roi) {
+                    cropBox = json.cv_ground_truth.crop_roi;
+                }
+                document.getElementById('metaPitchPx').value = json.cv_ground_truth.pitch_px_esperado || 195.0;
+                document.getElementById('metaThresh').value = json.cv_ground_truth.threshold_binarizacao_recomendado || 239;
+                document.getElementById('metaGatilhoY').value = json.cv_ground_truth.linha_gatilho_y_ideal || 110;
+                document.getElementById('metaTol').value = json.cv_ground_truth.tolerancia_erro_pitch_pct || 1.5;
+            }
+            updateBoxDisplays();
+        }
+
+        function resetFormForNewImage(filepath) {
+            const filename = filepath.split('/').pop().replace(/\.[^/.]+$/, "");
+            document.getElementById('metaId').value = `SAMPLE-${Math.floor(100 + Math.random() * 900)}`;
+            document.getElementById('metaTitulo').value = `Anotação ${filename}`;
+            document.getElementById('metaOrigem').value = 'FilmColors / Acervo Miniola';
+            document.getElementById('metaUrl').value = '';
+            document.getElementById('metaAno').value = '';
+            document.getElementById('metaPitchMm').value = '';
+            document.getElementById('metaEncolhimento').value = '';
+            perfPoints = [];
+            updateBoxDisplays();
+        }
+
+        function setTool(tool) {
+            currentTool = tool;
+            document.querySelectorAll('.toolbar .tool-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            if (tool === 'roi') document.getElementById('btnToolROI').classList.add('active');
+            if (tool === 'crop') document.getElementById('btnToolCrop').classList.add('active');
+            if (tool === 'perf') document.getElementById('btnToolPerf').classList.add('active');
+        }
+
+        function clearPerfs() {
+            perfPoints = [];
+            redraw();
+        }
+
+        function updateBoxDisplays() {
+            document.getElementById('dispRoi').textContent = `[${roiBox.join(', ')}]`;
+            document.getElementById('dispCrop').textContent = `[${cropBox.join(', ')}]`;
+        }
+
+        // Interação do Canvas com o Mouse
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const x = Math.round((e.clientX - rect.left) * scaleX);
+            const y = Math.round((e.clientY - rect.top) * scaleY);
+
+            if (currentTool === 'perf') {
+                if (perfPoints.length >= 4) perfPoints = [];
+                perfPoints.push({ x, y });
+
+                // Se completou 4 pontos, autocalcular o pitch vertical entre eles
+                if (perfPoints.length === 4) {
+                    // Ordenar por Y
+                    perfPoints.sort((a, b) => a.y - b.y);
+                    const d1 = perfPoints[1].y - perfPoints[0].y;
+                    const d2 = perfPoints[2].y - perfPoints[1].y;
+                    const d3 = perfPoints[3].y - perfPoints[2].y;
+                    const avgPitch = ((d1 + d2 + d3) / 3.0).toFixed(2);
+                    document.getElementById('metaPitchPx').value = avgPitch;
+                    // Linha de gatilho sugerida no 4º furo
+                    document.getElementById('metaGatilhoY').value = perfPoints[3].y;
+                    showToast(`Pitch calculado: ${avgPitch} px (4 perfurações marcadas!)`, '#ffeb3b');
+                }
+                redraw();
+                return;
+            }
+
+            isDrawing = true;
+            startX = x;
+            startY = y;
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isDrawing) return;
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const currX = Math.round((e.clientX - rect.left) * scaleX);
+            const currY = Math.round((e.clientY - rect.top) * scaleY);
+
+            const x = Math.min(startX, currX);
+            const y = Math.min(startY, currY);
+            let w = Math.abs(currX - startX);
+            let h = Math.abs(currY - startY);
+
+            if (currentTool === 'roi') {
+                roiBox = [x, y, w, h];
+            } else if (currentTool === 'crop') {
+                // Garantir que w e h sejam pares para H.264 YUV420p
+                if (w % 2 !== 0) w += 1;
+                if (h % 2 !== 0) h += 1;
+                cropBox = [x, y, w, h];
+            }
+            updateBoxDisplays();
+            redraw();
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            isDrawing = false;
+            redraw();
+        });
+
+        function redraw() {
+            if (!currentImage) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(currentImage, 0, 0);
+
+            // Desenhar ROI de Visão (Verde)
+            ctx.strokeStyle = '#4caf50';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(roiBox[0], roiBox[1], roiBox[2], roiBox[3]);
+            ctx.fillStyle = 'rgba(76, 175, 80, 0.15)';
+            ctx.fillRect(roiBox[0], roiBox[1], roiBox[2], roiBox[3]);
+
+            // Desenhar Crop de Quadro (Azul)
+            ctx.strokeStyle = '#2196f3';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(cropBox[0], cropBox[1], cropBox[2], cropBox[3]);
+
+            // Desenhar pontos de perfuração (Amarelo)
+            ctx.fillStyle = '#ffeb3b';
+            ctx.strokeStyle = '#ffeb3b';
+            ctx.lineWidth = 1.5;
+            for (let i = 0; i < perfPoints.length; i++) {
+                const pt = perfPoints[i];
+                ctx.beginPath();
+                ctx.arc(pt.x, pt.y, 6, 0, 2 * Math.PI);
+                ctx.fill();
+                ctx.stroke();
+
+                // Linhas conectando
+                if (i > 0) {
+                    ctx.beginPath();
+                    ctx.moveTo(perfPoints[i - 1].x, perfPoints[i - 1].y);
+                    ctx.lineTo(pt.x, pt.y);
+                    ctx.stroke();
+                }
+            }
+        }
+
+        async function saveSidecar() {
+            if (!currentFilePath) {
+                showToast('Nenhuma imagem selecionada para salvar!', '#f44336');
+                return;
+            }
+
+            const pitchMmVal = document.getElementById('metaPitchMm').value;
+            const encolhimentoVal = document.getElementById('metaEncolhimento').value;
+            const anoVal = document.getElementById('metaAno').value;
+
+            const payload = {
+                filepath: currentFilePath,
+                data: {
+                    "$schema": "http://json-schema.org/draft-07/schema#",
+                    "id": document.getElementById('metaId').value || "SAMPLE-001",
+                    "titulo": document.getElementById('metaTitulo').value || "Anotação Miniola",
+                    "arquivo_imagem": currentFilePath.split('/').pop(),
+                    "provenance": {
+                        "origem": document.getElementById('metaOrigem').value || "FilmColors",
+                        "url_referencia": document.getElementById('metaUrl').value || "",
+                        "ano_estimado": anoVal ? parseInt(anoVal) : null,
+                        "processo_cor": document.getElementById('metaProcesso').value || "Desconhecido",
+                        "estoque_filme": document.getElementById('metaEstoque').value || "Desconhecido"
+                    },
+                    "geometry": {
+                        "bitola": document.getElementById('metaBitola').value,
+                        "tipo_perfuracao": document.getElementById('metaPerfTipo').value,
+                        "furos_por_fotograma": parseInt(document.getElementById('metaFuros').value) || 4,
+                        "pitch_nominal_mm": pitchMmVal !== "" ? parseFloat(pitchMmVal) : null,
+                        "encolhimento_estimado_pct": encolhimentoVal !== "" ? parseFloat(encolhimentoVal) : null,
+                        "estado_conservacao": document.getElementById('metaEstado').value,
+                        "notas_fisicas": document.getElementById('metaNotas').value || ""
+                    },
+                    "audio_track": {
+                        "possui_audio_optico": document.getElementById('metaPossuiAudio').value === 'true',
+                        "tipo_audio": document.getElementById('metaTipoAudio').value,
+                        "posicao_lateral": "direita_das_perfuracoes",
+                        "qualidade_visual": "normal"
+                    },
+                    "cv_ground_truth": {
+                        "furos_esperados_na_roi": parseInt(document.getElementById('metaFuros').value) || 4,
+                        "caixa_delimitadora_roi_recomendada": roiBox,
+                        "crop_roi": cropBox,
+                        "linha_gatilho_y_ideal": parseInt(document.getElementById('metaGatilhoY').value) || 110,
+                        "threshold_binarizacao_recomendado": parseInt(document.getElementById('metaThresh').value) || 239,
+                        "pitch_px_esperado": parseFloat(document.getElementById('metaPitchPx').value) || 195.0,
+                        "tolerancia_erro_pitch_pct": parseFloat(document.getElementById('metaTol').value) || 1.5
+                    }
+                }
+            };
+
+            try {
+                const res = await fetch('/api/save_json', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const resData = await res.json();
+                if (res.ok) {
+                    showToast(`Sidecar salvo com sucesso: ${resData.saved_path}`, '#4caf50');
+                    fetchImages(); // atualizar status na listagem
+                } else {
+                    showToast(`Erro ao salvar: ${resData.message || 'Desconhecido'}`, '#f44336');
+                }
+            } catch (err) {
+                console.error('Erro na requisição POST:', err);
+                showToast('Erro na comunicação com o servidor Flask', '#f44336');
+            }
+        }
+    </script>
+</body>
+
+</html>

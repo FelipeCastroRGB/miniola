@@ -234,14 +234,14 @@ public:
                         } 
                         
                         // Anexa o áudio costurado à prova de lente
-                        for (int i = start_copy_idx; i < current_chunk.size(); ++i) {
+                        for (int i = start_copy_idx; i < (int)current_chunk.size(); ++i) {
                             audio_samples.push_back(current_chunk[i]);
                         }
                         
                         // Corta e guarda os últimos 'tail_size' pixéis como molde para o frame seguinte
                         audio_tail.clear();
                         int tail_start = std::max(0, (int)current_chunk.size() - tail_size);
-                        for (int i = tail_start; i < current_chunk.size(); ++i) {
+                        for (int i = tail_start; i < (int)current_chunk.size(); ++i) {
                             audio_tail.push_back(current_chunk[i]);
                         }
                     }

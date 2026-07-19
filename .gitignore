@@ -1,0 +1,29 @@
+# Ambientes Virtuais e Dependências Python
+venv/
+env/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Arquivos de Build C++ (pybind11 / OpenCV local)
+build/
+dist/
+*.so
+*.pyd
+*.egg-info/
+.eggs/
+
+# Dados Locais temporários e Capturas (RAM Drive / SSD)
+capturas/
+captura/
+output/
+*.log
+*.jsonl
+
+# Configurações de IDEs locais e OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo

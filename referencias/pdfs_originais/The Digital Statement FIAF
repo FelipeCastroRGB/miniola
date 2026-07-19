@@ -1,0 +1,156 @@
+The Digital Statement
+Recommendations for digitization, restoration, digital preservation and access
+
+
+(See also the Scanners list and forum)
+
+
+Introduction
+
+ 
+
+The Technical Commission has been asked by various archives to define best practices for digitization and access. The guideline Choosing a Film Scanner, published online in 2012 by the FIAF technical commission [1] , is also available.
+
+This Digital Statement continues the previous work and sets out recommendations for the digitization, digital restoration, preservation and access to film collections, in agreement with the FIAF Code of Ethics published in 1994. The code of ethics was created with the main purpose of respecting, preserving and providing access to the most accurate reproduction of a film. The statement will eventually encompass scanning, restoration and mastering and preservation of data.
+
+The document below is the first part of the Digital Statement, and is dedicated to digitization practices, in reference to articles 1.4, 1.5 and 1.7 of the FIAF Code of Ethics . Further sections of the Digital Statement will be forthcoming in 2018/19. Part II is a deeper dive into more complex aspects of scanning technology, Part III on Sound, Part IV on Digital Restoration/Manipulation of Image and Sound, and Part V on Digital Preservation and Born-digital assets.
+
+The statement is in multiple parts: the first part is dedicated to digitization practices, in reference to articles 1.4, 1.5 and 1.7 of the FIAF Code of Ethics [2] ; the second part complements the Digital Preservation Principles [3] published previously by the FIAF Technical commission.
+
+This set of recommendations is designed to offer concepts and digital specifications for archivists and curators as part of collections management planning. Further reading and additional sources can also be found in the footnotes of this document and within the Scanner Forum in the Members’ Section of the FIAF website. In this sense, as our understanding of evolving technologies and their practical and restoration-ethical concerns deepens, this document is not only a work in progress, but more than that, also a call for discussion within the archival community and for ongoing dialogue with the scanner manufacturers, a call for more transparency from the latter and an appeal to preservationists also [4] .
+
+The FIAF Technical Commission is aware that it performs multiple functions: on one hand, it serves to recommend and advise on technical quality, and should be uncompromising in its advice, so that the FIAF community can count on its technical expertise. On the other hand, reality sets in: every archive in the world struggles in varying degrees to meet its commitments, often with limited resources. In this regard, the TC would like to acknowledge that the technically ideal solution is often not attainable for archives. In this Digital Statement, the TC will try to address both issues: the technically ideal and the realistic. The TC hopes that this will be useful to the reader. 
+
+ 
+
+    Digital reproduction: scanners and scanning 
+
+ 
+
+For more than a decade now, film scanners have been implemented into film archive preservation workflows to save and reproduce the works of art. Some scanners have in that time been customized to respond to the needs of scanning the range of film formats in often fragile and shrunken copies with sympathetic transport systems, and with wet gate options. Film archives internationally have agreed that the process of digitization should be as lossless as possible in terms of image content and structure, with the aim of reproducing closely the original photographic properties of a film.
+
+A major motivation in drafting this document is to address archival concerns regarding the opacity of film scanner operations. Typically, it remains unclear to what extent the digitization result output by the scanner (after capture and, presumably, processing of the raw scanner readings) is an “archival clone” (within the processes' technical limitations) of the photochemical original at hand. But scans are made with a planned further usage, including restoration, access viewing and even disaster recovery, and archivists make judgements in the context of caring for their specific collection and its immediate needs. Correspondingly, the first part of this section classifies scanners according to their appropriateness for either making preservation masters or access copies.
+
+The second part considers the scanner’s sensor, the basis of image digitization, and categorizes the three major types: area or frame-based sensors, line sensors and color chips. As discussed in more detail below, the data processing within the scanner prior to output is related to the sensor type and may include downsizing from a higher scanning to a desired output resolution; reassembly of a two-dimensional image and full color channels from individual line scans; sharpening; extending dynamic range by combining multiple exposures; reconstruction a full resolution image from a capture obtained with a color filter array chip; and so forth.
+
+Again, it is useful to relate these factors to photographic equivalents when planning an archive workflow. While the authors concede that “image manipulation” existed in photochemical duplication (e.g., the control of contrast and grain, but also through use of specific techniques such as “sharpening developers”), it is contented that a deeper understanding of image manipulation in film scanning and digitization must be more thoroughly discussed in both pragmatic and curatorial terms.
+
+The disguising or suppression of scratches in a new copy is something certainly familiar from photographic duplication, where wet gate printing or diffusion was employed. These techniques, sometimes modelled almost exactly, are possible in scanning workflows and are considered as the last aspect of image capture.
+
+Having illustrated scanner imaging structures, the final part of the Digitization section compares them to certain photographic characteristics. The random nature of film grain is uniformly sampled in film scanning. Particular attention is paid to the resulting texture (usually described as ‘grain’ or ‘noise’) of scanned film images, which can provoke concern. This is deeply rooted in the fact that there are two different kinds of "information" present in film – the actual image detail and the photographic grain through which the former is manifested. Those are invariably bound to change in any duplication process, analog or digital, and this part will describe the illustrative samples undertaken by the Technical Commission that allow a black and white duplication chain to be projected and observed cumulatively, both with and without images, alongside scans of the individual stages.
+
+ 
+
+    Scanners for preservation and for access
+
+Scanner design now encompasses a large range of types. Each achieves a balance between the various factors of illumination, optics, sensor, transport, speed, resolution and so on. The use of the resulting scan is not necessarily determined by the scanner, but an archive’s choice usually reflects a predetermined workflow. In common with archival principles, the highest level of scanning allows for all subordinate standards to be achieved. Initially, a decision can be made based on whether the end result is theatrical presentation, according to industry standards [5] , or access to a large part of a collection through digital access.
+
+In the former case, preservation of the original element starts during scanning. Scanners in this category produce uncompressed files, one for each film frame, making the closest reproduction of the image structure without distortion. The files would be suitable to be recorded back on film masters.
+
+Some other scanners have responded to the need of access through mass digitization, providing real time scanning or faster. They often can digitize both image and sound. These scanners are more affordable for film archives but contain a few limitations such as less than full reproduction of image quality coming from the emulsion (grain, contrast, color process, etc.) and capturing the full diversity of sounds systems in film history. A few archives have also built their own prototypes of scanners as well [6] .
+
+ 
+
+    Image Capture: the cameras sensors
+
+Currently, three configurations of image capture are implemented in various commercially available scanners. Each forms the basis of a scanning system that balances convenience, speed and quality [7] .
+
+ 
+
+    Area-based sensors [8]
+
+Area based sensors capture the full image area of each film frame in one phase, before moving to the next. In this sense, it can be thought of as similar to step printing. The sensors have full resolution in both dimensions (horizontally and vertically), they are, however, 'natively color blind.' Thus, every frame is either recorded multiple times with differently colored illumination each time or simultaneously through differently colored filters. Due to the time required for this process, scanners employing area-based sensors usually employ intermittent or slower film transport. Multiple flashes can further be used to extend the dynamic range by capturing with different exposures, in principle offering the most accurate way to extract all required information, luminance and color, over the entire density range of the analog image, at full uncompromised resolutions and in ideal registration (since the frame does not move).
+
+The Arriscanner and the Director (Lasergraphics) for example, are scanners able to do multiple flashes on each frame.
+
+ 
+
+    Line sensors
+
+Line sensors capture many horizontal samples of the film and reconstitute them into a full two-dimensional image, equivalent to the film frame. The process can be thought of as similar to continuous printing. Arrays of line sensors can be used with filters to achieve full color separation or to benefit from variations in exposure. The quality of the image depends on the accuracy with which the lines can be accurately captured and subsequently reassembled.
+
+The sensors are often, but not exclusively, used in conjunction with a continuous film transport because they can facilitate capture at real time or higher. For scanners using line-based sensors with continuous film transport, disturbance in the latter, caused by splices or other mechanical imperfections, can directly lead to flaws or distortions in the image that, although perhaps correctable in the digital domain, are not an original part of the image [9] . It should be noted that these can also appear in scans from area sensors, but to a lesser extent.
+
+The Scanity (DFT) and the Northlight (Filmlight) are examples of scanners using a line sensorsystem.
+
+ 
+
+    Area Color chips [10]
+
+Color chips allow fast capture of an image by simultaneous sampling of three colors using a single area chip. However, they achieve this by dividing the sensor’s pixels between the three primary colors through a color filter mosaic. These are standard in modern digital cameras, and they allow fast capture of an image by effectively under-sampling the image information because the individual pixels are divided amongst the color channels. By using sophisticated algorithms, it is possible to reconstruct or interpolate (“demosaic”) the captured mosaic image into a full color and resolution image, but it is not an accurately « measured » or « cloned » full resolution, full quality capture of the analog original [11] .
+
+Consider a color chip using this so-called Bayer sensing pattern [12] : typically, 50% of the pixels image the green channel, while 25% each are devoted to blue and red, designed to acknowledge the importance of the green channel for human luminance perception. Due to this effective under-sampling of color, it can be claimed that a 2k color sensor effectively only captures 1k of green image and 0.5k of red and blue image, respectively. To create a full 2k color image, missing information has to be interpolated based on specific assumptions and algorithms (“demosaicing”). A very high percentage of scanners contain a Bayer filter and whilst these algorithms can be very powerful and yield subjectively excellent results on typical color images, they are not based on independent sampling each color channel and it is to be borne in mind that the resulting image is not an accurate, full resolution replica or capture of the original provided. In considering whether to scan highly saturated, uniformly colored tinted footage, or an adiditive color system using a screen process (e.g. Dufaycolor), it is recommended to perform tests across sensor types.
+
+The Cintel (Blackmagic design) or the Scanstation (Lasergraphics) are examples of scanner using the Bayer Pattern [13] .
+
+ 
+
+    Image Capture: scratch suppression
+
+To prevent physical scratches on the original appearing as image information in the scan, three approaches can be pursued in the scanning process. They can be regarded as not only more effective than digital post-production tools, but also superior in restoration terms as they do not retouch defects by interpolation or by extracting the missing image information in the defect or scratch area from neighboring frames.
+
+ 
+
+    Wet gates
+
+Wet gate techniques intermittently fill scratches with a liquid of comparable refractive index to the film’s, eliminating the light scattering that causes base scratches to appear in the scan. This works the same way as in analog film duplication. This technique can also be very efficient for erasing mold and decomposition stains.
+
+Gate design can be similar to that on optical printers, that is an aperture larger than the image area filled with glass through which the film passes, or an ‘aquarium’ gate which allows the film to be completely submerged in a liquid. The latter process appears to be even more efficient [14] , but it should be recalled that the benefits of wet gate scanning have to be weighed against the efficiency of the gate design and possible consequences for sharpness of the scan. The perception that wet gate scanning causes loss of sharpness is still under debate, since some gate designs could include too large a gap between the film and the wet gate glass. This gap could be responsible for a turbulence that reduces image sharpness.
+
+ 
+
+    Diffusion
+
+Diffuse light sources (scattered, non-specular light) are used in many scanners and, in a similar fashion to wet gates, albeit somewhat less effectively according to different tests on the same damaged and moldy images, reduce light scattering caused at scratches.
+
+ 
+
+    Infrared and ‘Dirt-map’ [15] scanning
+
+For masked integral tripack color materials (e.g. Eastmancolor and Fujucolor) an additional infrared scan, in addition to the RGB channels, creates an error or dirt map that can be employed in digital restoration software to confine digital scratch and defect removal to the defects itself. Note that the defect is still “painted out,” rather than the original image information being recovered as it is with wet gate or diffuse light.
+
+Recent incarnations of the commercial products claim to recover the image information buried in the additional density produced by scratches and defects by multiple exposures and re-integration of the original image information in its respective position as indicated by the infrared channel.
+
+Both techniques were originally limited to these color stocks, due to their IR transparency, but an even more recent product, as well as recent research on using dark field illumination for scratch detection, appears to promise extension of this approach to silver BW images [16] .
+
+ 
+
+    Image Capture: conclusion
+
+It is rarely considered that one scanner is able to handle all types of material equally well. Those caring for collections will want to obtain access to as great a variety as possible for consideration in individual cases. In order to make informed decisions, and for further specifications, including feedback from FIAF users, please see the Scanner Forum in the Members’ area of the FIAF website.
+
+ 
+
+[1] Choosing a Film Scanner, https://www.fiafnet.org/images/tinyUpload/E-Resources/Commission-And-PIP-Resources/TC_resources/Film_Scanners_v1_2.pdf. Text supervised by David Walsh, 2012
+
+[2] The FIAF Code of Ethics is available on line: https://www.fiafnet.org/pages/Community/fiaf-code-of-ethics-revised-2025-en.html 
+
+[3] Available on the FIAF Technical Commission e-resources: https://www.fiafnet.org/pages/E-Resources/Technical-Commission-Resources.html?PHPSESSID=7dtnrmo7a1kvaqkpkfctlbl4q6
+
+[4] As Paolo Cherchi Usai reminded preservationists in the 13 th article of the Lindgren Manifesto [Journal of Film Preservation Vol. 84, 4/2011, p.4] - Honor your visual experience and reject the notion of “content” - but also - Exercise civil disobedience – in this case by challenging both preservationists and manufacturers/developers to engage in a thorough, restoration-ethically well-grounded and technically sound dialogue with the goal of collectively establishing new guidelines for digitization in an ever evolving media landscape.
+
+[5] The condition of projection: projector, format and screen are usually controlled by the DCI standards. The CST in France for example (Association of the director of photography) helps to control the digital projection quality in the French theaters.
+
+[6] See in the scanner forum, https://www.fiafnet.org/pages/E-Resources/Film-Scanners-Forum.html, the groups : preservation, access and prototypes.
+
+[7] For a useful discussion see the student paper by Michelle Carlos, A Comparison of Scanning for Archival Motion picture Film, at http://www.academia.edu/5918000/a_comparison_of_scanning_technologies_for_archival_motion_picture_film
+
+[8] Alternative name : Area sensors
+
+[9] An exemplary description of line based motion picture films can be found, for instance, in Michael Senge, Advancements in Film Scanning Technologies, SMPTE Motion Imaging Journal, Volume: 119 Issue: 8, Nov-Dec 2010, p. 47-52.
+
+[10] Other alternative names : Area sensors with mosaïc filters or Bayer pattern
+
+[11] In order to understand the difference betwween CCD sensors (created in 1976) and C-MOS (created in 2005). See the You-tube tutorial, The Science of Camera Sensors, filmmakers IQ : https://www.youtube.com/watch?v=MytCfECfqWc. Last connexion May 13th 2018.
+
+[12] To know more about the Bayer Pattern composition, see Color Imaging Array, US patent 3,971, 065, July 20 1976, Eastman Kodak Company.
+
+[13] The Scanner forum on the FIAF website, in the Technical commission section, compiles all the different scanners available on the market or in the archives, with their types of sensors
+
+[14] See Restoration of Motion Picture Film, Paul Read & Mark Paul Meyer, Butterworth, Heinemann, 2005, p.134-136, for more details about the difference between wet gates and aquarium gates.
+
+[15] Alternative name : defect map
+
+[16] Further references: Harald Brendel, The ARRI Companion to Digital Intermediate
+
+

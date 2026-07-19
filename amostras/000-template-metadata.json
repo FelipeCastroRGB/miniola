@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "id": "SAMPLE-000",
+  "titulo": "Nome descritivo do fotograma ou teste",
+  "arquivo_imagem": "nome_do_arquivo.png",
+  "provenance": {
+    "origem": "FilmColors / Cinemateca / Scan Pessoal Felipe",
+    "url_referencia": "https://filmcolors.org/...",
+    "ano_estimado": 1945,
+    "processo_cor": "Technicolor / Kodachrome / Preto e Branco Prata",
+    "estoque_filme": "Eastman Kodak Nitrate / Safety Film"
+  },
+  "geometry": {
+    "bitola": "35mm",
+    "tipo_perfuracao": "KS",
+    "furos_por_fotograma": 4,
+    "pitch_nominal_mm": null,
+    "encolhimento_estimado_pct": null,
+    "estado_conservacao": "desconhecido",
+    "notas_fisicas": "Se não souber o pitch nominal ou encolhimento (ex.: imagens do FilmColors sem metrologia física), deixe como null."
+  },
+  "audio_track": {
+    "possui_audio_optico": true,
+    "tipo_audio": "densidade_variavel",
+    "posicao_lateral": "direita_das_perfuracoes",
+    "qualidade_visual": "fenda_limpa"
+  },
+  "cv_ground_truth": {
+    "furos_esperados_na_roi": 4,
+    "caixa_delimitadora_roi_recomendada": [200, 10, 80, 840],
+    "linha_gatilho_y_ideal": 110,
+    "threshold_binarizacao_recomendado": 239,
+    "pitch_px_esperado": 195.0,
+    "tolerancia_erro_pitch_pct": 1.5
+  }
+}

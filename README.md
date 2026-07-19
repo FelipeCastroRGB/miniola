@@ -1,6 +1,8 @@
-# Miniola - Scanner de Preservacao Audiovisual (35mm)
+# Miniola 
 
-O **Miniola** é um dispositivo de baixo custo desenhado para inspeção de películas cinematográficas com o objetivo de preservar o patriônio audiovisual e democratizar o acesso às ferramentas de visionamento dos materiais em filme. O projeto utiliza Raspberry Pi + Camera Module para capturar quadros sincronizados por detecção de perfuraçôes via OpenCV, assim como extração de som óptico AV e DV.
+A **Miniola** é um dispositivo de baixo custo desenhado para inspeção de películas cinematográficas com o objetivo de preservar o patriônio audiovisual seja de acervos de instituições de memóra seja acervos pessoais. Seu desenvolvimento parte da vontade de facilitar o acesso à scanners de filmes que sejam orientados as melhores práticas de preservação audivisual, tendo como guia as recomendações da FIAF.
+
+O projeto foi concebido para ser acessível, modular e open-source. Dessa forma, sua estrutura e peças fundamentais são desenhadas para serem produzidas em impressoras 3D pequenas e baratas. Da mesma forma os requesitos computacionais que Raspberry Pi + Camera Module para capturar quadros sincronizados por detecção de perfuraçôes via OpenCV, assim como extração de som óptico AV e DV.
 
 > Estado atual de hardware: migrado para **Raspberry Pi 5 (2 GB)** para maior desempenho de OpenCV.
 
@@ -68,12 +70,22 @@ pip install .
 O Miniola suporta diferentes modelos de câmera, com flexibilidade de hardware. Após instalar as dependências base, escolha e instale a opção de câmera que você for utilizar:
 
 #### Opção A: Câmera Ximea (MQ042MG-CM) - Padrão Atual
-Se o scanner utilizar a câmera industrial Ximea, instale o SDK oficial da fabricante (que inclui os drivers e a biblioteca em Python `ximea_api`). Acesse a documentação oficial da Ximea para sistemas ARM/Linux ou execute:
+Se o scanner utilizar a câmera industrial Ximea, instale o SDK oficial da fabricante (`ximea_api`). Como o pacote difere entre processadores ARM e Intel/AMD (x86_64), escolha o comando correto para a sua máquina:
+
+- **Para Mac Mini / MiniPCs / Linux (`x86_64`)**:
+> *Nota: Se o link principal de download (`kb.ximea.com`) der erro de rota/firewall no seu provedor, acesse a página oficial de downloads (`https://www.ximea.com/support/wiki/apis/XIMEA_Linux_Software_Package`) pelo navegador e baixe o arquivo `XIMEA_Linux_SP.tgz` para a pasta do projeto.*
+```bash
+# Ou via terminal tentando o servidor de atualizações beta x64:
+wget -O XIMEA_Linux_SP.tgz https://updates.ximea.com/public/ximea_linux_x64_sp_beta.tgz || wget -O XIMEA_Linux_SP.tgz https://updates.ximea.com/public/ximea_linux_sp_beta.tgz
+tar -xzf XIMEA_Linux_SP.tgz
+cd package && ./install -cam_usb30
+```
+
+- **Para Raspberry Pi 5 / 4 (`arm64`)**:
 ```bash
 wget -O XIMEA_Linux_SP.tgz https://updates.ximea.com/public/ximea_linux_arm_sp_beta.tgz
 tar -xzf XIMEA_Linux_SP.tgz
-cd package
-./install -cam_usb30
+cd package && ./install -cam_usb30
 ```
 
 #### Opção B: Raspberry Pi Camera Module 3 (Alternativa)
@@ -133,6 +145,44 @@ Por padrao, o script tenta ler frames em:
 2. `./captura` (fallback legado)
 
 As saidas e relatorios sao gravados em `./output`.
+
+---
+
+## Fluxo de Trabalho: Spec-Driven Development (SDD)
+
+O **Miniola** adota um fluxo estrito de **Spec-Driven Development (SDD)** para garantir que evolução contínua, otimizações de C++ e adições de hardware não causem regressões no tempo real de captura (120 FPS+).
+
+> **REGRA DE OURO**: Nenhuma nova funcionalidade ou alteração estrutural no código é feita sem antes consultar e atualizar a pasta `specs/`. Consulte o arquivo [AGENTS.md](AGENTS.md) para as regras completas.
+
+### O Ciclo de Vida de uma Tarefa:
+1. **Especificar (`specs/`)**: Toda nova feature começa como um documento `specs/XXX-nome.md` baseado no `specs/000-template.md`.
+2. **Avaliar Impacto Multi-Plataforma**: Verificar impacto em Raspberry Pi (`arm64`) vs. MiniPCs/Mac Mini (`x86_64`).
+3. **Programar Guiado pela Spec**: Escrever o código C++/Python ou drivers de câmera obedecendo à especificação.
+4. **Validar & Certificar**: Executar o checador automático de especificações e testes locais antes de submeter código:
+   ```bash
+   # Checar conformidade das especificações
+   python3 scripts/check_specs.py
+
+   # Rodar suite de testes unitários e de bancada (Mock)
+   python3 -m unittest discover -s tests
+   ```
+
+---
+
+## Suporte Multi-Plataforma (Raspberry Pi & MiniPCs x86_64)
+
+Além do **Raspberry Pi 5 (e 4)**, o Miniola possui suporte multi-plataforma para **Mac Mini Late 2012 / MiniPCs genéricos rodando Linux x86_64** ([SPEC-006](specs/006-multiplatform-minipc-support.md)).
+
+| Recurso | Raspberry Pi 5/4 (`arm64`) | Mac Mini / MiniPCs (`x86_64`) |
+| :--- | :--- | :--- |
+| **Câmeras** | `--camera pi` (picamera2) / `--camera ximea` | `--camera ximea` (USB 3.0) / `--camera uvc` / `--camera mock` |
+| **RAM Drive** | `tmpfs` em `/home/felipe/miniola/capturas` (1GB max) | `tmpfs` expansível ou SSD NVMe/SATA interno ultra-rápido |
+| **Motor Visão** | `miniola_cv` via pybind11 otimizado para ARM | `miniola_cv` via pybind11 com vetorização nativa x86_64 |
+
+Para rodar em modo de teste ou bancada sem hardware acoplado (ideal para desenvolvimento no Mac ou PC Linux):
+```bash
+python3 miniola.py --camera mock
+```
 
 ---
 
