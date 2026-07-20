@@ -1,6 +1,6 @@
 # Miniola 
 
-A **Miniola** é um dispositivo de baixo custo desenhado para inspeção de películas cinematográficas com o objetivo de preservar o patriônio audiovisual seja de acervos de instituições de memóra seja acervos pessoais. Seu desenvolvimento parte da vontade de facilitar o acesso à scanners de filmes que sejam orientados as melhores práticas de preservação audivisual, tendo como guia as recomendações da FIAF.
+A **Miniola** é um dispositivo de baixo custo desenhado para inspeção de películas cinematográficas com o objetivo de preservar o patriônio audiovisual. Seu desenvolvimento parte da vontade de facilitar o acesso à scanners de filmes que sejam orientados as melhores práticas de preservação audivisual.
 
 O projeto foi concebido para ser acessível, modular e open-source. Dessa forma, sua estrutura e peças fundamentais são desenhadas para serem produzidas em impressoras 3D pequenas e baratas. Da mesma forma os requesitos computacionais que Raspberry Pi + Camera Module para capturar quadros sincronizados por detecção de perfuraçôes via OpenCV, assim como extração de som óptico AV e DV.
 
