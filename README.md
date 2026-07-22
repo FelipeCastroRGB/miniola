@@ -116,7 +116,7 @@ pip install picamera2 python-prctl
 > ```
 > *(Após editar e salvar com `Ctrl+O` > `Enter` > `Ctrl+X`, reinicie o sistema).*
 
-### 6) Atalho de execução (Comando `miniola` global)
+### 6) Atalho de execução (Comando `miniola` global) - Opcional
 
 Para poder rodar o comando `miniola` de qualquer pasta no terminal, estando na raiz do projeto execute:
 ```bash
@@ -159,9 +159,9 @@ As saidas e relatorios sao gravados em `./output`.
 
 ## Fluxo de Trabalho: Spec-Driven Development (SDD)
 
-O **Miniola** adota um fluxo estrito de **Spec-Driven Development (SDD)** para garantir que evolução contínua, otimizações de C++ e adições de hardware não causem regressões no tempo real de captura (120 FPS+).
+O **Miniola** adota um fluxo estrito de **Spec-Driven Development (SDD)** para garantir o desenvolvimento controlado.
 
-> **REGRA DE OURO**: Nenhuma nova funcionalidade ou alteração estrutural no código é feita sem antes consultar e atualizar a pasta `specs/`. Consulte o arquivo [AGENTS.md](AGENTS.md) para as regras completas.
+> **REGRA**: Nenhuma nova funcionalidade ou alteração estrutural no código é feita sem antes consultar e atualizar a pasta `specs/`. Consulte o arquivo [AGENTS.md](AGENTS.md) para as regras completas.
 
 ### O Ciclo de Vida de uma Tarefa:
 1. **Especificar (`specs/`)**: Toda nova feature começa como um documento `specs/XXX-nome.md` baseado no `specs/000-template.md`.
@@ -180,7 +180,7 @@ O **Miniola** adota um fluxo estrito de **Spec-Driven Development (SDD)** para g
 
 ## Suporte Multi-Plataforma (Raspberry Pi & MiniPCs x86_64)
 
-Além do **Raspberry Pi 5 (e 4)**, o Miniola possui suporte multi-plataforma para **Mac Mini Late 2012 / MiniPCs genéricos rodando Linux x86_64** ([SPEC-006](specs/006-multiplatform-minipc-support.md)).
+Além do **Raspberry Pi 5 (e 4)**, a Miniola possui suporte multi-plataforma para **Mac Mini Late 2012 / MiniPCs genéricos rodando Linux x86_64** ([SPEC-006](specs/006-multiplatform-minipc-support.md)).
 
 | Recurso | Raspberry Pi 5/4 (`arm64`) | Mac Mini / MiniPCs (`x86_64`) |
 | :--- | :--- | :--- |
