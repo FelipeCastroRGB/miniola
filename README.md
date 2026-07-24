@@ -6,18 +6,18 @@ Concebido para ser acessível e modular, o projeto possui uma estrutura cujas pe
 
 Estado atual de testes de hardware: 
 
-Computadores
+**SBCs e PCs**
 
-**Raspberry Pi 4 (1 GB)**
-**Raspberry Pi 5 (2 GB)**
-**Mac Mini 2012 (8 GB) - Linus Mint**
+- Raspberry Pi 4 (1 GB)
+- Raspberry Pi 5 (2 GB)
+- Mac Mini 2012 (8 GB) - Linus Mint
 
-Câmeras
+**Câmeras**
 
-**Raspberry Pi Camera Module 3**
-**Raspberry Pi Camera Module 2**
-**Raspberry Pi Camera Module 1.3**
-**XIMEA MQ042MG-CM**
+- Raspberry Pi Camera Module 3
+- Raspberry Pi Camera Module 2
+- Raspberry Pi Camera Module 1.3
+- XIMEA MQ042MG-CM
 
 ---
 
