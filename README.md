@@ -34,9 +34,9 @@ Arquivos principais agora ficam na **raiz do repositorio**:
 
 ## Guia de instalação
 
-### 1) Dependências de Sistema (Multi-Plataforma)
+### 1) Dependências de Sistema
 
-O Miniola compila extensões C++ nativas (`miniola_cv`) e utiliza o **FFMPEG** para montagem final de vídeo sincronizado com áudio (`process.py`). Em qualquer plataforma Linux (**Mac Mini / MiniPCs `x86_64`** ou **Raspberry Pi `arm64`**), instale os pacotes obrigatórios:
+O Miniola compila extensões C++ nativas (`miniola_cv`) e utiliza o **FFMPEG** para montagem final de vídeo sincronizado com áudio (`process.py`). Em qualquer plataforma Linux (**x86_64** ou **arm64**), instale os pacotes obrigatórios:
 
 ```bash
 sudo apt update
@@ -58,7 +58,7 @@ mkdir -p ~/miniola/capturas
 mkdir -p ~/miniola/output
 ```
 
-### 4) Ambiente Python (Dependências Base)
+### 4) Ambiente Python
 
 ```bash
 python3 -m venv --system-site-packages venv
@@ -75,7 +75,7 @@ O Miniola suporta diferentes modelos de câmera, com flexibilidade de hardware. 
 #### Opção A: Câmera Ximea (MQ042MG-CM)
 Se o scanner utilizar a câmera industrial Ximea, instale o SDK oficial da fabricante (`ximea_api`). Como o pacote difere entre processadores ARM e Intel/AMD (x86_64), escolha o comando correto para a sua máquina:
 
-- **Para Mac Mini / MiniPCs / Linux (`x86_64`)**:
+- **Linux x86_64**:
 > *Nota: Se o link principal de download (`kb.ximea.com`) der erro de rota/firewall, acesse a página oficial de downloads (`https://www.ximea.com/support/wiki/apis/XIMEA_Linux_Software_Package`) pelo navegador e baixe o arquivo `XIMEA_Linux_SP.tgz` para a pasta do projeto.*
 ```bash
 # Ou via terminal tentando o servidor de atualizações beta x64:
@@ -84,7 +84,7 @@ tar -xzf XIMEA_Linux_SP.tgz
 cd package && ./install -cam_usb30
 ```
 
-- **Para Raspberry Pi 5 / 4 (`arm64`)**:
+- **Linux arm64 (Raspberry Pi)**:
 ```bash
 wget -O XIMEA_Linux_SP.tgz https://updates.ximea.com/public/ximea_linux_arm_sp_beta.tgz
 tar -xzf XIMEA_Linux_SP.tgz
