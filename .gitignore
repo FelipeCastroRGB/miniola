@@ -37,3 +37,8 @@ package/
 specs/
 AGENTS.md
 start.sh
+
+.cursorrules
+scripts/
+.gemini/
+.github/

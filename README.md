@@ -74,7 +74,7 @@ O Miniola suporta diferentes modelos de câmera, com flexibilidade de hardware. 
 Se o scanner utilizar a câmera industrial Ximea, instale o SDK oficial da fabricante (`ximea_api`). Como o pacote difere entre processadores ARM e Intel/AMD (x86_64), escolha o comando correto para a sua máquina:
 
 - **Para Mac Mini / MiniPCs / Linux (`x86_64`)**:
-> *Nota: Se o link principal de download (`kb.ximea.com`) der erro de rota/firewall no seu provedor, acesse a página oficial de downloads (`https://www.ximea.com/support/wiki/apis/XIMEA_Linux_Software_Package`) pelo navegador e baixe o arquivo `XIMEA_Linux_SP.tgz` para a pasta do projeto.*
+> *Nota: Se o link principal de download (`kb.ximea.com`) der erro de rota/firewall, acesse a página oficial de downloads (`https://www.ximea.com/support/wiki/apis/XIMEA_Linux_Software_Package`) pelo navegador e baixe o arquivo `XIMEA_Linux_SP.tgz` para a pasta do projeto.*
 ```bash
 # Ou via terminal tentando o servidor de atualizações beta x64:
 wget -O XIMEA_Linux_SP.tgz https://updates.ximea.com/public/ximea_linux_x64_sp_beta.tgz || wget -O XIMEA_Linux_SP.tgz https://updates.ximea.com/public/ximea_linux_sp_beta.tgz
@@ -127,13 +127,14 @@ sudo systemctl daemon-reload && sudo mount -a
 
 ---
 
-## Operacao
+## Operação
 
-Para iniciar o sistema, você pode executar o script auxiliar `start.sh` localizado na raiz do projeto (`./start.sh`), que automatiza algumas etapas, ou rodar o script python diretamente. Se optar pelo script auxiliar, ele faz o seguinte:
+Para iniciar o sistema, ative o ambiente virtual e execute o script principal:
 
-1. `git pull origin desenvolvimento` (garante que você tenha o código mais recente)
-2. Ativa o ambiente virtual (`venv`)
-3. Executa `python3 miniola.py`
+```bash
+source venv/bin/activate
+python3 miniola.py
+```
 
 ---
 
@@ -157,30 +158,11 @@ As saidas e relatorios sao gravados em `./output`.
 
 ---
 
-## Fluxo de Trabalho: Spec-Driven Development (SDD)
 
-O **Miniola** adota um fluxo estrito de **Spec-Driven Development (SDD)** para garantir o desenvolvimento controlado.
-
-> **REGRA**: Nenhuma nova funcionalidade ou alteração estrutural no código é feita sem antes consultar e atualizar a pasta `specs/`. Consulte o arquivo [AGENTS.md](AGENTS.md) para as regras completas.
-
-### O Ciclo de Vida de uma Tarefa:
-1. **Especificar (`specs/`)**: Toda nova feature começa como um documento `specs/XXX-nome.md` baseado no `specs/000-template.md`.
-2. **Avaliar Impacto Multi-Plataforma**: Verificar impacto em Raspberry Pi (`arm64`) vs. MiniPCs/Mac Mini (`x86_64`).
-3. **Programar Guiado pela Spec**: Escrever o código C++/Python ou drivers de câmera obedecendo à especificação.
-4. **Validar & Certificar**: Executar o checador automático de especificações e testes locais antes de submeter código:
-   ```bash
-   # Checar conformidade das especificações
-   python3 scripts/check_specs.py
-
-   # Rodar suite de testes unitários e de bancada (Mock)
-   python3 -m unittest discover -s tests
-   ```
-
----
 
 ## Suporte Multi-Plataforma (Raspberry Pi & MiniPCs x86_64)
 
-Além do **Raspberry Pi 5 (e 4)**, a Miniola possui suporte multi-plataforma para **Mac Mini Late 2012 / MiniPCs genéricos rodando Linux x86_64** ([SPEC-006](specs/006-multiplatform-minipc-support.md)).
+Além do **Raspberry Pi 5 (e 4)**, a Miniola possui suporte multi-plataforma para **Mac Mini Late 2012 / MiniPCs genéricos rodando Linux x86_64**.
 
 | Recurso | Raspberry Pi 5/4 (`arm64`) | Mac Mini / MiniPCs (`x86_64`) |
 | :--- | :--- | :--- |
