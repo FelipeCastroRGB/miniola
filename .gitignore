@@ -32,3 +32,8 @@ output/
 package/
 *.tgz
 *.tar.gz
+
+# Arquivos de Desenvolvimento Local
+specs/
+AGENTS.md
+start.sh

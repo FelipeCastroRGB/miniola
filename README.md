@@ -19,7 +19,7 @@ Câmeras
 
 ---
 
-## Estrutura atual do repositorio
+## Estrutura do repositorio
 
 Arquivos principais agora ficam na **raiz do repositorio**:
 
@@ -30,7 +30,7 @@ Arquivos principais agora ficam na **raiz do repositorio**:
 
 ---
 
-## Guia de instalacao
+## Guia de instalação
 
 ### 1) Dependências de Sistema (Multi-Plataforma)
 
@@ -48,23 +48,12 @@ git clone -b desenvolvimento https://github.com/FelipeCastroRGB/miniola.git
 cd ~/miniola
 ```
 
-### 3) RAM Drive para captura (`tmpfs`)
+### 3) Criação dos Diretórios de Captura
 
+O Miniola precisa de pastas específicas para salvar os quadros temporários e os vídeos processados:
 ```bash
 mkdir -p ~/miniola/capturas
 mkdir -p ~/miniola/output
-```
-
-Edite `sudo nano /etc/fstab` e adicione ao final:
-
-```text
-tmpfs /home/felipe/miniola/capturas tmpfs defaults,noatime,size=1024M 0 0
-```
-
-Aplicar montagem:
-
-```bash
-sudo systemctl daemon-reload && sudo mount -a
 ```
 
 ### 4) Ambiente Python (Dependências Base)
@@ -81,7 +70,7 @@ pip install .
 
 O Miniola suporta diferentes modelos de câmera, com flexibilidade de hardware. Após instalar as dependências base, escolha e instale a opção de câmera que você for utilizar:
 
-#### Opção A: Câmera Ximea (MQ042MG-CM) - Padrão Atual
+#### Opção A: Câmera Ximea (MQ042MG-CM)
 Se o scanner utilizar a câmera industrial Ximea, instale o SDK oficial da fabricante (`ximea_api`). Como o pacote difere entre processadores ARM e Intel/AMD (x86_64), escolha o comando correto para a sua máquina:
 
 - **Para Mac Mini / MiniPCs / Linux (`x86_64`)**:
@@ -120,24 +109,31 @@ pip install picamera2 python-prctl
 > ```
 > *(Após editar e salvar com `Ctrl+O` > `Enter` > `Ctrl+X`, reinicie o sistema).*
 
-### 6) Atalho de execução (Comando `miniola` global) - Opcional
+### 6) Configuração do RAM Drive para captura (`tmpfs`) - Opcional
 
-Para poder rodar o comando `miniola` de qualquer pasta no terminal, estando na raiz do projeto execute:
+> **Nota de Hardware**: No **Raspberry Pi**, esta montagem em `tmpfs` é **muito recomendada** para gravação em cartões MicroSD. Em **MiniPCs ou computadores com SSDs de alta velocidade (NVMe/SATA)**, este passo é **opcional**, já que a gravação direta no disco costuma ser rápida o suficiente.
+
+Se for configurar o RAM drive (`tmpfs`), edite o arquivo `fstab` (`sudo nano /etc/fstab`) e adicione ao final (lembre-se de substituir `SEU_USUARIO` pelo seu usuário real):
+
+```text
+tmpfs /home/SEU_USUARIO/miniola/capturas tmpfs defaults,noatime,size=1024M 0 0
+```
+
+Aplicar montagem:
+
 ```bash
-chmod +x start.sh
-echo "alias miniola=\"$(pwd)/start.sh\"" >> ~/.bashrc
-source ~/.bashrc
+sudo systemctl daemon-reload && sudo mount -a
 ```
 
 ---
 
 ## Operacao
 
-Ao executar `miniola`, o `start.sh` faz:
+Para iniciar o sistema, você pode executar o script auxiliar `start.sh` localizado na raiz do projeto (`./start.sh`), que automatiza algumas etapas, ou rodar o script python diretamente. Se optar pelo script auxiliar, ele faz o seguinte:
 
-1. `git pull origin desenvolvimento`
-2. ativa `venv`
-3. inicia `python3 miniola.py`
+1. `git pull origin desenvolvimento` (garante que você tenha o código mais recente)
+2. Ativa o ambiente virtual (`venv`)
+3. Executa `python3 miniola.py`
 
 ---
 
