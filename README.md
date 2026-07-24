@@ -1,32 +1,44 @@
 # Miniola 
 
-A **Miniola** é um dispositivo de baixo custo desenhado para inspeção de películas cinematográficas com o objetivo de preservar o patriônio audiovisual. Seu desenvolvimento parte da vontade de facilitar o acesso à scanners de filmes que sejam orientados as melhores práticas de preservação audivisual.
+A **Miniola** é um projeto de código aberto focado no desenvolvimento de um dispositivo de baixo custo para a inspeção de películas cinematográficas. Utilizando um sistema de transporte contínuo *sprocketless* (sem roletes dentados), o projeto tem como objetivo fornecer subsídios para a preservação do patrimônio audiovisual. Sua criação nasce da vontade de facilitar o acesso ao conteúdo de filmes em película para pesquisadores e arquivistas, além de disponibilizar um conjunto de ferramentas analíticas voltadas à compreensão do estado de conservação dos materiais.
 
-O projeto foi concebido para ser acessível, modular e open-source. Dessa forma, sua estrutura e peças fundamentais são desenhadas para serem produzidas em impressoras 3D pequenas e baratas. Da mesma forma os requesitos computacionais que Raspberry Pi + Camera Module para capturar quadros sincronizados por detecção de perfuraçôes via OpenCV, assim como extração de som óptico AV e DV.
+Concebido para ser acessível e modular, o projeto possui uma estrutura cujas peças fundamentais são desenhadas para fabricação em impressoras 3D pequenas e de baixo custo. Além disso, o sistema foi pensado para atender a diferentes realidades, operando sem dependência de um hardware específico e suportando requisitos computacionais flexíveis, bem como câmeras com variadas configurações.
 
-> Estado atual de hardware: migrado para **Raspberry Pi 5 (2 GB)** para maior desempenho de OpenCV.
+> Estado atual de testes de hardware: 
+
+Computadores
+**Raspberry Pi 4 (1 GB)**
+**Raspberry Pi 5 (2 GB)**
+**Mac Mini 2012 (8 GB) - Linus Mint**
+
+Câmeras
+**Raspberry Pi Camera Module 3**
+**Raspberry Pi Camera Module 2**
+**Raspberry Pi Camera Module 1.3**
+**XIMEA MQ042MG-CM**
 
 ---
 
-## Estrutura atual do repositorio (branch `desenvolvimento`)
+## Estrutura atual do repositorio
 
 Arquivos principais agora ficam na **raiz do repositorio**:
 
 - `miniola.py`: ponto de entrada principal.
 - `process.py`: pos-processamento (gera MP4/ProRes a partir dos frames).
-- `miniola_debug.py`: variante de depuracao (opcional).
-- `start.sh`: script de boot e atualizacao (`git pull` + execucao).
+- `miniola_debug.py`: variante de depuracao (opcional)
 - `requirements.txt`: dependencias Python.
 
 ---
 
-## Guia de instalacao limpa (Raspberry Pi OS Bookworm)
+## Guia de instalacao
 
-### 1) Dependencias do sistema
+### 1) Dependências de Sistema (Multi-Plataforma)
+
+O Miniola compila extensões C++ nativas (`miniola_cv`) e utiliza o **FFMPEG** para montagem final de vídeo sincronizado com áudio (`process.py`). Em qualquer plataforma Linux (**Mac Mini / MiniPCs `x86_64`** ou **Raspberry Pi `arm64`**), instale os pacotes obrigatórios:
 
 ```bash
 sudo apt update
-sudo apt install libcap-dev libgnutls28-dev python3-libcamera git python3-dev build-essential ffmpeg libopencv-dev pkg-config -y
+sudo apt install -y libcap-dev libgnutls28-dev python3-libcamera git python3-dev python3-venv build-essential ffmpeg libopencv-dev pkg-config
 ```
 
 ### 2) Clonagem
@@ -55,15 +67,7 @@ Aplicar montagem:
 sudo systemctl daemon-reload && sudo mount -a
 ```
 
-### 4) Dependências de Sistema Multi-Plataforma (FFMPEG e Compiladores)
-
-O Miniola compila extensões C++ nativas (`miniola_cv`) e utiliza o **FFMPEG** para montagem final de vídeo sincronizado com áudio (`process.py`). Em qualquer plataforma Linux (**Mac Mini / MiniPCs `x86_64`** ou **Raspberry Pi `arm64`**), instale os pacotes de sistema obrigatórios:
-
-```bash
-sudo apt-get update && sudo apt-get install -y ffmpeg build-essential python3-dev python3-venv libopencv-dev
-```
-
-### 5) Ambiente Python (Dependências Base)
+### 4) Ambiente Python (Dependências Base)
 
 ```bash
 python3 -m venv --system-site-packages venv
@@ -73,7 +77,7 @@ pip install -r requirements.txt
 pip install .
 ```
 
-### 6) Instalação Específica da Câmera
+### 5) Instalação Específica da Câmera
 
 O Miniola suporta diferentes modelos de câmera, com flexibilidade de hardware. Após instalar as dependências base, escolha e instale a opção de câmera que você for utilizar:
 
@@ -96,7 +100,7 @@ tar -xzf XIMEA_Linux_SP.tgz
 cd package && ./install -cam_usb30
 ```
 
-#### Opção B: Raspberry Pi Camera Module 3 (Alternativa)
+#### Opção B: Raspberry Pi Camera Module 3
 Se você estiver utilizando a câmera padrão do ecossistema Raspberry Pi, instale as dependências correspondentes:
 ```bash
 pip install picamera2 python-prctl
