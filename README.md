@@ -46,7 +46,7 @@ sudo apt install -y libcap-dev libgnutls28-dev python3-libcamera git python3-dev
 ### 2) Clonagem
 
 ```bash
-git clone -b desenvolvimento https://github.com/FelipeCastroRGB/miniola.git
+git clone https://github.com/FelipeCastroRGB/miniola.git
 cd ~/miniola
 ```
 
