@@ -4,14 +4,16 @@ A **Miniola** é um projeto de código aberto focado no desenvolvimento de um di
 
 Concebido para ser acessível e modular, o projeto possui uma estrutura cujas peças fundamentais são desenhadas para fabricação em impressoras 3D pequenas e de baixo custo. Além disso, o sistema foi pensado para atender a diferentes realidades, operando sem dependência de um hardware específico e suportando requisitos computacionais flexíveis, bem como câmeras com variadas configurações.
 
-> Estado atual de testes de hardware: 
+Estado atual de testes de hardware: 
 
 Computadores
+
 **Raspberry Pi 4 (1 GB)**
 **Raspberry Pi 5 (2 GB)**
 **Mac Mini 2012 (8 GB) - Linus Mint**
 
 Câmeras
+
 **Raspberry Pi Camera Module 3**
 **Raspberry Pi Camera Module 2**
 **Raspberry Pi Camera Module 1.3**
@@ -155,25 +157,6 @@ Por padrao, o script tenta ler frames em:
 2. `./captura` (fallback legado)
 
 As saidas e relatorios sao gravados em `./output`.
-
----
-
-
-
-## Suporte Multi-Plataforma (Raspberry Pi & MiniPCs x86_64)
-
-Além do **Raspberry Pi 5 (e 4)**, a Miniola possui suporte multi-plataforma para **Mac Mini Late 2012 / MiniPCs genéricos rodando Linux x86_64**.
-
-| Recurso | Raspberry Pi 5/4 (`arm64`) | Mac Mini / MiniPCs (`x86_64`) |
-| :--- | :--- | :--- |
-| **Câmeras** | `--camera pi` (picamera2) / `--camera ximea` | `--camera ximea` (USB 3.0) / `--camera uvc` / `--camera mock` |
-| **RAM Drive** | `tmpfs` em `/home/felipe/miniola/capturas` (1GB max) | `tmpfs` expansível ou SSD NVMe/SATA interno ultra-rápido |
-| **Motor Visão** | `miniola_cv` via pybind11 otimizado para ARM | `miniola_cv` via pybind11 com vetorização nativa x86_64 |
-
-Para rodar em modo de teste ou bancada sem hardware acoplado (ideal para desenvolvimento no Mac ou PC Linux):
-```bash
-python3 miniola.py --camera mock
-```
 
 ---
 
