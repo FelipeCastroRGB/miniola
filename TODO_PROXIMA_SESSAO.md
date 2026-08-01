@@ -67,3 +67,16 @@ A interface web atual (`index.html` e `generate_dashboard`) foi construída como
   - **Paleta Dark Pro**: Adotar uma paleta cinza-escuro neutra e de alto contraste inspirada em softwares de color grading/telecine (`#181818` para o fundo da janela, `#262626` para cards de painel, `#3a3a3a` para bordas de contenção, `#00d26a` para status OK/Safe, e `#ff3333` para gravação ativa `REC`).
   - **Tipografia Técnica e Legível**: Padronizar as fontes utilizando famílias modernas e limpas via Google Fonts ou variáveis CSS (`Inter` / `Outfit` para a interface geral, e `JetBrains Mono` ou `Roboto Mono` para telemetria numérica, FPS, temperatura e posições XY de crop).
   - **Controle de Transporte (*Transport Console*)**: Redesenhar a barra de botões inferiores em estilo console físico (Botão `REC` vermelho pulsante bem nítido, `PAUSE`, controles milimétricos de Crop, e botões táteis para alteração de padrão Bayer `0-3` e ganho/exposição do sensor ao vivo sem precisar digitar no terminal).
+
+---
+
+## 7. Fase 2: Transporte Motorizado (Dual Motor & PID) [SPEC-010]
+
+O teste de bancada de inicialização via USB e UART do motor X foi concluído com sucesso utilizando firmware C++ via SKR Pico. O foco agora é implementar a tração de rolo a rolo.
+
+- [ ] **7.1. Montagem Mecânica Físíca (Hardware)**:
+  - Conectar os dois motores NEMA 17 aos pratos de Feed-in e Take-up e acoplar a película de teste para validação física da tração.
+- [ ] **7.2. Firmware C++ de Tensão (SKR Pico)**:
+  - Habilitar o Eixo Y no `main.cpp` e configurar as interrupções de leitura de carga mecânica via tecnologia **StallGuard 4** dos drivers TMC2209. Cortar a energia (Safety Stop) instantaneamente caso a carga lida indique travamento ou enrosco do filme.
+- [ ] **7.3. Controlador PID Python (`motor_controller.py`)**:
+  - Implementar a "Mola Matemática" (Loop PID). O controlador deverá receber a medição de FPS (perfurações) do `miniola_cv.cpp` e enviar comandos diferenciais seriais de velocidade para ajustar a aceleração dos motores X e Y, compensando em tempo real a mudança de diâmetro dos rolos conforme o filme passa.

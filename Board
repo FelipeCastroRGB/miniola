@@ -1,0 +1,82 @@
+Placa Controladora BTT SKR PICO V1.0 – 32 bits – Ideal para Klipper – Alta Performance e Compacta
+
+A BTT SKR PICO V1.0 da BigTreeTech é uma placa controladora 32 bits compacta e extremamente eficiente, projetada especialmente para impressoras 3D que utilizam firmware Klipper. É amplamente utilizada em upgrades de impressoras como a Ender 3 e outras máquinas compatíveis com arquitetura semelhante.
+
+Trata-se de uma solução moderna, estável e de alto desempenho, ideal para quem busca maior qualidade de impressão, processamento rápido e melhor controle de motores.
+
+Características Técnicas:
+
+Processador:
+
+Microcontrolador RP2040 (dual-core ARM Cortex-M0+)
+Frequência de até 133 MHz
+Memória Flash onboard de 16 MB
+
+Arquitetura:
+
+32 bits
+Interface otimizada para uso com Klipper
+
+Drivers de Motor:
+
+4 drivers integrados TMC2209
+Suporte a UART
+StealthChop2 para operação silenciosa
+SpreadCycle
+Sensorless Homing
+Microstepping até 1/256 (interpolado)
+
+Eixos suportados:
+
+X, Y, Z e Extrusor (E0)
+
+Alimentação:
+Entrada de 12V a 24V
+Proteção contra inversão de polaridade
+
+Aquecimento:
+1 saída para hotend
+1 saída para mesa aquecida
+Suporte a controle PID
+
+Ventoinhas:
+
+2 saídas controláveis (hotend e fan de camada)
+
+Sensores:
+
+Entradas para termistor do hotend
+Entrada para termistor da mesa aquecida
+Conector para sensor BLTouch / CR Touch
+Suporte a endstops mecânicos ou sensorless
+
+Conectividade:
+USB-C para comunicação com Raspberry Pi
+Interface dedicada para integração direta com Raspberry Pi
+Conectores JST padrão
+
+Dimensões:
+Aproximadamente 100 mm x 70 mm
+Formato compacto ideal para upgrades
+
+Compatibilidade:
+
+Projetada para uso com firmware Klipper
+Compatível com Raspberry Pi
+Indicado para impressoras como Ender 3, Ender 3 Pro, Ender 3 V2 e projetos DIY
+
+Diferenciais:
+
+Drivers TMC2209 já integrados na placa
+Funcionamento extremamente silencioso
+Processamento rápido
+Compacta e fácil de instalar
+Excelente custo-benefício
+
+Produto ideal para quem deseja modernizar sua impressora 3D, obter melhor qualidade de impressão e reduzir ruídos dos motores.
+
+Conteúdo da embalagem:
+
+1x Placa BTT SKR PICO V1.0
+Dissipadores para drivers
+Cabos conforme kit original

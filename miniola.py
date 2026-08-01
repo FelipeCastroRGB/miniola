@@ -1,9 +1,11 @@
 import sys 
+import platform
 from unittest.mock import MagicMock
 
 # --- CONFIGURAÇÃO DE AMBIENTE E HARDWARE ---
-sys.modules["pykms"] = MagicMock()
-sys.modules["kms"] = MagicMock()
+if platform.machine() not in ('aarch64', 'armv7l'):
+    sys.modules["pykms"] = MagicMock()
+    sys.modules["kms"] = MagicMock()
 
 try:
     import miniola_cv  # type: ignore
@@ -44,7 +46,7 @@ if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
 
 # Parser de Argumentos
 parser = argparse.ArgumentParser(description="Miniola Scanner")
-parser.add_argument('--camera', type=str, default='ximea', choices=['pi', 'ximea'], help='Qual hardware de câmera usar (pi ou ximea)')
+parser.add_argument('--camera', type=str, default='ximea', choices=['pi', 'ximea', 'mock'], help='Qual hardware de câmera usar (pi, ximea ou mock)')
 args = parser.parse_args()
 
 shutter_speed, gain, fps_cam = 600, 1.0, 120
@@ -612,270 +614,13 @@ def logica_scanner():
         tempo_ms_ciclo = sum(buffer_tempos) / len(buffer_tempos)
         fps_real_proc = 1000.0 / tempo_ms_ciclo if tempo_ms_ciclo > 0 else 0
 
-def generate_dashboard():
-    global perfuracao_na_linha
-    while True:
-        time.sleep(0.06) 
-        try:
-            if ultimo_frame_bruto is None:
-                p_vazio = np.zeros((420, 640, 3), dtype=np.uint8)
-                cv2.putText(p_vazio, "SEM SINAL DA CAMERA / CONECTANDO...", (130, 210), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 255), 2)
-                cv2.putText(p_vazio, f"Modo atual: {CAMERA_MODE.upper()}", (230, 245), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1)
-                _, buffer = cv2.imencode('.jpg', p_vazio, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
-                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-                continue
-            
-            ratio_w = 640 / RES_W
-            ratio_h = 420 / RES_H
-            scale = min(ratio_w, ratio_h)
-            new_w = int(RES_W * scale)
-            new_h = int(RES_H * scale)
-            
-            if len(ultimo_frame_bruto.shape) == 2:
-                p_live_color = cv2.cvtColor(ultimo_frame_bruto, BAYER_MODE)
-                p_live_resized = cv2.resize(p_live_color, (new_w, new_h))
-            else:
-                p_live_resized = cv2.resize(ultimo_frame_bruto.copy(), (new_w, new_h))
-        except Exception as e:
-            print(f"[ERRO DASHBOARD] Falha ao renderizar p_live: {e}")
-            time.sleep(0.1)
-            continue
-            
-        sx, sy = scale, scale
-        off_x = (640 - new_w) // 2
-        off_y = (420 - new_h) // 2
-        
-        # Função helper para não errarmos as coordenadas na tela
-        def px(val): return off_x + int(val * sx)
-        def py(val): return off_y + int(val * sy)
-        
-        p_live = np.zeros((420, 640, 3), dtype=np.uint8)
-        p_live[off_y:off_y+new_h, off_x:off_x+new_w] = p_live_resized
-        
-        cv2.rectangle(p_live, (px(ROI_X), py(ROI_Y)), (px(ROI_X+ROI_W), py(ROI_Y+ROI_H)), (150, 150, 150), 1)
-        
-        # Desenha a ROI do Audio (Amarelo)
-        a_x = ROI_X + ROI_W + AUDIO_X_OFFSET
-        cv2.rectangle(p_live, (px(a_x), py(ROI_Y)), (px(a_x + AUDIO_READ_W), py(ROI_Y+ROI_H)), (0, 255, 255), 1)
-        cor_gatilho = (0, 0, 255) if perfuracao_na_linha else (0, 255, 0)
-        
-        y_gl = ROI_Y + LINHA_GATILHO_Y
-        cv2.line(p_live, (px(ROI_X), py(y_gl)), (px(ROI_X+ROI_W), py(y_gl)), cor_gatilho, 3)
-        cv2.line(p_live, (px(ROI_X), py(y_gl - MARGEM_GATILHO)), (px(ROI_X+ROI_W), py(y_gl - MARGEM_GATILHO)), (50, 50, 50), 1)
-        cv2.line(p_live, (px(ROI_X), py(y_gl + MARGEM_GATILHO)), (px(ROI_X+ROI_W), py(y_gl + MARGEM_GATILHO)), (50, 50, 50), 1)
-
-        for item in lista_contornos_debug:
-            x, y, w, h = item['rect']
-            cv2.rectangle(p_live, (px(x), py(y)), (px(x+w), py(y+h)), item['color'], 2)
-        
-        p_bin = np.zeros((420, 640, 3), dtype=np.uint8)
-
-        # --- Painel Esquerdo: Perfurações Binárias ---
-        cv2.putText(p_bin, "PERFURACOES", (10, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (150, 150, 150), 1)
-        if ultimo_frame_binario is not None:
-            bin_res = cv2.resize(cv2.cvtColor(ultimo_frame_binario, cv2.COLOR_GRAY2RGB), (270, 400))
-            p_bin[20:420, 10:280] = bin_res
-
-        # --- Painel Direito: Pista de Som ---
-        cv2.line(p_bin, (310, 0), (310, 420), (40, 40, 40), 1)  # divisor vertical
-        ax_raw = ROI_X + ROI_W + AUDIO_X_OFFSET
-        aw_raw = max(1, AUDIO_READ_W)
-        ay_raw = max(0, ROI_Y)
-        ah_raw = max(1, min(RES_H - ay_raw, ROI_H))
-        safe_ax = max(0, ax_raw)
-        safe_aw = min(aw_raw, RES_W - safe_ax)
-
-        if ultimo_frame_bruto is not None and safe_aw > 0 and ah_raw > 0:
-            audio_strip = ultimo_frame_bruto[ay_raw : ay_raw + ah_raw, safe_ax : safe_ax + safe_aw]
-            if audio_strip.size > 0:
-                if len(audio_strip.shape) == 2:
-                    audio_gray = audio_strip
-                else:
-                    audio_gray = cv2.cvtColor(audio_strip, cv2.COLOR_RGB2GRAY)
-                    
-                # Ajuste Proporção do Áudio
-                audio_preview = cv2.resize(
-                    cv2.cvtColor(audio_gray, cv2.COLOR_GRAY2RGB), (140, 400)
-                )
-                p_bin[20:420, 330:470] = audio_preview
-                cv2.putText(p_bin, "PISTA AUDIO [Escala de Cinza]", (330, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (80, 220, 80), 1)
-        else:
-            cv2.putText(p_bin, "PISTA AUDIO", (330, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (80, 80, 80), 1)
-            cv2.putText(p_bin, "(sem frame)", (330, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (60, 60, 60), 1)
-
-        p_inf = np.zeros((300, 1280, 3), dtype=np.uint8)
-        if ultimo_crop_preview is not None and ultimo_crop_preview.size > 0:
-            
-            # Ajuste de Proporção: Largura 100px para evitar que a perfuração fique obesa
-            crop_w_view = 100 
-            
-            # Adaptação para suportar o RAW8 assíncrono (Debayer ANTES de redimensionar)
-            if len(ultimo_crop_preview.shape) == 2:
-                crop_color = cv2.cvtColor(ultimo_crop_preview, BAYER_MODE)
-                crop_preview_color = cv2.resize(crop_color, (crop_w_view, 280))
-                luma = cv2.resize(ultimo_crop_preview, (crop_w_view, 280))
-            else:
-                crop_preview_color = cv2.resize(ultimo_crop_preview.copy(), (crop_w_view, 280))
-                luma = cv2.cvtColor(crop_preview_color, cv2.COLOR_RGB2GRAY)
-            
-            zebra_overlay = crop_preview_color.copy()
-            zebra_overlay[luma > 245] = [0, 0, 255] 
-            zebra_overlay[luma < 10]  = [255, 0, 0] 
-            
-            pos_y_zebra, pos_x_zebra = 10, 50
-            p_inf[pos_y_zebra : pos_y_zebra+280, pos_x_zebra : pos_x_zebra+crop_w_view] = zebra_overlay
-            cv2.rectangle(p_inf, (pos_x_zebra, pos_y_zebra), (pos_x_zebra + crop_w_view + 40, pos_y_zebra + 25), (0, 0, 0), -1)
-            cv2.putText(p_inf, "ZEBRA", (pos_x_zebra + 5, pos_y_zebra + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
-            
-            hist = cv2.calcHist([luma], [0], None, [256], [0, 256])
-            cv2.normalize(hist, hist, 0, 270, cv2.NORM_MINMAX)
-            
-            HIST_W, HIST_H = 512, 280
-            grafico_h = np.zeros((HIST_H, HIST_W, 3), dtype=np.uint8)
-            cv2.rectangle(grafico_h, (0, 0), (HIST_W, HIST_H), (20, 20, 20), -1)
-            
-            for i in range(256):
-                x0 = i * 2; x1 = x0 + 2
-                valor_y = int(hist.ravel()[i])
-                cor = (255, 255, 255) if i > 200 else (80, 200, 80)
-                cv2.rectangle(grafico_h, (x0, HIST_H), (x1, HIST_H - valor_y), cor, -1)
-            
-            cv2.line(grafico_h, (20, 0), (20, HIST_H), (0, 80, 255), 1)
-            cv2.line(grafico_h, (490, 0), (490, HIST_H), (0, 80, 255), 1)
-            cv2.putText(grafico_h, "0", (5, HIST_H - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (100, 100, 255), 1)
-            cv2.putText(grafico_h, "255", (476, HIST_H - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (100, 100, 255), 1)
-            
-            pos_x_hist, pos_y_hist = 500, 10
-            p_inf[pos_y_hist : pos_y_hist + HIST_H, pos_x_hist : pos_x_hist + HIST_W] = grafico_h
-            cv2.putText(p_inf, "HISTOGRAMA (LUMINANCIA)", (pos_x_hist, pos_y_hist - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
-
-        dashboard = np.vstack((np.hstack((p_live, p_bin)), p_inf))
-        # frame_raw já é BGR (picamera2), dashboard construído em BGR → imencode direto, sem conversão extra.
-        _, buffer = cv2.imencode('.jpg', dashboard, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
-        yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-
-@app.route('/set_crop')
-def set_crop():
-    global OFFSET_X, OFFSET_Y_CROP, CROP_W, CROP_H
-    try:
-        x_web = float(request.args.get('x', 0))
-        y_web = float(request.args.get('y', 0))
-        w_web = float(request.args.get('w', 0))
-        h_web = float(request.args.get('h', 0))
-        
-        # Calcular centro do Crop na coordenada Web
-        cx_web = x_web + (w_web / 2)
-        cy_web = y_web + (h_web / 2)
-        
-        # O centro do furo na Web é aproximadamente ROI_X + ROI_W/2 e ROI_Y + LINHA_GATILHO_Y
-        cx_furo_web = ROI_X + (ROI_W / 2)
-        cy_furo_web = ROI_Y + LINHA_GATILHO_Y
-        
-        OFFSET_X = int(cx_web - cx_furo_web)
-        OFFSET_Y_CROP = int(cy_web - cy_furo_web)
-        CROP_W = int(w_web)
-        CROP_H = int(h_web)
-        
-        # O encoder H264 (libx264) EXIGE que a largura e altura sejam números pares (divisíveis por 2)
-        # por causa do subsampling de chroma (YUV420p). Se não for, o FFmpeg crasha.
-        if CROP_W % 2 != 0: CROP_W += 1
-        if CROP_H % 2 != 0: CROP_H += 1
-        
-        print(f"\n[GEOMETRIA] CROP AJUSTADO VISUALMENTE VIA WEB!")
-        print(f"-> Novo CROP: {CROP_W} x {CROP_H}")
-        print(f"-> Offsets da Âncora (Furo): X={OFFSET_X}, Y={OFFSET_Y_CROP}")
-        
-        return jsonify({"status": "ok"})
-    except Exception as e:
-        return jsonify({"status": "error", "msg": str(e)})
-
-@app.route('/status')
-def get_status():
-    cpu_percent, ram_percent, cpu_temp = 0.0, 0.0, 0.0
-    try:
-        with open('/proc/stat', 'r') as f: fields = [float(column) for column in f.readline().strip().split()[1:]]
-        idle, total = fields[3], sum(fields)
-        cpu_percent = 100.0 * (1.0 - idle / total)
-        with open('/proc/meminfo', 'r') as f: lines = f.readlines()
-        mem = {line.split(':')[0]: int(line.split(':')[1].split()[0]) for line in lines[:32]}
-        ram_percent = 100.0 * (1.0 - mem['MemAvailable'] / mem['MemTotal'])
-        with open("/sys/class/thermal/thermal_zone0/temp", "r") as f: cpu_temp = float(f.read()) / 1000.0
-    except: pass 
-    
-    total_arquivos = sum(1 for _ in os.scandir(CAPTURE_PATH))
-    uso_disco = shutil.disk_usage(CAPTURE_PATH)
-    espaco_livre_mb = uso_disco.free / (1024 * 1024)
-    espaco_total_mb = uso_disco.total / (1024 * 1024)
-    
-    return {
-        "processando": PROCESSANDO_VIDEO, "cpu": f"{cpu_percent:.1f}%", "ram": f"{ram_percent:.1f}%", "temp": f"{cpu_temp:.1f}°C",
-        "rec": "GRAVANDO" if GRAVANDO else "PARADO", "cor": "#ff0000" if GRAVANDO else "#00ff00",
-        "ciclo": f"{contador_perfs_ciclo}/4", "total": frame_count, "fps_proc": f"{fps_real_proc:.1f} FPS", "ms_ciclo": f"{tempo_ms_ciclo:.1f} ms",
-        "queue": fila_gravacao.qsize(), "arquivos": total_arquivos, "espaco": f"{espaco_livre_mb:.0f}MB", "foco": f"{foco_atual:.2f}",
-        "exp": shutter_speed, "gain": f"{gain:.1f}", "fps_cam": fps_cam, "shrink": f"{encolhimento_atual_pct:.2f}%",
-        "calibrando": CALIBRANDO, "thresh": THRESH_VAL,
-        "roi_x": ROI_X, "roi_y": ROI_Y, "roi_w": ROI_W, "roi_h": ROI_H, "crop_w": CROP_W, "crop_h": CROP_H, "ox": OFFSET_X,
-        "oy": OFFSET_Y_CROP, "gatilho_y": LINHA_GATILHO_Y, "margem": MARGEM_GATILHO, "res_w": RES_W, "res_h": RES_H, "fps_projecao": FPS_PROJECAO,
-        "motor_cor": "PIL/RGB" if HAS_PIL else "cv2/BGR-fallback",
-    }
-
-@app.route('/calibrar')
-def calibrar():
-    global PITCH_PADRAO_PX, CALIBRANDO
-    try:
-        px = float(request.args.get('px'))
-        mm = float(request.args.get('mm'))
-        pixels_por_mm = px / mm
-        PITCH_PADRAO_PX = pixels_por_mm * 4.74  
-        CALIBRANDO = False  
-        print(f"\n[SISTEMA] Calibração Óptica Concluída! 1mm = {pixels_por_mm:.2f}px")
-        print(f"[SISTEMA] Novo Pitch Padrão de 35mm cravado em: {PITCH_PADRAO_PX:.1f}px")
-        return "OK"
-    except Exception as e:
-        CALIBRANDO = False
-        return f"Erro: {e}"
-
-@app.route('/api/process', methods=['POST'])
-def api_process():
-    if not PROCESSANDO_VIDEO:
-        threading.Thread(target=disparar_processamento, daemon=True).start()
-        return jsonify({"status": "started"})
-    return jsonify({"status": "already_running"}), 400
-
-@app.route('/api/videos', methods=['GET'])
-def api_videos():
-    if not os.path.exists('output'): return jsonify([])
-    arquivos = glob.glob('output/*.mp4')
-    arquivos.sort(key=os.path.getctime, reverse=True)
-    return jsonify([os.path.basename(f) for f in arquivos])
-
-@app.route('/output/<path:filename>')
-def serve_video(filename): return send_from_directory('output', filename)
-
-@app.route('/')
-def index(): return render_template('index.html')
-
-@app.route('/preview_feed')
-def preview_feed():
-    def generate_preview():
-        while True:
-            files = sorted([f for f in os.listdir(CAPTURE_PATH) if f.endswith('.jpg')])
-            last_frames = files[-120:] if len(files) > 0 else []
-            if not last_frames: time.sleep(0.5); continue
-            for frame_file in last_frames:
-                img = cv2.imread(os.path.join(CAPTURE_PATH, frame_file))
-                if img is None: continue
-                _, buffer = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
-                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-                time.sleep(1/24)
-    return Response(generate_preview(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
-@app.route('/video_feed')
-def video_feed(): return Response(generate_dashboard(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
 if __name__ == '__main__':
+    from core.state import state
+    from web.app import create_app
+    
     mp.Process(target=processo_escrita_disco, args=(fila_gravacao,), daemon=True).start()
-    threading.Thread(target=painel_controle, daemon=True).start()
     threading.Thread(target=logica_scanner, daemon=True).start()
-    app.run(host='0.0.0.0', port=5000, threaded=True, use_reloader=False)
-
+    threading.Thread(target=painel_controle, daemon=True).start()
+    
+    app_web = create_app(state)
+    app_web.run(host='0.0.0.0', port=5000, threaded=True)
