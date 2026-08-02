@@ -18,6 +18,7 @@ except ImportError:
 from flask import Flask, Response, request, render_template, send_from_directory, jsonify  # type: ignore
 import argparse
 from cameras import get_camera_provider 
+from core.motor_controller import FilmTransportPID
 import cv2 
 import numpy as np 
 import threading 
@@ -48,6 +49,12 @@ if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
 parser = argparse.ArgumentParser(description="Miniola Scanner")
 parser.add_argument('--camera', type=str, default='ximea', choices=['pi', 'ximea', 'mock'], help='Qual hardware de câmera usar (pi, ximea ou mock)')
 args = parser.parse_args()
+
+CAMERA_MODE = args.camera
+
+# Controle de Motores (SKR Pico)
+motor = FilmTransportPID()
+motor.connect()
 
 shutter_speed, gain, fps_cam = 600, 1.0, 120
 foco_atual, passo_foco = 14.5, 0.5
@@ -338,7 +345,7 @@ def painel_controle():
     print("   ROI:       w/a/s/d (Move ROI)| rx/ry/rw/rh [val] (Ajuste direto)")
     print("   ÁUDIO ROI: ax [val] (Offset X)| aw [val] (Largura)")
     print("   MEDIÇÃO:   cal (Calibrar)| setcal [val] (Cal. Dinâmica)")
-    print("   MOTOR:     motor (Alterna C++ <-> Python)| t [val] (Threshold)")
+    print("   MOTOR:     motor (Alterna C++ <-> Python)| mf (Avançar)| mb (Rebobinar)| ms (Parar)| t [val] (Threshold)")
     print("   OUTROS:    off (Desligar)")
     print("═"*45)
     while True:
@@ -440,8 +447,12 @@ def painel_controle():
             elif cmd == 'g': gain = val; camera.set_gain(gain)
             elif cmd == 'fps': fps_cam = int(val); camera.set_fps(fps_cam)
             elif cmd == 't': THRESH_VAL = int(val)
+            elif cmd == 'mf': motor.manual_forward()
+            elif cmd == 'mb': motor.manual_reverse()
+            elif cmd == 'ms': motor.stop()
             elif cmd == 'rec':
                 if not GRAVANDO:
+                    motor.start_pid()
                     sid = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
                     try:
                         p_val = ultimo_pitch_medio if ultimo_pitch_medio > 0 else PITCH_PADRAO_PX
@@ -455,6 +466,8 @@ def painel_controle():
                     print(f"[SISTEMA] REC ON | Sessão: {sid}")
                 else:
                     GRAVANDO = False
+                    motor.stop_pid()
+                    motor.stop()
                     try: fila_gravacao.put({"type": "rec_stop"}, block=True, timeout=2)
                     except Exception as e: print(f"[WARN] REC OFF sem confirmação de flush de áudio: {e}")
                     print("[SISTEMA] REC OFF")
@@ -538,6 +551,7 @@ def logica_scanner():
             furo_detectado_agora = ret["achou_furo"]
 
             if ret["capturar"]:
+                motor.notify_perforation()
                 p_inst = ret.get("pitch_instantaneo", -1.0)
                 processar_captura(frame_raw, ret["cx_a"], ret["cy_a"], frame_count, p_inst)
                 frame_count += 1

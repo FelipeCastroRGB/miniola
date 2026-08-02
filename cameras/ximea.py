@@ -27,13 +27,22 @@ class XimeaAdapter(CameraProvider):
                 self.cam.set_param('gammaY', 0.5) # COMPRESSÃO DE SOMBRAS (Luminosity Gamma) -> Salva os tons escuros no RAW8!
             except: pass
             
-            # Cálculo de Banda Automático via Hardware (como no xiSample que funcionou perfeitamente)
+            # Cálculo de Banda Automático via Hardware
             try:
                 self.cam.set_param('auto_bandwidth_calculation', 1)
-            except Exception as e:
-                try:
-                    self.cam.set_limit_bandwidth(2200)
+            except Exception:
+                try: self.cam.set_limit_bandwidth(2200)
                 except: pass
+                
+            # AUMENTO DO BUFFER:
+            # O Python sofre pequenos "solavancos" de latência devido ao Garbage Collector e o GIL (Global Interpreter Lock).
+            # Se a fila de buffers da câmera for muito pequena (ex: 4 frames), qualquer pausa de 30ms no Python a 120FPS fará a fila estourar!
+            # Aumentar para 50-100 buffers na RAM absorve essas pausas tranquilamente.
+            try:
+                self.cam.set_param('acq_transport_buffer_size', 1048576 * 4) # Aumenta tamanho do pacote USB
+                self.cam.set_param('buffers_queue_size', 50) 
+            except Exception as e:
+                print(f"[WARN] Não foi possível aumentar o buffers_queue_size: {e}")
 
             # Força o Global Shutter explicitamente para evitar distorções de movimento em alta velocidade
             try:
@@ -91,8 +100,9 @@ class XimeaAdapter(CameraProvider):
                     print(f"[ALERTA DE HARDWARE] DROP FRAME DETECTADO NA USB! Perdemos {diff - 1} frames entre o quadro {self.last_nframe} e {current_nframe}.")
             self.last_nframe = current_nframe
             
-            # Retorna uma cópia limpa do array para evitar colisão de memória C com a thread do Flask/OpenCV
-            return self.img.get_image_data_numpy().copy()
+            # Retorna apenas uma VIEW do array em vez de clonar a memória (evita saturar o Garbage Collector do Python)
+            # Como a Câmera Ximea reutiliza os buffers internos, isso reduzirá o tempo do loop principal.
+            return self.img.get_image_data_numpy()
         except Exception as e:
             err_str = str(e)
             import time
