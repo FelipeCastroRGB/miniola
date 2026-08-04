@@ -345,7 +345,7 @@ def painel_controle():
     print("   ROI:       w/a/s/d (Move ROI)| rx/ry/rw/rh [val] (Ajuste direto)")
     print("   ÁUDIO ROI: ax [val] (Offset X)| aw [val] (Largura)")
     print("   MEDIÇÃO:   cal (Calibrar)| setcal [val] (Cal. Dinâmica)")
-    print("   MOTOR:     motor (Alterna C++ <-> Python)| mf (Avançar)| mb (Rebobinar)| ms (Parar)| t [val] (Threshold)")
+    print("   MOTOR:     motor (Alterna C++ <-> Python)| mf [vel] (Avançar)| mb [vel] (Rebobinar)| ms (Parar)| t [val] (Threshold)")
     print("   OUTROS:    off (Desligar)")
     print("═"*45)
     while True:
@@ -447,8 +447,12 @@ def painel_controle():
             elif cmd == 'g': gain = val; camera.set_gain(gain)
             elif cmd == 'fps': fps_cam = int(val); camera.set_fps(fps_cam)
             elif cmd == 't': THRESH_VAL = int(val)
-            elif cmd == 'mf': motor.manual_forward()
-            elif cmd == 'mb': motor.manual_reverse()
+            elif cmd == 'mf': 
+                spd = int(val) if val > 0 else 2000
+                motor.manual_forward(spd)
+            elif cmd == 'mb': 
+                spd = int(val) if val > 0 else 2000
+                motor.manual_reverse(spd)
             elif cmd == 'ms': motor.stop()
             elif cmd == 'rec':
                 if not GRAVANDO:

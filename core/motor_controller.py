@@ -57,13 +57,13 @@ class FilmTransportPID:
                 logging.error(f"Erro de escrita serial: {e}")
 
     # --- CONTROLES MANUAIS (Acionamento independente do PID) ---
-    def manual_forward(self):
+    def manual_forward(self, speed=2000):
         self.stop_pid()
-        self.send_command("F")
+        self.send_command(f"F {speed}")
 
-    def manual_reverse(self):
+    def manual_reverse(self, speed=2000):
         self.stop_pid()
-        self.send_command("R")
+        self.send_command(f"R {speed}")
 
     def stop(self):
         self.stop_pid()

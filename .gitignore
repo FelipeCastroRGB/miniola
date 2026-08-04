@@ -34,11 +34,11 @@ package/
 *.tar.gz
 
 # Arquivos de Desenvolvimento Local
-specs/
-AGENTS.md
-start.sh
+#specs/
+#AGENTS.md
+#start.sh
 
 .cursorrules
-scripts/
-.gemini/
-.github/
+#scripts/
+# .gemini/ 
+#.github/
