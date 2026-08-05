@@ -19,6 +19,7 @@ from flask import Flask, Response, request, render_template, send_from_directory
 import argparse
 from cameras import get_camera_provider 
 from core.motor_controller import FilmTransportPID
+from core.joystick import GamepadController
 import cv2 
 import numpy as np 
 import threading 
@@ -55,6 +56,34 @@ CAMERA_MODE = args.camera
 # Controle de Motores (SKR Pico)
 motor = FilmTransportPID()
 motor.connect()
+
+def toggle_rec():
+    global GRAVANDO, fila_gravacao, ultimo_pitch_medio, PITCH_PADRAO_PX, AUDIO_CAPTURE_ENABLED, FPS_PROJECAO
+    if not GRAVANDO:
+        motor.start_pid()
+        sid = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        try:
+            p_val = ultimo_pitch_medio if ultimo_pitch_medio > 0 else PITCH_PADRAO_PX
+            fila_gravacao.put({
+                "type": "rec_start", "session_id": sid,
+                "audio_enabled": AUDIO_CAPTURE_ENABLED, "fps_projecao": FPS_PROJECAO,
+                "pitch_padrao": p_val
+            }, block=True, timeout=2)
+        except Exception as e: 
+            print(f"[ERRO] Falha ao iniciar REC: {e}")
+            return
+        GRAVANDO = True
+        print(f"\n[SISTEMA] REC ON | Sessão: {sid}\n>> ", end="", flush=True)
+    else:
+        GRAVANDO = False
+        motor.stop_pid()
+        motor.stop()
+        try: fila_gravacao.put({"type": "rec_stop"}, block=True, timeout=2)
+        except Exception as e: print(f"[WARN] REC OFF sem confirmação: {e}")
+        print("\n[SISTEMA] REC OFF\n>> ", end="", flush=True)
+
+gamepad = GamepadController(motor, on_rec_toggle=toggle_rec)
+gamepad.start()
 
 shutter_speed, gain, fps_cam = 600, 1.0, 120
 foco_atual, passo_foco = 14.5, 0.5
@@ -455,26 +484,7 @@ def painel_controle():
                 motor.manual_reverse(spd)
             elif cmd == 'ms': motor.stop()
             elif cmd == 'rec':
-                if not GRAVANDO:
-                    motor.start_pid()
-                    sid = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-                    try:
-                        p_val = ultimo_pitch_medio if ultimo_pitch_medio > 0 else PITCH_PADRAO_PX
-                        fila_gravacao.put({
-                            "type": "rec_start", "session_id": sid,
-                            "audio_enabled": AUDIO_CAPTURE_ENABLED, "fps_projecao": FPS_PROJECAO,
-                            "pitch_padrao": p_val
-                        }, block=True, timeout=2)
-                    except Exception as e: print(f"[ERRO] Falha ao iniciar REC: {e}"); continue
-                    GRAVANDO = True
-                    print(f"[SISTEMA] REC ON | Sessão: {sid}")
-                else:
-                    GRAVANDO = False
-                    motor.stop_pid()
-                    motor.stop()
-                    try: fila_gravacao.put({"type": "rec_stop"}, block=True, timeout=2)
-                    except Exception as e: print(f"[WARN] REC OFF sem confirmação de flush de áudio: {e}")
-                    print("[SISTEMA] REC OFF")
+                toggle_rec()
             elif cmd == 'proc': 
                 if not PROCESSANDO_VIDEO: threading.Thread(target=disparar_processamento, daemon=True).start()
                 else: print("[ERRO] FFmpeg já está encodando.")

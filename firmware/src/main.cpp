@@ -73,7 +73,7 @@ void setup() {
   // Configuração Driver X (Feed-in)
   driverX.begin();
   driverX.toff(5);
-  driverX.rms_current(250,
+  driverX.rms_current(800,
                       0.0); // Aumentado para 200mA para garantir torque suave
   driverX.microsteps(16);
   driverX.pwm_autoscale(true);
@@ -83,7 +83,7 @@ void setup() {
   driverY.begin();
   driverY.toff(5);
   driverY.rms_current(
-      250, 0.0); // Aumentado para 250mA para puxar o filme sem tremer
+      800, 0.0); // Aumentado para 250mA para puxar o filme sem tremer
   driverY.microsteps(16);
   driverY.pwm_autoscale(true);
   driverY.en_spreadCycle(false);
