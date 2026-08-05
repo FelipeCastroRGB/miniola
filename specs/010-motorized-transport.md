@@ -44,7 +44,7 @@ Descreva o comportamento e as restrições em cada perfil de hardware suportado 
 - `core/motor_controller.py` **[NOVO]**: Módulo em Python responsável por instanciar a comunicação Serial e expor métodos de alto nível (`start()`, `stop()`, `set_speed()`).
 - `miniola.py`: Instanciará o `motor_controller` e o passará (ou invocará) a partir do servidor web/dashboard, e conectará os endpoints da API web aos comandos do motor.
 - `templates/` e `web/`: Inclusão de botões "Transporte" (Avançar/Recuar, Stop, Slider de Velocidade) no Dashboard (interface web).
-- **Firmware da Placa**: A SKR Pico V1.0 rodará um firmware **C++ customizado**. Este firmware receberá comandos seriais simples via UART (via cabo USB-C) do host (RPi ou PC) e traduzirá esses comandos em sinais STEP/DIR para os drivers TMC2209 no microcontrolador RP2040 em tempo real.
+- **Firmware da Placa**: A SKR Pico V1.0 rodará um firmware **C++ customizado**. Este firmware receberá comandos seriais simples via UART (via cabo USB-C) do host (RPi ou PC) e traduzirá esses comandos em sinais STEP/DIR para os drivers TMC2209 no microcontrolador RP2040 em tempo real. Adicionalmente, o firmware fará a leitura de um **Encoder Rotativo E38S6G5-600B-G24N (sinal NPN)** diretamente conectado aos seus pinos GPIO, e reportará a contagem de pulsos (posição) via porta serial de volta ao host.
 
 ### 5.2. Contratos e Estruturas de Dados
 
@@ -89,8 +89,13 @@ class MotorController:
 
 Na Fase 2, o sistema passará a controlar 2 motores (Feed-in e Take-up) cujas velocidades físicas mudam constantemente devido à variação do diâmetro dos rolos de filme. A arquitetura escolhida (Opção A) define que:
 
-### 7.1. Malha de Controle (PID) em Python
-A "mola matemática" será implementada em Python. O motor de visão (`miniola_cv.cpp`) detectará as perfurações e calculará a velocidade linear real do filme. O módulo `motor_controller.py` implementará um loop PID (Proporcional-Integral-Derivativo) comparando a velocidade real com a desejada (ex: 18 fps) e ajustará a velocidade dos motores enviando comandos diferenciais via porta serial de forma contínua para compensar o enchimento/esvaziamento dos rolos sem causar solavancos.
+### 7.1. Medição de Velocidade via Encoder
+O hardware utilizará um **Encoder Rotativo E38S6G5-600B-G24N (600 PPR)** acoplado a um rolete por onde o filme passa. O rolete tem um **diâmetro de 30.5 mm**. O firmware da SKR Pico fará a contagem dos pulsos (usando interrupções) e o módulo Python converterá para velocidade linear (mm/s) através da fórmula:
+`Velocidade (mm/s) = (Pulsos_Lidos / 600) * (PI * 30.5) / Tempo_Decorrido`
+*Nota: A rotina de cálculo de velocidade via visão computacional (`miniola_cv.cpp`) foi mantida no código como backup e referência, mas deverá permanecer **comentada/desabilitada** por padrão, priorizando o encoder de hardware por questões de precisão e redução de carga na CPU.*
 
-### 7.2. Tensão de Emergência (StallGuard)
+### 7.2. Malha de Controle (PID) em Python
+A "mola matemática" será implementada em Python. O módulo `motor_controller.py` implementará um loop PID (Proporcional-Integral-Derivativo) utilizando a velocidade linear calculada pelo encoder como Variável de Processo (PV). Ao comparar com a velocidade desejada (Setpoint, ex: 18 fps convertidos para mm/s), o PID ajustará a velocidade dos motores enviando comandos diferenciais via porta serial de forma contínua para compensar o enchimento/esvaziamento dos rolos sem causar solavancos.
+
+### 7.3. Tensão de Emergência (StallGuard)
 O firmware C++ da SKR Pico fará a leitura constante do *StallGuard 4* (sensor de carga mecânica sem sensor embutido nos drivers TMC2209) medindo o *back-EMF*. Caso o filme enrosque, o pico de tensão mecânica será detectado instantaneamente pelo firmware, que cortará a corrente dos motores (emergência) e notificará o host via USB, protegendo a película de rompimento.
