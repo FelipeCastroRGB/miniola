@@ -16,6 +16,23 @@
 #define UART_RX_PIN 9
 #define UART_TX_PIN 8
 
+// Encoder Rotativo E38S6G5-600B-G24N (Pinos Endstop da SKR Pico)
+#define ENCODER_PIN_A 4 // X-STOP
+#define ENCODER_PIN_B 3 // Y-STOP
+
+volatile long int encoder_pulses = 0;
+volatile int last_encoded = 0;
+
+void update_encoder() {
+  int MSB = digitalRead(ENCODER_PIN_A);
+  int LSB = digitalRead(ENCODER_PIN_B);
+  int encoded = (MSB << 1) | LSB;
+  int sum = (last_encoded << 2) | encoded;
+  if (sum == 0b1101 || sum == 0b0100 || sum == 0b0010 || sum == 0b1011) encoder_pulses++;
+  if (sum == 0b1110 || sum == 0b0111 || sum == 0b0001 || sum == 0b1000) encoder_pulses--;
+  last_encoded = encoded;
+}
+
 // Endereços UART (Na SKR Pico V1.0, X=0, Z=1, Y=2, E0=3)
 #define DRIVER_ADDRESS_X 0b00 // 0
 #define DRIVER_ADDRESS_Y 0b10 // 2 (ESTE ERA O BUG!)
@@ -52,13 +69,18 @@ void setup() {
   Serial.begin(115200);
   delay(2000); // Aguarda host montar a porta USB
 
-  // Pinos de Direção e Step
   pinMode(X_STEP_PIN, OUTPUT);
   pinMode(X_DIR_PIN, OUTPUT);
   pinMode(X_EN_PIN, OUTPUT);
   pinMode(Y_STEP_PIN, OUTPUT);
   pinMode(Y_DIR_PIN, OUTPUT);
   pinMode(Y_EN_PIN, OUTPUT);
+
+  // Configuração do Encoder
+  pinMode(ENCODER_PIN_A, INPUT_PULLUP);
+  pinMode(ENCODER_PIN_B, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_A), update_encoder, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_B), update_encoder, CHANGE);
 
   // Inicia motores desligados
   digitalWrite(X_EN_PIN, HIGH);
@@ -160,6 +182,14 @@ void loop() {
 
   if (safety_stop_triggered)
     return;
+
+  // Envia a posição do encoder rotativo a cada 50ms para o Host (PID)
+  static unsigned long last_encoder_report = 0;
+  if (millis() - last_encoder_report >= 50) {
+    last_encoder_report = millis();
+    Serial.print("E ");
+    Serial.println(encoder_pulses);
+  }
 
   // --- LÓGICA DE RAMPA DE ACELERAÇÃO ---
   if (millis() - last_accel_time >= 10) {

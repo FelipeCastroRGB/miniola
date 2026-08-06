@@ -4,16 +4,32 @@ import time
 import logging
 
 class FilmTransportPID:
-    def __init__(self, port='/dev/ttyACM0', baudrate=115200):
+    GAUGES = {
+        '35mm': {'pitch': 4.75},
+        '16mm': {'pitch': 7.62},
+        '8mm': {'pitch': 3.81},
+        'super8': {'pitch': 4.23}
+    }
+
+    def __init__(self, port='/dev/ttyACM0', baudrate=115200, gauge='35mm'):
         self.port = port
         self.baudrate = baudrate
         self.serial = None
         self.connected = False
         
         # Parâmetros Mecânicos e Estado
+        self.gauge = gauge
+        self.pitch = self.GAUGES.get(gauge, self.GAUGES['35mm'])['pitch']
         self.target_fps = 18.0
-        self.current_fps = 0.0
-        self.last_perf_time = 0.0
+        self.target_mm_s = self.target_fps * self.pitch
+        self.current_mm_s = 0.0
+        
+        # Setup do Encoder e Rolete
+        self.roller_diameter = 30.5
+        self.roller_circumference = 3.14159 * self.roller_diameter
+        self.encoder_ppr = 600.0
+        self.last_encoder_pulses = 0
+        self.last_encoder_time = 0.0
         
         # Ganhos do PID (Ajustáveis durante calibração)
         self.Kp = 50.0  # Mola: Ação proporcional ao erro
@@ -69,18 +85,22 @@ class FilmTransportPID:
         self.stop_pid()
         self.send_command("S")
 
-    # --- FEEDBACK DO OPENCV ---
+    # --- FEEDBACK DO OPENCV (Desativado / Substituído pelo Encoder Físico) ---
     def notify_perforation(self):
-        """Chamado pelo OpenCV toda vez que uma perfuração cruza a linha de gatilho"""
-        now = time.perf_counter()
-        with self.lock:
-            if self.last_perf_time > 0:
-                delta_t = now - self.last_perf_time
-                if delta_t > 0:
-                    inst_fps = 1.0 / delta_t
-                    # Filtro passa-baixa simples para suavizar o FPS
-                    self.current_fps = (self.current_fps * 0.7) + (inst_fps * 0.3)
-            self.last_perf_time = now
+        """
+        Antigo método chamado pelo OpenCV. Mantido aqui como referência (Fase 1),
+        mas o controle oficial da Fase 2 (SPEC-010) acontece via leitura Serial do
+        encoder E38S6G5-600B-G24N no loop PID.
+        """
+        pass
+        # now = time.perf_counter()
+        # with self.lock:
+        #     if self.last_perf_time > 0:
+        #         delta_t = now - self.last_perf_time
+        #         if delta_t > 0:
+        #             inst_fps = 1.0 / delta_t
+        #             self.current_fps = (self.current_fps * 0.7) + (inst_fps * 0.3)
+        #     self.last_perf_time = now
 
     # --- LOOP PID (Mola Matemática) ---
     def start_pid(self):
@@ -90,8 +110,10 @@ class FilmTransportPID:
         self.is_running_pid = True
         self.error_sum = 0.0
         self.last_error = 0.0
-        self.current_fps = self.target_fps # Assume início perfeito
-        self.last_perf_time = time.perf_counter()
+        self.target_mm_s = self.target_fps * self.pitch
+        self.current_mm_s = self.target_mm_s # Assume início perfeito
+        self.last_encoder_time = time.time()
+        self.last_encoder_pulses = 0
         
         self.thread = threading.Thread(target=self._pid_loop, daemon=True)
         self.thread.start()
@@ -110,11 +132,33 @@ class FilmTransportPID:
                 dt = 0.01
                 
             with self.lock:
-                # Se passou muito tempo sem furo, o FPS zerou (filme parou ou enroscou)
-                if (time.perf_counter() - self.last_perf_time) > 0.5:
-                    self.current_fps = 0.0
+                # Lendo mensagens da placa (Encoder e StallGuard)
+                while self.serial.in_waiting > 0:
+                    try:
+                        line = self.serial.readline().decode('utf-8', errors='ignore').strip()
+                        if "!STALL!" in line:
+                            logging.critical(f"Emergência na placa SKR: {line}")
+                            self.is_running_pid = False
+                        elif line.startswith("E "):
+                            pulses = int(line.split(" ")[1])
+                            now_enc = time.time()
+                            if self.last_encoder_time > 0:
+                                delta_p = pulses - self.last_encoder_pulses
+                                delta_t = now_enc - self.last_encoder_time
+                                if delta_t > 0:
+                                    distance = (delta_p / self.encoder_ppr) * self.roller_circumference
+                                    inst_mm_s = abs(distance / delta_t)
+                                    self.current_mm_s = (self.current_mm_s * 0.7) + (inst_mm_s * 0.3)
+                            self.last_encoder_pulses = pulses
+                            self.last_encoder_time = now_enc
+                    except Exception as e:
+                        pass
+
+                # Se passou muito tempo sem pulso novo, o filme parou
+                if (time.time() - self.last_encoder_time) > 0.5:
+                    self.current_mm_s = 0.0
                 
-                error = self.target_fps - self.current_fps
+                error = self.target_mm_s - self.current_mm_s
                 
                 self.error_sum += error * dt
                 # Limite anti-windup
@@ -122,7 +166,7 @@ class FilmTransportPID:
                 
                 d_error = (error - self.last_error) / dt
                 
-                # Equação PID
+                # Equação PID baseada no erro de Velocidade Linear
                 adjustment = (self.Kp * error) + (self.Ki * self.error_sum) + (self.Kd * d_error)
                 
                 self.last_error = error
@@ -137,12 +181,5 @@ class FilmTransportPID:
                 
                 cmd = f"V {new_speed_x} {new_speed_y}"
                 self.send_command(cmd)
-                
-            # Lê alertas da placa (como o Safety Stop do StallGuard)
-            if self.serial.in_waiting > 0:
-                line = self.serial.readline().decode('utf-8').strip()
-                if "!STALL!" in line:
-                    logging.critical(f"Emergência na placa SKR: {line}")
-                    self.is_running_pid = False
             
             time.sleep(0.05) # 20Hz update rate para os motores
