@@ -24,12 +24,16 @@ volatile long int encoder_pulses = 0;
 volatile int last_encoded = 0;
 
 void update_encoder() {
-  int MSB = digitalRead(ENCODER_PIN_A);
-  int LSB = digitalRead(ENCODER_PIN_B);
+  // Substituímos o digitalRead lento pela leitura direta no registrador do RP2040 (gpio_get)
+  int MSB = gpio_get(ENCODER_PIN_A);
+  int LSB = gpio_get(ENCODER_PIN_B);
+  
   int encoded = (MSB << 1) | LSB;
   int sum = (last_encoded << 2) | encoded;
+  
   if (sum == 0b1101 || sum == 0b0100 || sum == 0b0010 || sum == 0b1011) encoder_pulses++;
   if (sum == 0b1110 || sum == 0b0111 || sum == 0b0001 || sum == 0b1000) encoder_pulses--;
+  
   last_encoded = encoded;
 }
 
