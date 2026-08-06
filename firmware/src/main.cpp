@@ -16,9 +16,9 @@
 #define UART_RX_PIN 9
 #define UART_TX_PIN 8
 
-// Encoder Rotativo E38S6G5-600B-G24N (Pinos Endstop da SKR Pico)
-#define ENCODER_PIN_A 4 // X-STOP
-#define ENCODER_PIN_B 3 // Y-STOP
+// Encoder Rotativo E38S6G5-600B-G24N (Pinos de UART sem filtro RC)
+#define ENCODER_PIN_A 0 // GP0 (UART0 TX no Header Raspberry Pi)
+#define ENCODER_PIN_B 1 // GP1 (UART0 RX no Header Raspberry Pi)
 
 volatile long int encoder_pulses = 0;
 volatile int last_encoded = 0;
