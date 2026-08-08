@@ -198,16 +198,17 @@ class FilmTransportPID:
                 self.last_error = error
                 self.last_pid_time = now
                 
-                # Calcula as novas velocidades
-                new_speed_y = int(self.base_speed_y + self.smoothed_adjustment)
-                new_speed_x = self.base_speed_x 
-                
                 # Evita reversões acidentais e velocidades perigosas (>3000 Hz trava o motor)
                 new_speed_y = max(100, min(2500, new_speed_y))
                 
-                # Só envia o comando para a SKR se a velocidade mudou mais de 10Hz (evita micro-agitações)
+                # Vamos usar o comando "F" (Forward Manual) da placa em vez de "V"!
+                # Por que? O comando "V" liga o Motor X (Feed-in) que tem 800mA de força.
+                # Se o Motor X estiver ligado a 200Hz, ele vira um freio de mão puxado
+                # brigando contra o Y, causando os mini trancos terríveis (cogging).
+                # O comando "F" desliga a energia do Motor X (Deixa em Banguela/Free-wheel)
+                # permitindo que o Y puxe o filme liso!
                 if not hasattr(self, 'last_sent_speed') or abs(new_speed_y - getattr(self, 'last_sent_speed', 0)) > 10:
-                    cmd = f"V {new_speed_x} {new_speed_y}"
+                    cmd = f"F {new_speed_y}"
                     self.send_command(cmd)
                     self.last_sent_speed = new_speed_y
                     
