@@ -33,11 +33,12 @@ class FilmTransportPID:
         self.encoder_distance_accumulated = 0.0 # Distância percorrida desde a última perfuração vista
         
         # Ganhos do PID (Reduzidos para evitar trancos físicos - Soft Start)
-        self.Kp = 5.0   # Mola bem macia
-        self.Ki = 0.5   # Memória lenta
+        self.Kp = 2.0   # Mola bem macia
+        self.Ki = 0.2   # Memória lenta
         self.Kd = 0.0   # ZERO! A derivada com encoder via USB gera ruído brutal (trancos)
         
         self.smoothed_adjustment = 0.0
+        self.encoder_history = [] # Janela deslizante para cálculo de velocidade
         
         self.error_sum = 0.0
         self.last_error = 0.0
@@ -118,6 +119,7 @@ class FilmTransportPID:
         self.smoothed_adjustment = 0.0
         self.last_encoder_time = time.time()
         self.last_encoder_pulses = 0
+        self.encoder_history = []
         
         self.thread = threading.Thread(target=self._pid_loop, daemon=True)
         self.thread.start()
@@ -149,25 +151,33 @@ class FilmTransportPID:
                     except Exception as e:
                         pass
                 
-                # Só calcula a velocidade no final do lote, neutralizando o "USB Jitter" (lag)
+                # Cálculo da Distância (Dead-Reckoning) a cada tick
                 if latest_pulses is not None:
-                    delta_p = latest_pulses - self.last_encoder_pulses
-                    delta_t = now - self.last_encoder_time
+                    delta_p_tick = latest_pulses - self.last_encoder_pulses
+                    dist_tick = (delta_p_tick / self.encoder_ppr) * self.roller_circumference
+                    self.encoder_distance_accumulated += abs(dist_tick)
                     
-                    if delta_t > 0.01: # Evita divisão por zero ou spikes irreais
-                        distance = (delta_p / self.encoder_ppr) * self.roller_circumference
-                        self.encoder_distance_accumulated += abs(distance)
-                        
-                        inst_mm_s = abs(distance / delta_t)
-                        # Filtro Passa-Baixa (80% passado, 20% atual) para suavizar a leitura
-                        self.current_mm_s = (self.current_mm_s * 0.8) + (inst_mm_s * 0.2)
-                        
                     self.last_encoder_pulses = latest_pulses
                     self.last_encoder_time = now
+                    
+                    # Janela Deslizante de Velocidade (Anti-Jitter da USB do Windows)
+                    self.encoder_history.append((now, latest_pulses))
+                    # Mantém apenas os últimos 300ms de histórico
+                    while len(self.encoder_history) > 1 and (now - self.encoder_history[0][0]) > 0.3:
+                        self.encoder_history.pop(0)
+                        
+                    if len(self.encoder_history) >= 2:
+                        old_time, old_pulses = self.encoder_history[0]
+                        window_dt = now - old_time
+                        if window_dt > 0.1: # Pelo menos 100ms para estabilidade matemática
+                            delta_p_win = latest_pulses - old_pulses
+                            dist_win = (delta_p_win / self.encoder_ppr) * self.roller_circumference
+                            self.current_mm_s = abs(dist_win / window_dt)
 
                 # Se passou muito tempo sem pulso novo, o filme parou
                 if (time.time() - self.last_encoder_time) > 0.5:
                     self.current_mm_s = 0.0
+                    self.encoder_history.clear()
                 
                 # Soft Start: Rampa a velocidade alvo suavemente (15 mm/s a cada ciclo de 50ms)
                 if self.ramped_target < self.target_mm_s:
@@ -195,10 +205,13 @@ class FilmTransportPID:
                 # Evita reversões acidentais e velocidades perigosas (>3000 Hz trava o motor)
                 new_speed_y = max(100, min(2500, new_speed_y))
                 
-                # Só envia o comando para a SKR se a velocidade mudou mais de 5Hz (evita micro-agitações)
-                if not hasattr(self, 'last_sent_speed') or abs(new_speed_y - self.last_sent_speed) > 5:
+                # Só envia o comando para a SKR se a velocidade mudou mais de 10Hz (evita micro-agitações)
+                if not hasattr(self, 'last_sent_speed') or abs(new_speed_y - getattr(self, 'last_sent_speed', 0)) > 10:
                     cmd = f"V {new_speed_x} {new_speed_y}"
                     self.send_command(cmd)
                     self.last_sent_speed = new_speed_y
+                    
+                    # Print de telemetria apenas quando houver atualização real para a placa
+                    print(f"[PID] Tgt: {self.ramped_target:.1f} | Cur: {self.current_mm_s:.1f} | Err: {error:.1f} | Spd_Y: {new_speed_y}")
             
             time.sleep(0.05) # 20Hz update rate para os motores
