@@ -113,7 +113,8 @@ class FilmTransportPID:
         self.is_running_pid = True
         self.error_sum = 0.0
         self.last_error = 0.0
-        self.target_mm_s = self.target_fps * self.pitch
+        # No 35mm, 1 Frame = 4 furos. Logo, a velocidade física (mm/s) tem que ser multiplicada por 4!
+        self.target_mm_s = self.target_fps * (self.pitch * 4) 
         self.ramped_target = 0.0 # Começa do zero (Soft Start)
         self.current_mm_s = 0.0
         self.smoothed_adjustment = 0.0
@@ -179,9 +180,9 @@ class FilmTransportPID:
                     self.current_mm_s = 0.0
                     self.encoder_history.clear()
                 
-                # Soft Start: Rampa a velocidade alvo suavemente (15 mm/s a cada ciclo de 50ms)
+                # Soft Start mais agressivo: Sobe 20 mm/s a cada ciclo de 50ms para não demorar demais
                 if self.ramped_target < self.target_mm_s:
-                    self.ramped_target = min(self.target_mm_s, self.ramped_target + 3.0)
+                    self.ramped_target = min(self.target_mm_s, self.ramped_target + 20.0)
                 
                 error = self.ramped_target - self.current_mm_s
                 
@@ -200,8 +201,8 @@ class FilmTransportPID:
                 # Calcula as novas velocidades
                 new_speed_y = int(self.base_speed_y + self.smoothed_adjustment)
                 
-                # Evita reversões acidentais e velocidades perigosas (>3000 Hz trava o motor)
-                new_speed_y = max(100, min(2500, new_speed_y))
+                # O limite máximo subiu para 15000 Hz, pois 24fps reais exigem quase 10000 Hz no motor
+                new_speed_y = max(100, min(15000, new_speed_y))
                 
                 # Vamos usar o comando "F" (Forward Manual) da placa em vez de "V"!
                 # Por que? O comando "V" liga o Motor X (Feed-in) que tem 800mA de força.
