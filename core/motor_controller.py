@@ -32,9 +32,9 @@ class FilmTransportPID:
         self.last_encoder_time = 0.0
         self.encoder_distance_accumulated = 0.0 # Distância percorrida desde a última perfuração vista
         
-        # Ganhos do PID (Reduzidos para evitar trancos físicos - Soft Start)
-        self.Kp = 2.0   # Mola bem macia
-        self.Ki = 0.2   # Memória lenta
+        # Ganhos do PID (Restaurados após a remoção do ruído USB)
+        self.Kp = 5.0   # Mola (Reação imediata)
+        self.Ki = 1.0   # Memória (Busca o FPS exato mais rápido)
         self.Kd = 0.0   # ZERO! A derivada com encoder via USB gera ruído brutal (trancos)
         
         self.smoothed_adjustment = 0.0
