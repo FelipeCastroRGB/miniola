@@ -32,10 +32,10 @@ class FilmTransportPID:
         self.last_encoder_time = 0.0
         self.encoder_distance_accumulated = 0.0 # Distância percorrida desde a última perfuração vista
         
-        # Ganhos do PID (Ajustáveis durante calibração)
-        self.Kp = 50.0  # Mola: Ação proporcional ao erro
-        self.Ki = 2.0   # Memória: Compensa diâmetro mudando lentamente
-        self.Kd = 10.0  # Amortecedor: Evita solavancos
+        # Ganhos do PID (Reduzidos para evitar trancos físicos - Soft Start)
+        self.Kp = 15.0  # Mola: Ação proporcional ao erro
+        self.Ki = 1.0   # Memória: Compensa diâmetro mudando lentamente
+        self.Kd = 5.0   # Amortecedor: Evita solavancos
         
         self.error_sum = 0.0
         self.last_error = 0.0
@@ -111,7 +111,8 @@ class FilmTransportPID:
         self.error_sum = 0.0
         self.last_error = 0.0
         self.target_mm_s = self.target_fps * self.pitch
-        self.current_mm_s = self.target_mm_s # Assume início perfeito
+        self.ramped_target = 0.0 # Começa do zero (Soft Start)
+        self.current_mm_s = 0.0
         self.last_encoder_time = time.time()
         self.last_encoder_pulses = 0
         
@@ -159,7 +160,11 @@ class FilmTransportPID:
                 if (time.time() - self.last_encoder_time) > 0.5:
                     self.current_mm_s = 0.0
                 
-                error = self.target_mm_s - self.current_mm_s
+                # Soft Start: Rampa a velocidade alvo suavemente (15 mm/s a cada ciclo de 50ms)
+                if self.ramped_target < self.target_mm_s:
+                    self.ramped_target = min(self.target_mm_s, self.ramped_target + 3.0)
+                
+                error = self.ramped_target - self.current_mm_s
                 
                 self.error_sum += error * dt
                 # Limite anti-windup
@@ -177,8 +182,8 @@ class FilmTransportPID:
                 new_speed_y = int(self.base_speed_y + adjustment)
                 new_speed_x = self.base_speed_x # Feed-in fixo leve ou proporcional se necessário
                 
-                # Evita reversões acidentais no modo PID
-                new_speed_y = max(100, new_speed_y)
+                # Evita reversões acidentais e velocidades perigosas (>3000 Hz trava o motor)
+                new_speed_y = max(100, min(2500, new_speed_y))
                 
                 cmd = f"V {new_speed_x} {new_speed_y}"
                 self.send_command(cmd)
