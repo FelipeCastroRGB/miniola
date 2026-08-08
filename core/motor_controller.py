@@ -197,6 +197,8 @@ class FilmTransportPID:
                 
                 self.last_error = error
                 self.last_pid_time = now
+                # Calcula as novas velocidades
+                new_speed_y = int(self.base_speed_y + self.smoothed_adjustment)
                 
                 # Evita reversões acidentais e velocidades perigosas (>3000 Hz trava o motor)
                 new_speed_y = max(100, min(2500, new_speed_y))
