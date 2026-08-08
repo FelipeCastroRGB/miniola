@@ -565,7 +565,7 @@ def logica_scanner():
             furo_detectado_agora = ret["achou_furo"]
 
             if ret["capturar"]:
-                motor.notify_perforation()
+                motor.sync_optical_phase()
                 p_inst = ret.get("pitch_instantaneo", -1.0)
                 processar_captura(frame_raw, ret["cx_a"], ret["cy_a"], frame_count, p_inst)
                 frame_count += 1
@@ -628,6 +628,26 @@ def logica_scanner():
                         contador_perfs_ciclo = 0
 
         if not furo_detectado_agora: perfuracao_na_linha = False
+        
+        # --- DEAD-RECKONING (Interpolação Preditiva - SPEC-011) ---
+        # Se o filme andou fisicamente mais que um Pitch inteiro e o OpenCV não capturou nada,
+        # significa que a perfuração estava rasgada ou houve dropframe. Forçamos a captura!
+        distancia_acumulada = motor.get_accumulated_distance()
+        pitch_seguro = PITCH_PADRAO_PX if PITCH_PADRAO_PX > 0 else 19.0
+        
+        if GRAVANDO and (distancia_acumulada >= pitch_seguro):
+            motor.sync_optical_phase() # Zera o acumulador para o próximo quadro
+            print(f"[ALERTA] Interpolação Forçada (Furo Perdido)! Dist: {distancia_acumulada:.1f}mm")
+            
+            cy_teorico = int(LINHA_GATILHO_Y + ly)
+            cx_teorico = int(lx + (lw // 2))
+            
+            processar_captura(frame_raw, cx_teorico, cy_teorico, frame_count, ultimo_pitch_medio)
+            frame_count += 1
+            if CV_ENGINE == "C++ [Pybind11]":
+                scanner_cv.reset_ciclo()
+        # ----------------------------------------------------------
+
         skip_ui += 1
         if skip_ui >= 3:
             ultimo_frame_bruto = frame_raw 

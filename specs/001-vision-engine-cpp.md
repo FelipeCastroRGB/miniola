@@ -14,6 +14,7 @@
 O Miniola inspeciona filmes cinematográficos de 35mm em alta velocidade. Para capturar quadros sincronizados de forma estável, o sistema analisa a fenda da perfuração em tempo real (120 FPS+). Fazer binarização, busca de contornos e cálculos geométricos complexos em puro Python (NumPy/OpenCV Python) satura o interpretador e derruba a taxa de quadros no Raspberry Pi.
 
 Esta especificação define o comportamento do motor nativo otimizado em C++ (`miniola_cv.cpp`) que se conecta ao Python via `pybind11`, bem como o contrato de fallback em Python puro caso a extensão C++ não esteja compilada.
+Conforme estabelecido pela **SPEC-011**, o papel primordial deste módulo passa a ser o de **Extrator de Fase (Frame Picker)**, abandonando a responsabilidade de medir a velocidade do transporte.
 
 ## 2. Requisitos Funcionais
 - `[RF-01]`: O motor de visão deve recortar a região de interesse (ROI) da perfuração a partir do quadro RAW da câmera.
@@ -22,6 +23,7 @@ Esta especificação define o comportamento do motor nativo otimizado em C++ (`m
 - `[RF-04]`: Deve detectar se uma perfuração cruzou a linha de gatilho Y (`LINHA_GATILHO_Y +- MARGEM_GATILHO`).
 - `[RF-05]`: A cada ciclo de 4 perfurações (padrão 35mm = 4 furos por fotograma), o motor deve calcular o centro X e Y do quadro (`cx_a`, `cy_a`), calcular o pitch instantâneo/médio e sinalizar `capturar = True`.
 - `[RF-06]`: Deve computar o encolhimento percentual atual do filme (`encolhimento_atual_pct`) comparando o pitch médio com `PITCH_PADRAO_PX`.
+- `[RF-07]`: O motor atua estritamente como um Seletor de Fase (Frame Picker). A sinalização de alinhamento (`perfuracao_na_linha`) não deve mais ser usada como entrada para a malha de velocidade PID do motor.
 
 ## 3. Requisitos Não-Funcionais e Performance
 - `[RNF-01]`: O tempo de execução por quadro (`tempo_ms_ciclo`) na chamada `process_frame` deve ser inferior a 3 ms em Raspberry Pi 5 e inferior a 1 ms em x86_64.

@@ -30,6 +30,7 @@ class FilmTransportPID:
         self.encoder_ppr = 600.0
         self.last_encoder_pulses = 0
         self.last_encoder_time = 0.0
+        self.encoder_distance_accumulated = 0.0 # Distância percorrida desde a última perfuração vista
         
         # Ganhos do PID (Ajustáveis durante calibração)
         self.Kp = 50.0  # Mola: Ação proporcional ao erro
@@ -85,23 +86,22 @@ class FilmTransportPID:
         self.stop_pid()
         self.send_command("S")
 
-    # --- FEEDBACK DO OPENCV (Desativado / Substituído pelo Encoder Físico) ---
-    def notify_perforation(self):
+    # --- SINCRONIA ÓPTICA (Híbrida - SPEC-011) ---
+    def sync_optical_phase(self):
         """
-        Antigo método chamado pelo OpenCV. Mantido aqui como referência (Fase 1),
-        mas o controle oficial da Fase 2 (SPEC-010) acontece via leitura Serial do
-        encoder E38S6G5-600B-G24N no loop PID.
+        Chamado pelo OpenCV quando uma perfuração válida cruza a linha de gatilho perfeitamente.
+        Isso zera a distância mecânica acumulada, atrelando a fase física à fase óptica.
         """
-        pass
-        # now = time.perf_counter()
-        # with self.lock:
-        #     if self.last_perf_time > 0:
-        #         delta_t = now - self.last_perf_time
-        #         if delta_t > 0:
-        #             inst_fps = 1.0 / delta_t
-        #             self.current_fps = (self.current_fps * 0.7) + (inst_fps * 0.3)
-        #     self.last_perf_time = now
+        with self.lock:
+            self.encoder_distance_accumulated = 0.0
 
+    def get_accumulated_distance(self):
+        """
+        Retorna quantos milímetros o filme andou desde o último furo lido pela câmera.
+        Usado pelo orquestrador para forçar a captura se o OpenCV falhar (Dead-Reckoning).
+        """
+        with self.lock:
+            return self.encoder_distance_accumulated
     # --- LOOP PID (Mola Matemática) ---
     def start_pid(self):
         if not self.connected:
@@ -147,6 +147,7 @@ class FilmTransportPID:
                                 delta_t = now_enc - self.last_encoder_time
                                 if delta_t > 0:
                                     distance = (delta_p / self.encoder_ppr) * self.roller_circumference
+                                    self.encoder_distance_accumulated += abs(distance)
                                     inst_mm_s = abs(distance / delta_t)
                                     self.current_mm_s = (self.current_mm_s * 0.7) + (inst_mm_s * 0.3)
                             self.last_encoder_pulses = pulses
