@@ -33,9 +33,11 @@ class FilmTransportPID:
         self.encoder_distance_accumulated = 0.0 # Distância percorrida desde a última perfuração vista
         
         # Ganhos do PID (Reduzidos para evitar trancos físicos - Soft Start)
-        self.Kp = 15.0  # Mola: Ação proporcional ao erro
-        self.Ki = 1.0   # Memória: Compensa diâmetro mudando lentamente
-        self.Kd = 5.0   # Amortecedor: Evita solavancos
+        self.Kp = 5.0   # Mola bem macia
+        self.Ki = 0.5   # Memória lenta
+        self.Kd = 0.0   # ZERO! A derivada com encoder via USB gera ruído brutal (trancos)
+        
+        self.smoothed_adjustment = 0.0
         
         self.error_sum = 0.0
         self.last_error = 0.0
@@ -113,6 +115,7 @@ class FilmTransportPID:
         self.target_mm_s = self.target_fps * self.pitch
         self.ramped_target = 0.0 # Começa do zero (Soft Start)
         self.current_mm_s = 0.0
+        self.smoothed_adjustment = 0.0
         self.last_encoder_time = time.time()
         self.last_encoder_pulses = 0
         
@@ -133,7 +136,8 @@ class FilmTransportPID:
                 dt = 0.01
                 
             with self.lock:
-                # Lendo mensagens da placa (Encoder e StallGuard)
+                # Lê TODAS as mensagens pendentes da placa
+                latest_pulses = None
                 while self.serial.in_waiting > 0:
                     try:
                         line = self.serial.readline().decode('utf-8', errors='ignore').strip()
@@ -141,20 +145,25 @@ class FilmTransportPID:
                             logging.critical(f"Emergência na placa SKR: {line}")
                             self.is_running_pid = False
                         elif line.startswith("E "):
-                            pulses = int(line.split(" ")[1])
-                            now_enc = time.time()
-                            if self.last_encoder_time > 0:
-                                delta_p = pulses - self.last_encoder_pulses
-                                delta_t = now_enc - self.last_encoder_time
-                                if delta_t > 0:
-                                    distance = (delta_p / self.encoder_ppr) * self.roller_circumference
-                                    self.encoder_distance_accumulated += abs(distance)
-                                    inst_mm_s = abs(distance / delta_t)
-                                    self.current_mm_s = (self.current_mm_s * 0.7) + (inst_mm_s * 0.3)
-                            self.last_encoder_pulses = pulses
-                            self.last_encoder_time = now_enc
+                            latest_pulses = int(line.split(" ")[1])
                     except Exception as e:
                         pass
+                
+                # Só calcula a velocidade no final do lote, neutralizando o "USB Jitter" (lag)
+                if latest_pulses is not None:
+                    delta_p = latest_pulses - self.last_encoder_pulses
+                    delta_t = now - self.last_encoder_time
+                    
+                    if delta_t > 0.01: # Evita divisão por zero ou spikes irreais
+                        distance = (delta_p / self.encoder_ppr) * self.roller_circumference
+                        self.encoder_distance_accumulated += abs(distance)
+                        
+                        inst_mm_s = abs(distance / delta_t)
+                        # Filtro Passa-Baixa (80% passado, 20% atual) para suavizar a leitura
+                        self.current_mm_s = (self.current_mm_s * 0.8) + (inst_mm_s * 0.2)
+                        
+                    self.last_encoder_pulses = latest_pulses
+                    self.last_encoder_time = now
 
                 # Se passou muito tempo sem pulso novo, o filme parou
                 if (time.time() - self.last_encoder_time) > 0.5:
@@ -170,22 +179,26 @@ class FilmTransportPID:
                 # Limite anti-windup
                 self.error_sum = max(-1000, min(1000, self.error_sum))
                 
-                d_error = (error - self.last_error) / dt
+                # Equação PID baseada no erro de Velocidade Linear (Kd removido)
+                raw_adjustment = (self.Kp * error) + (self.Ki * self.error_sum)
                 
-                # Equação PID baseada no erro de Velocidade Linear
-                adjustment = (self.Kp * error) + (self.Ki * self.error_sum) + (self.Kd * d_error)
+                # Filtro na saída para que a placa SKR não receba degraus violentos a cada 50ms
+                self.smoothed_adjustment = (self.smoothed_adjustment * 0.8) + (raw_adjustment * 0.2)
                 
                 self.last_error = error
                 self.last_pid_time = now
                 
-                # Calcula as novas velocidades (Y puxa, X segura a tensão constante)
-                new_speed_y = int(self.base_speed_y + adjustment)
-                new_speed_x = self.base_speed_x # Feed-in fixo leve ou proporcional se necessário
+                # Calcula as novas velocidades
+                new_speed_y = int(self.base_speed_y + self.smoothed_adjustment)
+                new_speed_x = self.base_speed_x 
                 
                 # Evita reversões acidentais e velocidades perigosas (>3000 Hz trava o motor)
                 new_speed_y = max(100, min(2500, new_speed_y))
                 
-                cmd = f"V {new_speed_x} {new_speed_y}"
-                self.send_command(cmd)
+                # Só envia o comando para a SKR se a velocidade mudou mais de 5Hz (evita micro-agitações)
+                if not hasattr(self, 'last_sent_speed') or abs(new_speed_y - self.last_sent_speed) > 5:
+                    cmd = f"V {new_speed_x} {new_speed_y}"
+                    self.send_command(cmd)
+                    self.last_sent_speed = new_speed_y
             
             time.sleep(0.05) # 20Hz update rate para os motores
