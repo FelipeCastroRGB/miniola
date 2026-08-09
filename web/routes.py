@@ -107,7 +107,6 @@ def generate_dashboard():
                     crop_color = cv2.LUT(crop_color, state.PIPELINE_LUT)
                     
                 luma = cv2.resize(state.ultimo_crop_preview, (crop_w_view, 280))
-                luma = cv2.cvtColor(luma, cv2.COLOR_GRAY2RGB)
                 crop_preview_color = cv2.resize(crop_color, (crop_w_view, 280))
             else:
                 crop_preview_color = cv2.resize(state.ultimo_crop_preview.copy(), (crop_w_view, 280))
