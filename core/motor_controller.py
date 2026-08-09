@@ -32,10 +32,10 @@ class FilmTransportPID:
         self.last_encoder_time = 0.0
         self.encoder_distance_accumulated = 0.0 # Distância percorrida desde a última perfuração vista
         
-        # Ganhos do PID (Restaurados após a remoção do ruído USB)
-        self.Kp = 5.0   # Mola (Reação imediata)
-        self.Ki = 1.0   # Memória (Busca o FPS exato mais rápido)
-        self.Kd = 0.0   # ZERO! A derivada com encoder via USB gera ruído brutal (trancos)
+        # Ganhos do PID (Otimizados para suavidade extrema baseada em Feed-Forward)
+        self.Kp = 0.1   # Quase zero! Ignora oscilações rápidas (Jitter da USB)
+        self.Ki = 1.5   # Memória que corrige a variação lenta do diâmetro do rolo
+        self.Kd = 0.0   # ZERO! A derivada com encoder via USB gera ruído brutal
         
         self.smoothed_adjustment = 0.0
         self.encoder_history = [] # Janela deslizante para cálculo de velocidade
@@ -211,8 +211,8 @@ class FilmTransportPID:
                 # Equação PID baseada no erro de Velocidade Linear
                 raw_adjustment = feed_forward + (self.Kp * error) + (self.Ki * self.error_sum)
                 
-                # Filtro na saída para que a placa SKR não receba degraus violentos a cada 50ms
-                self.smoothed_adjustment = (self.smoothed_adjustment * 0.8) + (raw_adjustment * 0.2)
+                # Filtro na saída ultra pesado (90% do valor anterior) para planificar a curva
+                self.smoothed_adjustment = (self.smoothed_adjustment * 0.9) + (raw_adjustment * 0.1)
                 
                 self.last_error = error
                 self.last_pid_time = now
@@ -243,7 +243,9 @@ class FilmTransportPID:
                 # O comando "F" desliga a energia do Motor X (Deixa em Banguela) e ativa a rampa
                 # de aceleração de hardware (40Hz por step), filtrando qualquer ruído do PID e
                 # garantindo um movimento 100% liso (manteiga) sem engasgar a fita!
-                if not hasattr(self, 'last_sent_speed') or abs(new_speed_y - getattr(self, 'last_sent_speed', 0)) > 10:
+                # Garantindo movimento liso: Só envia alteração se mudar mais de 5Hz, 
+                # e como a curva é ultra suave, isso acontecerá poucas vezes por segundo
+                if not hasattr(self, 'last_sent_speed') or abs(new_speed_y - getattr(self, 'last_sent_speed', 0)) > 5:
                     cmd = f"F {new_speed_y}"
                     self.send_command(cmd)
                     self.last_sent_speed = new_speed_y
