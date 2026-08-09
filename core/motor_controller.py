@@ -25,7 +25,7 @@ class FilmTransportPID:
         self.current_mm_s = 0.0
         
         # Setup do Encoder e Rolete
-        self.roller_diameter = 30.5
+        self.roller_diameter = 19.1
         self.roller_circumference = 3.14159 * self.roller_diameter
         self.encoder_ppr = 600.0
         self.last_encoder_pulses = 0
@@ -202,11 +202,14 @@ class FilmTransportPID:
                 error = self.ramped_target - self.current_mm_s
                 
                 self.error_sum += error * dt
-                # Limite anti-windup
-                self.error_sum = max(-1000, min(1000, self.error_sum))
+                # Limite anti-windup (Aumentado absurdamente para suportar altas velocidades se o FF errar)
+                self.error_sum = max(-15000, min(15000, self.error_sum))
                 
-                # Equação PID baseada no erro de Velocidade Linear (Kd removido)
-                raw_adjustment = (self.Kp * error) + (self.Ki * self.error_sum)
+                # FEED-FORWARD: Se 24fps (342 mm/s) exige ~10000 Hz, o multiplicador é ~29.2. Arredondamos para 30.
+                feed_forward = self.ramped_target * 30.0
+                
+                # Equação PID baseada no erro de Velocidade Linear
+                raw_adjustment = feed_forward + (self.Kp * error) + (self.Ki * self.error_sum)
                 
                 # Filtro na saída para que a placa SKR não receba degraus violentos a cada 50ms
                 self.smoothed_adjustment = (self.smoothed_adjustment * 0.8) + (raw_adjustment * 0.2)
@@ -214,7 +217,7 @@ class FilmTransportPID:
                 self.last_error = error
                 self.last_pid_time = now
                 # Calcula as novas velocidades
-                new_speed_y = int(self.base_speed_y + self.smoothed_adjustment)
+                new_speed_y = int(self.smoothed_adjustment)
                 
                 # O limite máximo subiu para 15000 Hz, pois 24fps reais exigem quase 10000 Hz no motor
                 new_speed_y = max(100, min(15000, new_speed_y))

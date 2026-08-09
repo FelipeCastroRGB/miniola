@@ -58,7 +58,7 @@ motor = FilmTransportPID()
 motor.connect()
 
 def toggle_rec():
-    global GRAVANDO, fila_gravacao, ultimo_pitch_medio, PITCH_PADRAO_PX, AUDIO_CAPTURE_ENABLED, FPS_PROJECAO
+    global GRAVANDO, fila_gravacao, ultimo_pitch_medio, PITCH_PADRAO_PX, AUDIO_CAPTURE_ENABLED, FPS_PROJECAO, fps_motor
     if not GRAVANDO:
         motor.start_pid(target_fps=fps_motor)
         sid = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
