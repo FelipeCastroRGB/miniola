@@ -705,7 +705,7 @@ def logica_scanner():
         
         if GRAVANDO and (distancia_acumulada >= pitch_seguro):
             motor.sync_optical_phase() # Zera o acumulador para o próximo quadro
-            print(f"[ALERTA] Interpolação Forçada (Furo Perdido)! Dist: {distancia_acumulada:.1f}mm")
+            #print(f"[ALERTA] Interpolação Forçada (Furo Perdido)! Dist: {distancia_acumulada:.1f}mm")
             
             cy_teorico = int(LINHA_GATILHO_Y + ly)
             cx_teorico = int(lx + (lw // 2))
