@@ -85,7 +85,7 @@ def toggle_rec():
 gamepad = GamepadController(motor, on_rec_toggle=toggle_rec)
 gamepad.start()
 
-shutter_speed, gain, fps_cam = 600, 1.0, 120
+shutter_speed, gain, fps_cam = 1000, 1.0, 80
 foco_atual, passo_foco = 14.5, 0.5
 
 
