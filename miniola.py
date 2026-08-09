@@ -397,6 +397,7 @@ def painel_controle():
     global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, CROP_H, CROP_W, ROI_Y, ROI_W, ROI_H, THRESH_VAL
     global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo, CALIBRANDO
     global ultimo_pitch_medio, PITCH_PADRAO_PX, CV_ENGINE, FPS_PROJECAO, AUDIO_X_OFFSET, AUDIO_READ_W
+    global BAYER_MODE, WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST, PIPELINE_LUT
     
     def print_menu():
         print("\n" + "═"*60)
@@ -442,7 +443,6 @@ def painel_controle():
                     scanner_cv.reset_ciclo()
                     print(f"[MOTOR] Motor alternado para: {CV_ENGINE}")
             elif cmd == 'bayer':
-                global BAYER_MODE
                 if len(entrada) >= 2:
                     modo = int(entrada[1])
                     if modo == 0: BAYER_MODE = cv2.COLOR_BayerBG2BGR
@@ -453,7 +453,6 @@ def painel_controle():
                     print(f"[COR] Padrão Bayer alterado para o modo {modo}")
             elif cmd == 'wb':
                 if len(entrada) >= 4:
-                    global WB_R, WB_G, WB_B, PIPELINE_LUT
                     WB_R, WB_G, WB_B = float(entrada[1]), float(entrada[2]), float(entrada[3])
                     PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
                     fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT})
@@ -461,7 +460,6 @@ def painel_controle():
                 else:
                     print("[ERRO] Uso: wb [R] [G] [B]. Exemplo: wb 1.5 1.0 1.5")
             elif cmd == 'gamma':
-                global GAMMA_Y, GAMMA_C
                 if len(entrada) >= 3:
                     GAMMA_Y, GAMMA_C = float(entrada[1]), float(entrada[2])
                 elif len(entrada) == 2:
@@ -473,7 +471,6 @@ def painel_controle():
                 fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT})
                 print(f"[ISP] Gamma atualizado para Y:{GAMMA_Y} C:{GAMMA_C}")
             elif cmd == 'contrast':
-                global CONTRAST
                 CONTRAST = val
                 PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
                 fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT})
