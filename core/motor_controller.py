@@ -126,10 +126,12 @@ class FilmTransportPID:
         self.thread.start()
 
     def stop_pid(self):
-        self.is_running_pid = False
-        if self.thread:
-            self.thread.join(timeout=0.5)
-            self.thread = None
+        if self.is_running_pid:
+            self.is_running_pid = False
+            if hasattr(self, 'thread') and self.thread is not None:
+                if threading.current_thread() != self.thread:
+                    self.thread.join(timeout=0.5)
+            self.send_command("S")
 
     def _pid_loop(self):
         while self.is_running_pid:
@@ -219,12 +221,14 @@ class FilmTransportPID:
                 else:
                     self.slip_timer = now # Reseta o timer de segurança se tudo estiver normal
 
-                # Vamos usar o novo comando "T" (Telecine) do Firmware C++!
-                # Ele avança o Motor Y (Take-up) com a aceleração do PID, e simultaneamente
-                # reduz a força do Motor X (Feed-in) para macios 150mA enquanto puxa de volta a -50Hz.
-                # Isso cria um freio eletromagnético suave (tensionador perfeito)!
+                # Vamos voltar para o comando "F" (Forward Manual) da placa!
+                # Vimos que o "T" com 150mA de freio e manual_mode=false causou trancos (jitter) severos
+                # pois a placa tentava seguir o PID instantaneamente sem smoothing.
+                # O comando "F" desliga a energia do Motor X (Deixa em Banguela) e ativa a rampa
+                # de aceleração de hardware (40Hz por step), filtrando qualquer ruído do PID e
+                # garantindo um movimento 100% liso (manteiga) sem engasgar a fita!
                 if not hasattr(self, 'last_sent_speed') or abs(new_speed_y - getattr(self, 'last_sent_speed', 0)) > 10:
-                    cmd = f"T {new_speed_y}"
+                    cmd = f"F {new_speed_y}"
                     self.send_command(cmd)
                     self.last_sent_speed = new_speed_y
                     
