@@ -108,11 +108,10 @@ void setup() {
   // Configuração Driver Y (Take-up)
   driverY.begin();
   driverY.toff(5);
-  driverY.rms_current(
-      800, 0.0); // Aumentado para 250mA para puxar o filme sem tremer
+  driverY.rms_current(1000, 0.0); // Aumentado para 1A (Torque Brutal) para esmagar os trancos
   driverY.microsteps(16);
   driverY.pwm_autoscale(true);
-  driverY.en_spreadCycle(false);
+  driverY.en_spreadCycle(true); // Desativa StealthChop para garantir torque máximo contínuo
 
   // Configura o StallGuard no Motor Y
   driverY.TCOOLTHRS(0xFFFFF); // Habilita medição SG em baixa velocidade
