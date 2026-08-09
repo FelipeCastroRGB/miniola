@@ -123,9 +123,7 @@ class FilmTransportPID:
         self.current_mm_s = 0.0
         self.smoothed_adjustment = 0.0
         
-        # Envia F 0 para ligar os drivers fisicamente (ativar torque) antes de começar a rampa U
-        self.send_command("F 0")
-        self.last_sent_speed = 0
+        self.last_sent_speed = None # Gatilho para o primeiro comando F
         self.last_encoder_time = time.time()
         self.pid_start_time = time.time() # Para calcular a curva S de aceleração
         self.last_encoder_pulses = 0
@@ -247,9 +245,12 @@ class FilmTransportPID:
                     self.slip_timer = now # Reseta o timer de segurança se tudo estiver normal
                 # O comando "F" bloqueava a placa por 5ms (UART para o driverX). 
                 # Agora usamos o comando "U" (Update) recém criado no C++ para setar o target de forma imediata!
-                # Garantindo movimento liso: Só envia alteração se mudar mais de 15Hz, 
-                # e como a curva é ultra suave, isso acontecerá poucas vezes por segundo
-                if not hasattr(self, 'last_sent_speed') or abs(new_speed_y - getattr(self, 'last_sent_speed', 0)) > 15:
+                # O primeiro comando DEVE ser F para o firmware C++ ativar o driver e is_moving=true
+                if self.last_sent_speed is None:
+                    cmd = f"F {new_speed_y}"
+                    self.send_command(cmd)
+                    self.last_sent_speed = new_speed_y
+                elif abs(new_speed_y - self.last_sent_speed) > 15:
                     cmd = f"U {new_speed_y}"
                     self.send_command(cmd)
                     self.last_sent_speed = new_speed_y
