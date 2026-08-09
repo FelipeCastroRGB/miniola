@@ -186,6 +186,10 @@ void parse_serial_command() {
         is_moving = true;
         manual_mode = true;
         safety_stop_triggered = false;
+      } else if (cmd.startsWith("U") || cmd.startsWith("u")) {
+        int space_idx = cmd.indexOf(' ');
+        target_speed_Y = (space_idx > 0) ? cmd.substring(space_idx + 1).toInt() : 2000;
+        // APENAS ATUALIZA A VELOCIDADE! Sem UART block! Sem mexer nos pinos EN!
       } else if (cmd == "S" || cmd == "s") {
         driverX.rms_current(800, 0.0); // Restaura torque para travar o rolo
         digitalWrite(X_EN_PIN, LOW);
