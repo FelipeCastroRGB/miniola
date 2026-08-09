@@ -204,14 +204,27 @@ class FilmTransportPID:
                 # O limite máximo subiu para 15000 Hz, pois 24fps reais exigem quase 10000 Hz no motor
                 new_speed_y = max(100, min(15000, new_speed_y))
                 
-                # Vamos usar o comando "F" (Forward Manual) da placa em vez de "V"!
-                # Por que? O comando "V" liga o Motor X (Feed-in) que tem 800mA de força.
-                # Se o Motor X estiver ligado a 200Hz, ele vira um freio de mão puxado
-                # brigando contra o Y, causando os mini trancos terríveis (cogging).
-                # O comando "F" desliga a energia do Motor X (Deixa em Banguela/Free-wheel)
-                # permitindo que o Y puxe o filme liso!
+                # === SLIP DETECTION (E-STOP) ===
+                # Se a velocidade exigida for alta (>2000Hz) mas o encoder estiver marcando
+                # 0 de velocidade real por mais de 1.0 segundo contínuo, a fita arrebentou ou escorregou!
+                if new_speed_y > 2000 and self.current_mm_s < 5.0:
+                    if not hasattr(self, 'slip_timer'):
+                        self.slip_timer = now
+                    elif (now - self.slip_timer) > 1.0:
+                        print(f"\n[E-STOP] ALARME CRITICO! Filme arrebentou ou patinou no encoder! Parada de Emergência acionada!\n")
+                        self.send_command("S") # Manda comando absoluto de parada para a SKR
+                        self.stop()
+                        self.stop_pid()
+                        return # Aborta a thread do PID imediatamente
+                else:
+                    self.slip_timer = now # Reseta o timer de segurança se tudo estiver normal
+
+                # Vamos usar o novo comando "T" (Telecine) do Firmware C++!
+                # Ele avança o Motor Y (Take-up) com a aceleração do PID, e simultaneamente
+                # reduz a força do Motor X (Feed-in) para macios 150mA enquanto puxa de volta a -50Hz.
+                # Isso cria um freio eletromagnético suave (tensionador perfeito)!
                 if not hasattr(self, 'last_sent_speed') or abs(new_speed_y - getattr(self, 'last_sent_speed', 0)) > 10:
-                    cmd = f"F {new_speed_y}"
+                    cmd = f"T {new_speed_y}"
                     self.send_command(cmd)
                     self.last_sent_speed = new_speed_y
                     

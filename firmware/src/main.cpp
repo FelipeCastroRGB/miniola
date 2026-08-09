@@ -139,17 +139,30 @@ void parse_serial_command() {
         if (space_idx > 0) {
           target_speed_X = cmd.substring(2, space_idx).toInt();
           target_speed_Y = cmd.substring(space_idx + 1).toInt();
+          driverX.rms_current(800, 0.0); // Restaura torque total
           digitalWrite(X_EN_PIN, LOW);
           digitalWrite(Y_EN_PIN, LOW);
           is_moving = true;
           manual_mode = false;
           safety_stop_triggered = false;
         }
+      } else if (cmd.startsWith("T") || cmd.startsWith("t")) {
+        int space_idx = cmd.indexOf(' ');
+        target_speed_Y = (space_idx > 0) ? cmd.substring(space_idx + 1).toInt() : 2000;
+        target_speed_X = -50; // Tenta puxar o filme de volta bem devagar (tensionador)
+        driverX.rms_current(150, 0.0); // Força super macia (Freio eletromagnético)
+        digitalWrite(X_EN_PIN, LOW); // Liga o X
+        digitalWrite(Y_EN_PIN, LOW); // Liga o Y
+        is_moving = true;
+        manual_mode = false; // Modo PID rápido!
+        safety_stop_triggered = false;
+        Serial.println("Manobra: Telecine (Y puxa rapido, X freia macio)");
       } else if (cmd.startsWith("F") || cmd.startsWith("f")) {
         int space_idx = cmd.indexOf(' ');
         target_speed_Y =
             (space_idx > 0) ? cmd.substring(space_idx + 1).toInt() : 2000;
         target_speed_X = 0;
+        driverX.rms_current(800, 0.0); // Restaura torque
         digitalWrite(X_EN_PIN, HIGH);
         digitalWrite(Y_EN_PIN, LOW);
         is_moving = true;
@@ -162,6 +175,7 @@ void parse_serial_command() {
             (space_idx > 0) ? cmd.substring(space_idx + 1).toInt() : 2000;
         target_speed_X = -spd;
         target_speed_Y = 0;
+        driverX.rms_current(800, 0.0); // Restaura torque
         digitalWrite(Y_EN_PIN, HIGH);
         digitalWrite(X_EN_PIN, LOW);
         is_moving = true;
@@ -169,6 +183,7 @@ void parse_serial_command() {
         safety_stop_triggered = false;
         Serial.println("Manobra: Reverso (X puxa)");
       } else if (cmd == "S" || cmd == "s") {
+        driverX.rms_current(800, 0.0); // Restaura torque para travar o rolo
         digitalWrite(X_EN_PIN, LOW);
         digitalWrite(Y_EN_PIN, LOW);
         target_speed_X = 0;
