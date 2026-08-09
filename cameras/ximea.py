@@ -24,7 +24,7 @@ class XimeaAdapter(CameraProvider):
                 self.cam.set_param('wb_kr', 1.5) # Booster de Vermelho (estimativa de filme incandescente/padrão)
                 self.cam.set_param('wb_kg', 1.0) # Booster de Verde
                 self.cam.set_param('wb_kb', 1.5) # Booster de Azul
-                self.cam.set_param('gammaY', 0.5) # COMPRESSÃO DE SOMBRAS (Luminosity Gamma) -> Salva os tons escuros no RAW8!
+                self.cam.set_param('gammaY', 0.2) # COMPRESSÃO DE SOMBRAS (Luminosity Gamma) -> Salva os tons escuros no RAW8!
             except: pass
             
             # Cálculo de Banda Automático via Hardware
@@ -75,7 +75,12 @@ class XimeaAdapter(CameraProvider):
             self.cam.start_acquisition()
             from ximea import xiapi
             self.img = xiapi.Image()
-            print("[SISTEMA] Câmera Ximea MQ042MG-CM Inicializada com Sucesso.")
+            device_name = "MQ042MG-CM"
+            try:
+                name_bytes = self.cam.get_device_name()
+                device_name = name_bytes.decode('utf-8') if isinstance(name_bytes, bytes) else name_bytes
+            except: pass
+            print(f"[SISTEMA] Câmera Ximea {device_name} Inicializada com Sucesso.")
         except Exception as e:
             print(f"[ERRO] Falha ao iniciar Ximea: {e}")
             self.cam = None
@@ -102,7 +107,15 @@ class XimeaAdapter(CameraProvider):
             
             # Retorna apenas uma VIEW do array em vez de clonar a memória (evita saturar o Garbage Collector do Python)
             # Como a Câmera Ximea reutiliza os buffers internos, isso reduzirá o tempo do loop principal.
-            return self.img.get_image_data_numpy()
+            arr = self.img.get_image_data_numpy()
+            
+            # Garantir que o array seja estritamente 2D para que o len(shape) == 2 do debayer funcione
+            if len(arr.shape) == 3 and arr.shape[2] == 1:
+                arr = arr.squeeze(2)
+            elif len(arr.shape) == 3 and arr.shape[2] > 1:
+                arr = arr[:, :, 0]
+                
+            return arr
         except Exception as e:
             err_str = str(e)
             import time

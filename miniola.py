@@ -306,6 +306,9 @@ def processar_captura(frame, cx_global, cy_global, n_frame, pitch_inst=-1.0):
     
     fx, fy = cx_global + OFFSET_X, cy_global + OFFSET_Y_CROP
     x1, y1 = max(0, int(fx - (CROP_W // 2))), max(0, int(fy - (CROP_H // 2)))
+    # SPEC-002: Alinhamento da malha Bayer! Força o crop em coordenadas pares para evitar inversão (Zebra verde/roxa)
+    x1 = (x1 // 2) * 2
+    y1 = (y1 // 2) * 2
     x2, y2 = min(frame.shape[1], x1 + CROP_W), min(frame.shape[0], y1 + CROP_H)
     
     crop = frame[y1:y2, x1:x2]
@@ -393,11 +396,11 @@ def painel_controle():
                     print("[MOTOR] Módulo C++ não está compilado. Impossível alternar.")
                 elif CV_ENGINE == "C++ [Pybind11]":
                     CV_ENGINE = "Python [Nativo]"
-                    print(f"[MOTOR] ⚡ Motor alternado para: {CV_ENGINE}")
+                    print(f"[MOTOR] Motor alternado para: {CV_ENGINE}")
                 else:
                     CV_ENGINE = "C++ [Pybind11]"
                     scanner_cv.reset_ciclo()
-                    print(f"[MOTOR] ⚡ Motor alternado para: {CV_ENGINE}")
+                    print(f"[MOTOR] Motor alternado para: {CV_ENGINE}")
             elif cmd == 'bayer':
                 global BAYER_MODE
                 if len(entrada) >= 2:
