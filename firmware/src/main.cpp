@@ -126,6 +126,35 @@ void setup() {
   digitalWrite(X_EN_PIN, LOW);
   digitalWrite(Y_EN_PIN, LOW);
 
+  // === TESTE RÁPIDO EIXO Z (Foco) ===
+  #define Z_STEP_PIN 19
+  #define Z_DIR_PIN 28
+  #define Z_EN_PIN 2
+  #define DRIVER_ADDRESS_Z 1
+  
+  pinMode(Z_STEP_PIN, OUTPUT);
+  pinMode(Z_DIR_PIN, OUTPUT);
+  pinMode(Z_EN_PIN, OUTPUT);
+  digitalWrite(Z_EN_PIN, HIGH);
+  
+  TMC2209Stepper driverZ(&Serial2, 0.11f, DRIVER_ADDRESS_Z);
+  driverZ.begin();
+  driverZ.toff(5);
+  driverZ.rms_current(250, 0.0); // 250mA para o 28BYJ-48
+  driverZ.microsteps(16);
+  driverZ.pwm_autoscale(true);
+  driverZ.en_spreadCycle(false);
+  digitalWrite(Z_EN_PIN, LOW);
+  
+  Serial.println("INICIANDO TESTE INFINITO DO MOTOR Z (28BYJ-48)...");
+  while (true) {
+      digitalWrite(Z_STEP_PIN, HIGH);
+      delayMicroseconds(1000); 
+      digitalWrite(Z_STEP_PIN, LOW);
+      delayMicroseconds(1000);
+  }
+  // ===================================
+
   Serial.println("Miniola Dual-Motor Firmware Iniciado (PID Ready)");
 }
 
