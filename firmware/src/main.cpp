@@ -24,16 +24,19 @@ volatile long int encoder_pulses = 0;
 volatile int last_encoded = 0;
 
 void update_encoder() {
-  // Substituímos o digitalRead lento pela leitura direta no registrador do RP2040 (gpio_get)
+  // Substituímos o digitalRead lento pela leitura direta no registrador do
+  // RP2040 (gpio_get)
   int MSB = gpio_get(ENCODER_PIN_A);
   int LSB = gpio_get(ENCODER_PIN_B);
-  
+
   int encoded = (MSB << 1) | LSB;
   int sum = (last_encoded << 2) | encoded;
-  
-  if (sum == 0b1101 || sum == 0b0100 || sum == 0b0010 || sum == 0b1011) encoder_pulses++;
-  if (sum == 0b1110 || sum == 0b0111 || sum == 0b0001 || sum == 0b1000) encoder_pulses--;
-  
+
+  if (sum == 0b1101 || sum == 0b0100 || sum == 0b0010 || sum == 0b1011)
+    encoder_pulses++;
+  if (sum == 0b1110 || sum == 0b0111 || sum == 0b0001 || sum == 0b1000)
+    encoder_pulses--;
+
   last_encoded = encoded;
 }
 
@@ -108,10 +111,12 @@ void setup() {
   // Configuração Driver Y (Take-up)
   driverY.begin();
   driverY.toff(5);
-  driverY.rms_current(1000, 0.0); // Aumentado para 1A (Torque Brutal) para esmagar os trancos
+  driverY.rms_current(
+      1000, 0.0); // Aumentado para 1A (Torque Brutal) para esmagar os trancos
   driverY.microsteps(16);
   driverY.pwm_autoscale(true);
-  driverY.en_spreadCycle(true); // Desativa StealthChop para garantir torque máximo contínuo
+  driverY.en_spreadCycle(
+      false); // Desativa StealthChop para garantir torque máximo contínuo
 
   // Configura o StallGuard no Motor Y
   driverY.TCOOLTHRS(0xFFFFF); // Habilita medição SG em baixa velocidade
@@ -147,15 +152,17 @@ void parse_serial_command() {
         }
       } else if (cmd.startsWith("T") || cmd.startsWith("t")) {
         int space_idx = cmd.indexOf(' ');
-        target_speed_Y = (space_idx > 0) ? cmd.substring(space_idx + 1).toInt() : 2000;
-        target_speed_X = -50; // Tenta puxar o filme de volta bem devagar (tensionador)
-        driverX.rms_current(150, 0.0); // Força super macia (Freio eletromagnético)
+        target_speed_Y =
+            (space_idx > 0) ? cmd.substring(space_idx + 1).toInt() : 2000;
+        target_speed_X =
+            -50; // Tenta puxar o filme de volta bem devagar (tensionador)
+        driverX.rms_current(150,
+                            0.0); // Força super macia (Freio eletromagnético)
         digitalWrite(X_EN_PIN, LOW); // Liga o X
         digitalWrite(Y_EN_PIN, LOW); // Liga o Y
         is_moving = true;
         manual_mode = false; // Modo PID rápido!
         safety_stop_triggered = false;
-        Serial.println("Manobra: Telecine (Y puxa rapido, X freia macio)");
       } else if (cmd.startsWith("F") || cmd.startsWith("f")) {
         int space_idx = cmd.indexOf(' ');
         target_speed_Y =
@@ -167,7 +174,6 @@ void parse_serial_command() {
         is_moving = true;
         manual_mode = true;
         safety_stop_triggered = false;
-        Serial.println("Manobra: Frente (Y puxa)");
       } else if (cmd.startsWith("R") || cmd.startsWith("r")) {
         int space_idx = cmd.indexOf(' ');
         long spd =
@@ -180,7 +186,6 @@ void parse_serial_command() {
         is_moving = true;
         manual_mode = true;
         safety_stop_triggered = false;
-        Serial.println("Manobra: Reverso (X puxa)");
       } else if (cmd == "S" || cmd == "s") {
         driverX.rms_current(800, 0.0); // Restaura torque para travar o rolo
         digitalWrite(X_EN_PIN, LOW);
