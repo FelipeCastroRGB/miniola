@@ -365,21 +365,27 @@ def painel_controle():
     global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, CROP_H, CROP_W, ROI_Y, ROI_W, ROI_H, THRESH_VAL
     global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo, CALIBRANDO
     global ultimo_pitch_medio, PITCH_PADRAO_PX, CV_ENGINE, FPS_PROJECAO, AUDIO_X_OFFSET, AUDIO_READ_W
+    
+    def print_menu():
+        print("\n" + "═"*60)
+        print(f"   MINIOLA - PAINEL DE CONTROLE  |  MOTOR: {CV_ENGINE}")
+        print("═"*60)
+        print(" [SISTEMA]   rec (Gravar) | r (Zerar) | proc (Encodar MP4) | rout (Limpar Vídeos)")
+        print(" [IMAGEM]    e [val] (Shutter) | g [val] (Gain) | fps [val] (FPS Cam)")
+        print(" [COR]       wb [R] [G] [B] | gamma [Y] [C] | contrast [val] | sharp [val] | bayer [0-3]")
+        print(" [FOCO]      k/l (Foco -/+) | af (Auto Foco) | j [val] (Passo Foco)")
+        print(" [TRACKING]  ly (Linha) | mg (Margem) | t [val] (Limiar/Thresh)")
+        print(" [GEOMETRIA] w/a/s/d (Move ROI) | rx/ry/rw/rh [val] (Modifica ROI)")
+        print(" [CROP]      ch [val] (Alt) | cw [val] (Larg) | ox [val] (Offset X)")
+        print(" [METROLOGIA]cal (Calibrar) | setcal [val] (Cal. Dinâmica)")
+        print(" [MOTOR]     mf [vel] (Avanço) | mb [vel] (Reverso) | ms (Parar) | motor (C++/Py)")
+        print(" [ÁUDIO]     ax [val] (Offset X) | aw [val] (Largura) | pfps [val] (FPS Proj.)")
+        print(" [OUTROS]    h (Menu) | off (Desligar)")
+        print("═"*60)
+        
     time.sleep(2)
-    print("\n" + "═"*45)
-    print(f"   MINIOLA - PAINEL DE CONTROLE  |  MOTOR DE VISÃO: {CV_ENGINE}")
-    print("═"*45)
-    print("   GATILHO:   ly (Linha na ROI)| mg (Margem)")
-    print("   SISTEMA:   rec (Gravar)| r (Reset Capturas)| rc (Realinhar Ciclo)| proc (Gerar MP4+WAV)| rout (Limpar Vídeos)| pfps [val] (FPS Projeção)")
-    print("   ÓPTICA:    k/l (Foco Manual)| j [val] (Passo)| af (Auto Foco)")
-    print("   EXPOSIÇÃO: e [val] (Shutter Speed)| g [val] (Gain)| fps [val] (Frame Rate)")
-    print("   CROP:      ch (Altura)| cw (Largura)| ox [val] (Offset X)")
-    print("   ROI:       w/a/s/d (Move ROI)| rx/ry/rw/rh [val] (Ajuste direto)")
-    print("   ÁUDIO ROI: ax [val] (Offset X)| aw [val] (Largura)")
-    print("   MEDIÇÃO:   cal (Calibrar)| setcal [val] (Cal. Dinâmica)")
-    print("   MOTOR:     motor (Alterna C++ <-> Python)| mf [vel] (Avançar)| mb [vel] (Rebobinar)| ms (Parar)| t [val] (Threshold)")
-    print("   OUTROS:    off (Desligar)")
-    print("═"*45)
+    print_menu()
+    
     while True:
         try:
             entrada = input("\n>> ").split()
@@ -391,7 +397,9 @@ def painel_controle():
                 try: val = float(entrada[1])
                 except ValueError: pass
             
-            if cmd == 'motor':
+            if cmd == 'h' or cmd == 'help':
+                print_menu()
+            elif cmd == 'motor':
                 if scanner_cv is None:
                     print("[MOTOR] Módulo C++ não está compilado. Impossível alternar.")
                 elif CV_ENGINE == "C++ [Pybind11]":
@@ -412,10 +420,26 @@ def painel_controle():
                     fila_gravacao.put({"type": "set_bayer", "mode": BAYER_MODE})
                     print(f"[COR] Padrão Bayer alterado para o modo {modo}")
             elif cmd == 'wb':
-                if len(entrada) >= 3:
+                if len(entrada) >= 4:
                     kr = float(entrada[1])
-                    kb = float(entrada[2])
-                    camera.set_white_balance(kr, kb)
+                    kg = float(entrada[2])
+                    kb = float(entrada[3])
+                    camera.set_white_balance(kr, kg, kb)
+                else:
+                    print("[ERRO] Uso: wb [R] [G] [B]. Exemplo: wb 1.5 1.0 1.5")
+            elif cmd == 'gamma':
+                if len(entrada) >= 3:
+                    gy = float(entrada[1])
+                    gc = float(entrada[2])
+                    camera.set_gamma(gy, gc)
+                elif len(entrada) == 2:
+                    camera.set_gamma(val, val)
+                else:
+                    print("[ERRO] Uso: gamma [Y] [C]. Exemplo: gamma 1.0 1.0")
+            elif cmd == 'contrast':
+                camera.set_contrast(val)
+            elif cmd == 'sharp':
+                camera.set_sharpness(val)
             elif cmd == 'w': ROI_Y = max(0, ROI_Y - 5)
             elif cmd == 's': ROI_Y = min(RES_H - ROI_H, ROI_Y + 5)
             elif cmd == 'a': ROI_X = max(0, ROI_X - 5)

@@ -67,6 +67,18 @@ class CameraProvider:
     def set_focus(self, focus: float) -> None:
         pass
         
+    def set_white_balance(self, kr: float, kg: float, kb: float) -> None:
+        pass
+        
+    def set_gamma(self, gamma_y: float, gamma_c: float) -> None:
+        pass
+        
+    def set_contrast(self, value: float) -> None:
+        pass
+        
+    def set_sharpness(self, value: float) -> None:
+        pass
+        
     def stop(self) -> None:
         raise NotImplementedError
 ```

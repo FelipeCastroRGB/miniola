@@ -153,12 +153,40 @@ class XimeaAdapter(CameraProvider):
         # Dummy para painel não quebrar
         return {}
 
-    def set_white_balance(self, kr: float, kb: float):
+    def set_white_balance(self, kr: float, kg: float, kb: float):
         if self.cam:
             try:
                 self.cam.set_param('auto_wb', 0)
                 self.cam.set_param('wb_kr', kr)
+                self.cam.set_param('wb_kg', kg)
                 self.cam.set_param('wb_kb', kb)
-                print(f"[XIMEA] White Balance Manual Aplicado: R={kr} B={kb}")
+                print(f"[XIMEA] White Balance Manual Aplicado: R={kr} G={kg} B={kb}")
             except Exception as e:
                 print(f"[WARN] Falha ao ajustar White Balance: {e}")
+
+    def set_gamma(self, gamma_y: float, gamma_c: float):
+        if self.cam:
+            try:
+                self.cam.set_param('gammaY', gamma_y)
+                self.cam.set_param('gammaC', gamma_c)
+                print(f"[XIMEA] Gamma Atualizado: Y={gamma_y} C={gamma_c}")
+            except Exception as e:
+                print(f"[WARN] Falha ao ajustar Gamma: {e}")
+
+    def set_contrast(self, value: float):
+        # A maioria das câmeras Ximea gerencia contraste linearmente via Gamma ou LUTs.
+        # Caso exista suporte direto no modelo específico, aplicamos aqui.
+        if self.cam:
+            try:
+                self.cam.set_param('contrast', value)
+                print(f"[XIMEA] Contrast Atualizado: {value}")
+            except Exception as e:
+                print(f"[WARN] Câmera não suporta parâmetro de contraste direto: {e}")
+
+    def set_sharpness(self, value: float):
+        if self.cam:
+            try:
+                self.cam.set_param('sharpness', value)
+                print(f"[XIMEA] Sharpness Atualizado: {value}")
+            except Exception as e:
+                print(f"[WARN] Câmera não suporta parâmetro de sharpness direto: {e}")
