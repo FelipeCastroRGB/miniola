@@ -170,17 +170,22 @@ class FilmTransportPID:
                     
                     # Janela Deslizante de Velocidade (Anti-Jitter da USB do Windows)
                     self.encoder_history.append((now, latest_pulses))
-                    # Mantém apenas os últimos 300ms de histórico
-                    while len(self.encoder_history) > 1 and (now - self.encoder_history[0][0]) > 0.3:
+                    # Mantém apenas os últimos 500ms de histórico para uma janela mais estável
+                    while len(self.encoder_history) > 1 and (now - self.encoder_history[0][0]) > 0.5:
                         self.encoder_history.pop(0)
                         
                     if len(self.encoder_history) >= 2:
                         old_time, old_pulses = self.encoder_history[0]
                         window_dt = now - old_time
-                        if window_dt > 0.1: # Pelo menos 100ms para estabilidade matemática
+                        if window_dt > 0.1: # Pelo menos 100ms para estabilidade
                             delta_p_win = latest_pulses - old_pulses
                             dist_win = (delta_p_win / self.encoder_ppr) * self.roller_circumference
-                            self.current_mm_s = abs(dist_win / window_dt)
+                            measured_mm_s = abs(dist_win / window_dt)
+                            # Suaviza a leitura de velocidade via EMA para mitigar o jitter da USB
+                            if self.current_mm_s == 0.0:
+                                self.current_mm_s = measured_mm_s
+                            else:
+                                self.current_mm_s = (self.current_mm_s * 0.7) + (measured_mm_s * 0.3)
 
                 # Se passou muito tempo sem pulso novo, o filme parou
                 if (time.time() - self.last_encoder_time) > 0.5:
@@ -205,8 +210,8 @@ class FilmTransportPID:
                 # Limite anti-windup (Aumentado absurdamente para suportar altas velocidades se o FF errar)
                 self.error_sum = max(-15000, min(15000, self.error_sum))
                 
-                # FEED-FORWARD: Se 24fps (342 mm/s) exige ~10000 Hz, o multiplicador é ~29.2. Arredondamos para 30.
-                feed_forward = self.ramped_target * 30.0
+                # FEED-FORWARD: O log revelou que ~1835 Hz geram ~344 mm/s. Portanto o multiplicador é 5.33.
+                feed_forward = self.ramped_target * 5.33
                 
                 # Equação PID baseada no erro de Velocidade Linear
                 raw_adjustment = feed_forward + (self.Kp * error) + (self.Ki * self.error_sum)
@@ -243,9 +248,9 @@ class FilmTransportPID:
                 # O comando "F" desliga a energia do Motor X (Deixa em Banguela) e ativa a rampa
                 # de aceleração de hardware (40Hz por step), filtrando qualquer ruído do PID e
                 # garantindo um movimento 100% liso (manteiga) sem engasgar a fita!
-                # Garantindo movimento liso: Só envia alteração se mudar mais de 5Hz, 
+                # Garantindo movimento liso: Só envia alteração se mudar mais de 15Hz, 
                 # e como a curva é ultra suave, isso acontecerá poucas vezes por segundo
-                if not hasattr(self, 'last_sent_speed') or abs(new_speed_y - getattr(self, 'last_sent_speed', 0)) > 5:
+                if not hasattr(self, 'last_sent_speed') or abs(new_speed_y - getattr(self, 'last_sent_speed', 0)) > 15:
                     cmd = f"F {new_speed_y}"
                     self.send_command(cmd)
                     self.last_sent_speed = new_speed_y
