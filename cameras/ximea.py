@@ -22,9 +22,9 @@ class XimeaAdapter(CameraProvider):
             try:
                 self.cam.set_param('auto_wb', 0) # Desliga WB Automático para evitar Flicker de Cor
                 self.cam.set_param('wb_kr', 1.5) # Booster de Vermelho (estimativa de filme incandescente/padrão)
-                self.cam.set_param('wb_kg', 1.0) # Booster de Verde
+                self.cam.set_param('wb_kg', 1.5) # Booster de Verde
                 self.cam.set_param('wb_kb', 1.5) # Booster de Azul
-                self.cam.set_param('gammaY', 0.2) # COMPRESSÃO DE SOMBRAS (Luminosity Gamma) -> Salva os tons escuros no RAW8!
+                self.cam.set_param('gammaY', 1.0 # COMPRESSÃO DE SOMBRAS (Luminosity Gamma) -> Salva os tons escuros no RAW8!
             except: pass
             
             # Cálculo de Banda Automático via Hardware
