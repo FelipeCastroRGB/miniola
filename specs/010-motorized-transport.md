@@ -94,8 +94,12 @@ O hardware utilizará um **Encoder Rotativo E38S6G5-600B-G24N (600 PPR)** acopla
 `Velocidade (mm/s) = (Pulsos_Lidos / 600) * (PI * 30.5) / Tempo_Decorrido`
 *Nota: Qualquer acoplamento anterior do cálculo de velocidade com a Visão Computacional (OpenCV) foi **completamente removido** da malha mecânica. Conforme definido na **SPEC-011**, a responsabilidade da velocidade é 100% do Encoder físico.*
 
-### 7.2. Malha de Controle (PID) em Python
-A "mola matemática" será implementada em Python. O módulo `motor_controller.py` implementará um loop PID (Proporcional-Integral-Derivativo) **estritamente isolado da ótica**. Utilizando a velocidade linear calculada pelo encoder como Variável de Processo (PV). Ao comparar com a velocidade desejada (Setpoint, ex: 18 fps convertidos para mm/s), o PID ajustará a velocidade dos motores enviando comandos diferenciais via porta serial de forma contínua para compensar o enchimento/esvaziamento dos rolos sem causar solavancos (efeito volante de inércia).
+### 7.2. Malha de Controle (PID) em Python e Aceleração (S-Curve)
+A "mola matemática" será implementada em Python. O módulo `motor_controller.py` implementará um loop PID (Proporcional-Integral-Derivativo) **estritamente isolado da ótica**. Utilizando a velocidade linear calculada pelo encoder como Variável de Processo (PV). 
+
+A velocidade alvo (Setpoint) durante a Gravação (REC) será derivada diretamente da variável global `fps_motor` (configurada via comando `mfps` no terminal), convertida para mm/s. O "sistema de playback" (sincronia estrita via `FPS_PROJECAO`) está temporariamente desabilitado para privilegiar a cadência e tração contínua da película, e a captura da câmera (`fps_cam`) agora roda totalmente desacoplada da velocidade física dos rolos.
+
+**Aceleração (Soft Start):** Para evitar solavancos e o rompimento do filme no momento de ligar os motores, a meta do PID não sobe subitamente (degrau). Ela passa por uma rampa matemática (Smoothstep / S-Curve) durante os primeiros N segundos da captura, garantindo um "Ease-In" mecânico liso. Ao comparar com a velocidade desejada real-time, o PID ajustará a velocidade dos motores enviando comandos diferenciais (F) via porta serial para compensar o enchimento/esvaziamento dos rolos.
 
 ### 7.3. Tensão de Emergência (StallGuard)
 O firmware C++ da SKR Pico fará a leitura constante do *StallGuard 4* (sensor de carga mecânica sem sensor embutido nos drivers TMC2209) medindo o *back-EMF*. Caso o filme enrosque, o pico de tensão mecânica será detectado instantaneamente pelo firmware, que cortará a corrente dos motores (emergência) e notificará o host via USB, protegendo a película de rompimento.

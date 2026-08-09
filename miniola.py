@@ -60,7 +60,7 @@ motor.connect()
 def toggle_rec():
     global GRAVANDO, fila_gravacao, ultimo_pitch_medio, PITCH_PADRAO_PX, AUDIO_CAPTURE_ENABLED, FPS_PROJECAO
     if not GRAVANDO:
-        motor.start_pid()
+        motor.start_pid(target_fps=fps_motor)
         sid = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         try:
             p_val = ultimo_pitch_medio if ultimo_pitch_medio > 0 else PITCH_PADRAO_PX
@@ -86,6 +86,7 @@ gamepad = GamepadController(motor, on_rec_toggle=toggle_rec)
 gamepad.start()
 
 shutter_speed, gain, fps_cam = 1000, 1.0, 80
+fps_motor = 18.0
 foco_atual, passo_foco = 14.5, 0.5
 
 
@@ -396,7 +397,7 @@ def disparar_processamento():
 def painel_controle():
     global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, CROP_H, CROP_W, ROI_Y, ROI_W, ROI_H, THRESH_VAL
     global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo, CALIBRANDO
-    global ultimo_pitch_medio, PITCH_PADRAO_PX, CV_ENGINE, FPS_PROJECAO, AUDIO_X_OFFSET, AUDIO_READ_W
+    global ultimo_pitch_medio, PITCH_PADRAO_PX, CV_ENGINE, FPS_PROJECAO, AUDIO_X_OFFSET, AUDIO_READ_W, fps_motor
     global BAYER_MODE, WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST, PIPELINE_LUT
     
     def print_menu():
@@ -411,7 +412,7 @@ def painel_controle():
         print(" [GEOMETRIA] w/a/s/d (Move ROI) | rx/ry/rw/rh [val] (Modifica ROI)")
         print(" [CROP]      ch [val] (Alt) | cw [val] (Larg) | ox [val] (Offset X)")
         print(" [METROLOGIA]cal (Calibrar) | setcal [val] (Cal. Dinâmica)")
-        print(" [MOTOR]     mf [vel] (Avanço) | mb [vel] (Reverso) | ms (Parar) | motor (C++/Py)")
+        print(" [MOTOR]     mf [vel] (Avanço) | mb [vel] (Reverso) | ms (Parar) | mfps [val] | motor (C++/Py)")
         print(" [ÁUDIO]     ax [val] (Offset X) | aw [val] (Largura) | pfps [val] (FPS Proj.)")
         print(" [OUTROS]    h (Menu) | off (Desligar)")
         print("═"*60)
@@ -539,6 +540,9 @@ def painel_controle():
                 else: print("[ERRO] Deixe o filme de referência rodar e estabilizar no dashboard antes de calibrar.")
             elif cmd == 'g': gain = val; camera.set_gain(gain)
             elif cmd == 'fps': fps_cam = int(val); camera.set_fps(fps_cam)
+            elif cmd == 'mfps': 
+                fps_motor = float(val)
+                print(f"[MOTOR] Velocidade Alvo de Captura definida para {fps_motor} fps.")
             elif cmd == 't': THRESH_VAL = int(val)
             elif cmd == 'mf': 
                 spd = int(val) if val > 0 else 2000

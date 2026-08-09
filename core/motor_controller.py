@@ -106,19 +106,24 @@ class FilmTransportPID:
         with self.lock:
             return self.encoder_distance_accumulated
     # --- LOOP PID (Mola Matemática) ---
-    def start_pid(self):
+    def start_pid(self, target_fps=None):
         if not self.connected:
             return
         
         self.is_running_pid = True
         self.error_sum = 0.0
         self.last_error = 0.0
+        
+        # Usa o FPS passado (ex: da câmera) ou o default 18.0
+        _fps = target_fps if target_fps is not None else self.target_fps
         # No 35mm, 1 Frame = 4 furos. Logo, a velocidade física (mm/s) tem que ser multiplicada por 4!
-        self.target_mm_s = self.target_fps * (self.pitch * 4) 
+        self.target_mm_s = _fps * (self.pitch * 4) 
+        
         self.ramped_target = 0.0 # Começa do zero (Soft Start)
         self.current_mm_s = 0.0
         self.smoothed_adjustment = 0.0
         self.last_encoder_time = time.time()
+        self.pid_start_time = time.time() # Para calcular a curva S de aceleração
         self.last_encoder_pulses = 0
         self.encoder_history = []
         
@@ -182,9 +187,17 @@ class FilmTransportPID:
                     self.current_mm_s = 0.0
                     self.encoder_history.clear()
                 
-                # Soft Start mais agressivo: Sobe 20 mm/s a cada ciclo de 50ms para não demorar demais
-                if self.ramped_target < self.target_mm_s:
-                    self.ramped_target = min(self.target_mm_s, self.ramped_target + 20.0)
+                # --- Aceleração em Curva S (Smoothstep) ---
+                # Garante que o filme arranque suavemente e atinja a velocidade final sem trancos
+                tempo_decorrido = now - self.pid_start_time
+                duracao_rampa = 3.0 # 3 Segundos para atingir velocidade final
+                
+                if tempo_decorrido < duracao_rampa:
+                    t = tempo_decorrido / duracao_rampa
+                    s_curve = t * t * (3.0 - 2.0 * t) # Fórmula matemática do Smoothstep
+                    self.ramped_target = self.target_mm_s * s_curve
+                else:
+                    self.ramped_target = self.target_mm_s
                 
                 error = self.ramped_target - self.current_mm_s
                 
