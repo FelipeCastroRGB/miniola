@@ -98,6 +98,33 @@ RES_W, RES_H = 1420, 880
 CAM_OFFSET_X = 272
 CAM_OFFSET_Y = 224
 
+# --- SOFTWARE ISP (LUT) ---
+WB_R, WB_G, WB_B = 1.0, 1.0, 1.0
+GAMMA_Y, GAMMA_C = 1.0, 1.0
+CONTRAST = 0.0
+
+def build_color_lut(r, g, b, gy, gc, contrast):
+    """Constrói a tabela de pré-computação (LUT) do ISP para o OpenCV aplicar instantaneamente"""
+    lut = np.zeros((256, 1, 3), dtype=np.uint8)
+    f_c = (259 * (contrast + 255)) / (255 * (259 - contrast)) if contrast != 0 else 1.0
+    for i in range(256):
+        val = i / 255.0
+        # Gamma simples
+        g_val = val ** (1.0 / gy) if gy > 0 else val
+        # WB multipliers
+        b_val, g_val, r_val = g_val * b, g_val * g, g_val * r
+        # Re-scale e Contrast
+        b_idx = f_c * (b_val * 255 - 128) + 128
+        g_idx = f_c * (g_val * 255 - 128) + 128
+        r_idx = f_c * (r_val * 255 - 128) + 128
+        # Store in LUT (OpenCV usa BGR)
+        lut[i, 0, 0] = np.clip(b_idx, 0, 255)
+        lut[i, 0, 1] = np.clip(g_idx, 0, 255)
+        lut[i, 0, 2] = np.clip(r_idx, 0, 255)
+    return lut
+
+PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
+
 print(f"[SISTEMA] Inicializando provedor de câmera: {args.camera.upper()}")
 camera = get_camera_provider(args.camera)
 camera.start(RES_W, RES_H, fps_cam, shutter_speed, gain, foco_atual, CAM_OFFSET_X, CAM_OFFSET_Y)
@@ -231,6 +258,10 @@ def processo_escrita_disco(fila_in):
             global BAYER_MODE
             BAYER_MODE = item.get("mode")
             continue
+        elif msg_type == "set_lut":
+            global PIPELINE_LUT
+            PIPELINE_LUT = item.get("lut")
+            continue
 
         if msg_type == "audio_chunk":
             if sessao_audio is not None:
@@ -281,6 +312,7 @@ def processo_escrita_disco(fila_in):
         # É este processo isolado (que roda em outro núcleo do processador) que faz o trabalho pesado de debayer.
         if len(img_bgr.shape) == 2:
             img_bgr = cv2.cvtColor(img_bgr, BAYER_MODE)
+            img_bgr = cv2.LUT(img_bgr, PIPELINE_LUT)
 
         # Salva como JPEG com cores corretas usando libjpeg-turbo C++ nativo (cv2.imwrite):
         # A velocidade de escrita cai de ~35ms para ~3ms por quadro, evitando que o buffer de memória do Python
@@ -421,23 +453,31 @@ def painel_controle():
                     print(f"[COR] Padrão Bayer alterado para o modo {modo}")
             elif cmd == 'wb':
                 if len(entrada) >= 4:
-                    kr = float(entrada[1])
-                    kg = float(entrada[2])
-                    kb = float(entrada[3])
-                    camera.set_white_balance(kr, kg, kb)
+                    global WB_R, WB_G, WB_B, PIPELINE_LUT
+                    WB_R, WB_G, WB_B = float(entrada[1]), float(entrada[2]), float(entrada[3])
+                    PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
+                    fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT})
+                    print(f"[ISP] White Balance atualizado para R:{WB_R} G:{WB_G} B:{WB_B}")
                 else:
                     print("[ERRO] Uso: wb [R] [G] [B]. Exemplo: wb 1.5 1.0 1.5")
             elif cmd == 'gamma':
+                global GAMMA_Y, GAMMA_C
                 if len(entrada) >= 3:
-                    gy = float(entrada[1])
-                    gc = float(entrada[2])
-                    camera.set_gamma(gy, gc)
+                    GAMMA_Y, GAMMA_C = float(entrada[1]), float(entrada[2])
                 elif len(entrada) == 2:
-                    camera.set_gamma(val, val)
+                    GAMMA_Y = GAMMA_C = float(entrada[1])
                 else:
                     print("[ERRO] Uso: gamma [Y] [C]. Exemplo: gamma 1.0 1.0")
+                    continue
+                PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
+                fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT})
+                print(f"[ISP] Gamma atualizado para Y:{GAMMA_Y} C:{GAMMA_C}")
             elif cmd == 'contrast':
-                camera.set_contrast(val)
+                global CONTRAST
+                CONTRAST = val
+                PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
+                fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT})
+                print(f"[ISP] Contraste atualizado para {CONTRAST}")
             elif cmd == 'sharp':
                 camera.set_sharpness(val)
             elif cmd == 'w': ROI_Y = max(0, ROI_Y - 5)

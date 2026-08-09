@@ -33,6 +33,10 @@ def generate_dashboard():
             
             if len(state.ultimo_frame_bruto.shape) == 2:
                 p_live_color = cv2.cvtColor(state.ultimo_frame_bruto, state.BAYER_MODE)
+                # --- SOFTWARE ISP ---
+                if hasattr(state, 'PIPELINE_LUT') and state.PIPELINE_LUT is not None:
+                    p_live_color = cv2.LUT(p_live_color, state.PIPELINE_LUT)
+                
                 p_live_resized = cv2.resize(p_live_color, (new_w, new_h))
             else:
                 p_live_resized = cv2.resize(state.ultimo_frame_bruto.copy(), (new_w, new_h))
@@ -99,8 +103,12 @@ def generate_dashboard():
             
             if len(state.ultimo_crop_preview.shape) == 2:
                 crop_color = cv2.cvtColor(state.ultimo_crop_preview, state.BAYER_MODE)
-                crop_preview_color = cv2.resize(crop_color, (crop_w_view, 280))
+                if hasattr(state, 'PIPELINE_LUT') and state.PIPELINE_LUT is not None:
+                    crop_color = cv2.LUT(crop_color, state.PIPELINE_LUT)
+                    
                 luma = cv2.resize(state.ultimo_crop_preview, (crop_w_view, 280))
+                luma = cv2.cvtColor(luma, cv2.COLOR_GRAY2RGB)
+                crop_preview_color = cv2.resize(crop_color, (crop_w_view, 280))
             else:
                 crop_preview_color = cv2.resize(state.ultimo_crop_preview.copy(), (crop_w_view, 280))
                 luma = cv2.cvtColor(crop_preview_color, cv2.COLOR_RGB2GRAY)
