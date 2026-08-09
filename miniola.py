@@ -105,7 +105,7 @@ CONTRAST = 0.0
 
 def build_color_lut(r, g, b, gy, gc, contrast):
     """Constrói a tabela de pré-computação (LUT) do ISP para o OpenCV aplicar instantaneamente"""
-    lut = np.zeros((256, 1, 3), dtype=np.uint8)
+    lut = np.zeros((1, 256, 3), dtype=np.uint8)
     f_c = (259 * (contrast + 255)) / (255 * (259 - contrast)) if contrast != 0 else 1.0
     for i in range(256):
         val = i / 255.0
@@ -118,9 +118,9 @@ def build_color_lut(r, g, b, gy, gc, contrast):
         g_idx = f_c * (g_val * 255 - 128) + 128
         r_idx = f_c * (r_val * 255 - 128) + 128
         # Store in LUT (OpenCV usa BGR)
-        lut[i, 0, 0] = np.clip(b_idx, 0, 255)
-        lut[i, 0, 1] = np.clip(g_idx, 0, 255)
-        lut[i, 0, 2] = np.clip(r_idx, 0, 255)
+        lut[0, i, 0] = np.clip(b_idx, 0, 255)
+        lut[0, i, 1] = np.clip(g_idx, 0, 255)
+        lut[0, i, 2] = np.clip(r_idx, 0, 255)
     return lut
 
 PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
@@ -131,7 +131,7 @@ camera.start(RES_W, RES_H, fps_cam, shutter_speed, gain, foco_atual, CAM_OFFSET_
 
 # Padrão Bayer Padrão (Pode ser alterado dinamicamente via painel)
 # Mudando para RG2BGR porque o crop no sensor altera o alinhamento da matriz Bayer, causando a imagem rosa!
-BAYER_MODE = cv2.COLOR_BayerRG2BGR
+BAYER_MODE = cv2.COLOR_BayerBG2BGR
 
 # --- GEOMETRIA DO ROI E ESTADO ---
 GRAVANDO = False
