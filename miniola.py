@@ -407,13 +407,14 @@ def painel_controle():
         print(" [SISTEMA]   rec (Gravar) | r (Zerar) | proc (Encodar MP4) | rout (Limpar Vídeos)")
         print(" [IMAGEM]    e [val] (Shutter) | g [val] (Gain) | fps [val] (FPS Cam)")
         print(" [COR]       wb [R] [G] [B] | gamma [Y] [C] | contrast [val] | sharp [val] | bayer [0-3]")
-        print(" [FOCO]      k/l (Foco -/+) | af (Auto Foco) | j [val] (Passo Foco)")
+        print(" [FOCO]      k/l (Foco Lente -/+) | af (Auto Foco) | zm [vel] (Foco Z Mecânico) | zs (Stop Z)")
         print(" [TRACKING]  ly (Linha) | mg (Margem) | t [val] (Limiar/Thresh)")
         print(" [GEOMETRIA] w/a/s/d (Move ROI) | rx/ry/rw/rh [val] (Modifica ROI)")
         print(" [CROP]      ch [val] (Alt) | cw [val] (Larg) | ox [val] (Offset X)")
         print(" [METROLOGIA]cal (Calibrar) | setcal [val] (Cal. Dinâmica)")
         print(" [MOTOR]     mf [vel] (Avanço) | mb [vel] (Reverso) | ms (Parar) | mfps [val] | motor (C++/Py)")
         print(" [ÁUDIO]     ax [val] (Offset X) | aw [val] (Largura) | pfps [val] (FPS Proj.)")
+        print(" [LUZ]       led [0-255] (Brilho do Painel)")
         print(" [OUTROS]    h (Menu) | off (Desligar)")
         print("═"*60)
         
@@ -551,6 +552,11 @@ def painel_controle():
                 spd = int(val) if val > 0 else 2000
                 motor.manual_reverse(spd)
             elif cmd == 'ms': motor.stop()
+            elif cmd == 'zm':
+                spd = int(val) if val != 0 else 500
+                if spd > 0: motor.focus_in(spd)
+                else: motor.focus_out(abs(spd))
+            elif cmd == 'zs': motor.focus_stop()
             elif cmd == 'rec':
                 toggle_rec()
             elif cmd == 'proc': 
@@ -569,6 +575,9 @@ def painel_controle():
             elif cmd == 'pfps':
                 FPS_PROJECAO = float(val)
                 print(f"FPS de Projeção definido para {FPS_PROJECAO} fps.")
+            elif cmd == 'led':
+                motor.set_led_brightness(int(val))
+                print(f"[ILUMINAÇÃO] Brilho do LED definido para: {int(val)}/255")
             elif cmd == 'r': 
                 frame_count = 0
                 for f in os.listdir(CAPTURE_PATH): os.remove(os.path.join(CAPTURE_PATH, f))

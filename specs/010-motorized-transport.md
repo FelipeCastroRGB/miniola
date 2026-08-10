@@ -12,8 +12,8 @@
 
 ## 1. Contexto e Objetivo
 O Miniola atualmente atua como um sistema de captura passivo ou sincronizado manualmente. Para automatizar o processo de digitalização de película e garantir uma tração suave, constante e tracionada com precisão, o sistema requer a integração de um transporte motorizado. 
-O hardware escolhido é a placa **BTT SKR PICO V1.0** (baseada no microcontrolador RP2040) em conjunto com drivers **TMC2209** integrados, controlando 2 motores de passo **NEMA 17 (42BYGH23-A-21DH)**. 
-O objetivo desta especificação é definir como o Miniola se comunicará com esta placa via USB para controlar a velocidade e direção dos motores, mantendo a compatibilidade multi-plataforma e sem onerar a CPU que processa a visão computacional.
+O hardware escolhido é a placa **BTT SKR PICO V1.0** (baseada no microcontrolador RP2040) em conjunto com drivers **TMC2209** integrados, controlando 2 motores de passo **NEMA 17 (42BYGH23-A-21DH)** para os rolos de filme, e **1 motor de passo 28BYJ-48 (modificado para bipolar)** atuando no eixo Z para controle de foco da câmera.
+O objetivo desta especificação é definir como o Miniola se comunicará com esta placa via USB para controlar a velocidade e direção dos motores (X, Y e Z), mantendo a compatibilidade multi-plataforma e sem onerar a CPU que processa a visão computacional.
 
 ## 2. Requisitos Funcionais (O que o sistema deve fazer)
 - `[RF-01]`: O sistema deve ser capaz de enviar comandos de Iniciar, Parar, Avançar, Recuar e Definir Velocidade para a placa controladora via porta serial (USB).

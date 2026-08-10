@@ -89,6 +89,21 @@ class FilmTransportPID:
         self.stop_pid()
         self.send_command("S")
 
+    # --- CONTROLE DE FOCO (Atuador Z) ---
+    def focus_in(self, speed=500):
+        self.send_command(f"Z {speed}")
+
+    def focus_out(self, speed=500):
+        self.send_command(f"Z -{speed}")
+
+    def focus_stop(self):
+        self.send_command("Z 0")
+
+    # --- CONTROLE DE ILUMINAÇÃO (Painel LED) ---
+    def set_led_brightness(self, level: int):
+        level = max(0, min(255, int(level)))
+        self.send_command(f"L {level}")
+
     # --- SINCRONIA ÓPTICA (Híbrida - SPEC-011) ---
     def sync_optical_phase(self):
         """

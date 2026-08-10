@@ -12,9 +12,17 @@
 #define Y_DIR_PIN 5
 #define Y_EN_PIN 7
 
+// Eixo Z (Atuador de Foco)
+#define Z_STEP_PIN 19
+#define Z_DIR_PIN 28
+#define Z_EN_PIN 2
+
 // UART Compartilhada dos Drivers (Serial2 no Arduino-Pico)
 #define UART_RX_PIN 9
 #define UART_TX_PIN 8
+
+// Porta de Potência para Iluminação (Heater 0)
+#define LED_PIN 23
 
 // Encoder Rotativo E38S6G5-600B-G24N (Pinos de UART sem filtro RC)
 #define ENCODER_PIN_A 0 // GP0 (UART0 TX no Header Raspberry Pi)
@@ -42,12 +50,14 @@ void update_encoder() {
 
 // Endereços UART (Na SKR Pico V1.0, X=0, Z=1, Y=2, E0=3)
 #define DRIVER_ADDRESS_X 0b00 // 0
+#define DRIVER_ADDRESS_Z 0b01 // 1
 #define DRIVER_ADDRESS_Y 0b10 // 2 (ESTE ERA O BUG!)
 #define R_SENSE 0.11f
 
 // Instâncias dos Drivers
 TMC2209Stepper driverX(&Serial2, R_SENSE, DRIVER_ADDRESS_X);
 TMC2209Stepper driverY(&Serial2, R_SENSE, DRIVER_ADDRESS_Y);
+TMC2209Stepper driverZ(&Serial2, R_SENSE, DRIVER_ADDRESS_Z);
 
 // --- VARIÁVEIS DE ESTADO E CONTROLE ---
 bool is_moving = false;
@@ -57,15 +67,19 @@ bool safety_stop_triggered = false;
 // Velocidade Alvo e Atual (Hz) para Rampa de Aceleração
 long target_speed_X = 0;
 long target_speed_Y = 0;
+long target_speed_Z = 0;
 long current_speed_X = 0;
 long current_speed_Y = 0;
+long current_speed_Z = 0;
 unsigned long last_accel_time = 0;
 
 // Variáveis para controle não-bloqueante de passos (micros())
 unsigned long last_step_time_X = 0;
 unsigned long last_step_time_Y = 0;
+unsigned long last_step_time_Z = 0;
 unsigned long step_interval_X = 0;
 unsigned long step_interval_Y = 0;
+unsigned long step_interval_Z = 0;
 
 // StallGuard Threshold
 const int SG_THRESHOLD_Y =
@@ -82,6 +96,9 @@ void setup() {
   pinMode(Y_STEP_PIN, OUTPUT);
   pinMode(Y_DIR_PIN, OUTPUT);
   pinMode(Y_EN_PIN, OUTPUT);
+  pinMode(Z_STEP_PIN, OUTPUT);
+  pinMode(Z_DIR_PIN, OUTPUT);
+  pinMode(Z_EN_PIN, OUTPUT);
 
   // Configuração do Encoder
   pinMode(ENCODER_PIN_A, INPUT_PULLUP);
@@ -92,6 +109,11 @@ void setup() {
   // Inicia motores desligados
   digitalWrite(X_EN_PIN, HIGH);
   digitalWrite(Y_EN_PIN, HIGH);
+  digitalWrite(Z_EN_PIN, HIGH);
+
+  // Configuração e desligamento inicial do Painel de LED
+  pinMode(LED_PIN, OUTPUT);
+  analogWrite(LED_PIN, 0);
 
   // Inicializa a UART (Serial2)
   Serial2.setRX(UART_RX_PIN);
@@ -122,38 +144,18 @@ void setup() {
   driverY.TCOOLTHRS(0xFFFFF); // Habilita medição SG em baixa velocidade
   driverY.SGTHRS(50);         // Sensibilidade do StallGuard (0-255)
 
+  // Configuração Driver Z (Foco da Câmera - Motor 28BYJ-48)
+  driverZ.begin();
+  driverZ.toff(5);
+  driverZ.rms_current(250, 0.0); // 250mA (Baixo torque para não esquentar)
+  driverZ.microsteps(16);
+  driverZ.pwm_autoscale(true);
+  driverZ.en_spreadCycle(false); // Mantém StealthChop para silêncio absoluto
+
   // Liga as saídas de potência
   digitalWrite(X_EN_PIN, LOW);
   digitalWrite(Y_EN_PIN, LOW);
-
-  // === TESTE RÁPIDO EIXO Z (Foco) ===
-  #define Z_STEP_PIN 19
-  #define Z_DIR_PIN 28
-  #define Z_EN_PIN 2
-  #define DRIVER_ADDRESS_Z 1
-  
-  pinMode(Z_STEP_PIN, OUTPUT);
-  pinMode(Z_DIR_PIN, OUTPUT);
-  pinMode(Z_EN_PIN, OUTPUT);
-  digitalWrite(Z_EN_PIN, HIGH);
-  
-  TMC2209Stepper driverZ(&Serial2, 0.11f, DRIVER_ADDRESS_Z);
-  driverZ.begin();
-  driverZ.toff(5);
-  driverZ.rms_current(250, 0.0); // 250mA para o 28BYJ-48
-  driverZ.microsteps(16);
-  driverZ.pwm_autoscale(true);
-  driverZ.en_spreadCycle(false);
-  digitalWrite(Z_EN_PIN, LOW);
-  
-  Serial.println("INICIANDO TESTE INFINITO DO MOTOR Z (28BYJ-48)...");
-  while (true) {
-      digitalWrite(Z_STEP_PIN, HIGH);
-      delayMicroseconds(1000); 
-      digitalWrite(Z_STEP_PIN, LOW);
-      delayMicroseconds(1000);
-  }
-  // ===================================
+  digitalWrite(Z_EN_PIN, HIGH); // Z começa desligado para não aquecer à toa
 
   Serial.println("Miniola Dual-Motor Firmware Iniciado (PID Ready)");
 }
@@ -219,12 +221,29 @@ void parse_serial_command() {
         int space_idx = cmd.indexOf(' ');
         target_speed_Y = (space_idx > 0) ? cmd.substring(space_idx + 1).toInt() : 2000;
         // APENAS ATUALIZA A VELOCIDADE! Sem UART block! Sem mexer nos pinos EN!
+      } else if (cmd.startsWith("Z") || cmd.startsWith("z")) {
+        int space_idx = cmd.indexOf(' ');
+        long spd = (space_idx > 0) ? cmd.substring(space_idx + 1).toInt() : 0;
+        target_speed_Z = spd;
+        if (spd == 0) {
+            digitalWrite(Z_EN_PIN, HIGH); // Desliga motor Z
+        } else {
+            digitalWrite(Z_EN_PIN, LOW);  // Liga motor Z
+            is_moving = true;
+        }
+      } else if (cmd.startsWith("L") || cmd.startsWith("l")) {
+        int space_idx = cmd.indexOf(' ');
+        long brightness = (space_idx > 0) ? cmd.substring(space_idx + 1).toInt() : 0;
+        brightness = max(0L, min(255L, brightness));
+        analogWrite(LED_PIN, brightness);
       } else if (cmd == "S" || cmd == "s") {
         driverX.rms_current(800, 0.0); // Restaura torque para travar o rolo
         digitalWrite(X_EN_PIN, LOW);
         digitalWrite(Y_EN_PIN, LOW);
         target_speed_X = 0;
         target_speed_Y = 0;
+        target_speed_Z = 0;
+        digitalWrite(Z_EN_PIN, HIGH); // Z desliga na parada de emergência
         Serial.println("Manobra: Parada Iniciada");
       }
     } else {
@@ -269,21 +288,32 @@ void loop() {
       current_speed_X = max(current_speed_X - accel_step, target_speed_X);
     }
 
+    // Eixo Z
+    if (current_speed_Z < target_speed_Z) {
+      current_speed_Z = min(current_speed_Z + accel_step, target_speed_Z);
+    } else if (current_speed_Z > target_speed_Z) {
+      current_speed_Z = max(current_speed_Z - accel_step, target_speed_Z);
+    }
+
     // Atualiza Direção fisicamente baseada no sinal da velocidade atual
     if (current_speed_X != 0)
       digitalWrite(X_DIR_PIN, (current_speed_X > 0) ? HIGH : LOW);
     if (current_speed_Y != 0)
       digitalWrite(Y_DIR_PIN, (current_speed_Y > 0) ? HIGH : LOW);
+    if (current_speed_Z != 0)
+      digitalWrite(Z_DIR_PIN, (current_speed_Z > 0) ? HIGH : LOW);
 
     // Recalcula os intervalos (Hz -> Microssegundos)
     step_interval_X =
         (current_speed_X != 0) ? 1000000UL / abs(current_speed_X) : 0;
     step_interval_Y =
         (current_speed_Y != 0) ? 1000000UL / abs(current_speed_Y) : 0;
+    step_interval_Z =
+        (current_speed_Z != 0) ? 1000000UL / abs(current_speed_Z) : 0;
 
     // Parada total
-    if (current_speed_X == 0 && current_speed_Y == 0 && target_speed_X == 0 &&
-        target_speed_Y == 0) {
+    if (current_speed_X == 0 && current_speed_Y == 0 && current_speed_Z == 0 && 
+        target_speed_X == 0 && target_speed_Y == 0 && target_speed_Z == 0) {
       is_moving = false;
     }
   }
@@ -307,6 +337,16 @@ void loop() {
       digitalWrite(Y_STEP_PIN, HIGH);
       delayMicroseconds(2);
       digitalWrite(Y_STEP_PIN, LOW);
+    }
+  }
+
+  // Pulso Motor Z
+  if (is_moving && step_interval_Z > 0) {
+    if (current_micros - last_step_time_Z >= step_interval_Z) {
+      last_step_time_Z = current_micros;
+      digitalWrite(Z_STEP_PIN, HIGH);
+      delayMicroseconds(2);
+      digitalWrite(Z_STEP_PIN, LOW);
     }
   }
 

@@ -198,6 +198,15 @@ def set_crop():
     except Exception as e:
         return jsonify({"status": "error", "msg": str(e)})
 
+@bp.route('/api/set_light')
+def set_light():
+    try:
+        val = int(request.args.get('val', 0))
+        state.motor.set_led_brightness(val)
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        return jsonify({"status": "error", "msg": str(e)})
+
 @bp.route('/status')
 def get_status():
     cpu_percent, ram_percent, cpu_temp = 0.0, 0.0, 0.0
