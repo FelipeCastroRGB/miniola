@@ -235,7 +235,15 @@ void parse_serial_command() {
         int space_idx = cmd.indexOf(' ');
         long brightness = (space_idx > 0) ? cmd.substring(space_idx + 1).toInt() : 0;
         brightness = max(0L, min(255L, brightness));
-        analogWrite(LED_PIN, brightness);
+        
+        if (brightness == 255) {
+            digitalWrite(LED_PIN, HIGH); // Bypass total do PWM: Garante 100% de passagem
+        } else if (brightness == 0) {
+            digitalWrite(LED_PIN, LOW);  // 0%
+        } else {
+            analogWriteResolution(8);    // Força a resolução para 0-255
+            analogWrite(LED_PIN, brightness);
+        }
       } else if (cmd == "S" || cmd == "s") {
         driverX.rms_current(800, 0.0); // Restaura torque para travar o rolo
         digitalWrite(X_EN_PIN, LOW);
