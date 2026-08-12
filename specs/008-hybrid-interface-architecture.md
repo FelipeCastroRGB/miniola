@@ -31,6 +31,7 @@ Para atender com máxima excelência a ambos os cenários sem duplicar lógica d
   - **Modo Local (Memória RAM Direta / Latência Zero)**: Quando executado na mesma máquina que o scanner (Workstation x86_64), o app acessa diretamente os arrays NumPy dos buffers da câmera (`ultimo_frame_bruto` e `ultimo_frame_binario`) na memória, renderizando via GPU (`QImage`/OpenGL) a 60 FPS cravados sem passar por compressão ou codificação JPEG.
   - **Modo Remoto (Cliente LAN)**: Quando executado no computador pessoal ou notebook do arquivista apontando para o IP de um Miniola Headless (RPi), o app atua como cliente de rede, consumindo a API e renderizando os gráficos de telemetria (curva de pitch em tempo real e osciloscópio) nativamente com aceleração gráfica local.
 - `[RF-04] Alinhamento Óptico Sub-Pixel (Foco na Bancada)`: No modo local, o App Nativo deve permitir zoom digital instâneo na ROI das perfurações e na fenda de áudio para conferência milimétrica do foco da lente e nitidez dos furos antes do início da sessão de captura.
+- `[RF-05] Metrologia de Vídeo Avançada (Futuro)`: Implementação de Scopes de Vídeo em tempo real (Waveform Monitor para Luminância e Vectorscope para Crominância). Esses gráficos devem ser gerados de forma assíncrona sobre o preview em baixa resolução para não impactar a thread de captura e permitir calibragem fina (color grading) do telecine.
 
 ---
 

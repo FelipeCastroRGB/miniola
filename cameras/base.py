@@ -37,3 +37,7 @@ class CameraProvider:
 
     def set_sharpness(self, value):
         raise NotImplementedError
+
+    def load_hardware_lut(self, lut_array):
+        # Retorna True se o LUT foi carregado no hardware com sucesso, False se falhou/não suportado.
+        return False

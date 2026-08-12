@@ -129,6 +129,7 @@ PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
 print(f"[SISTEMA] Inicializando provedor de câmera: {args.camera.upper()}")
 camera = get_camera_provider(args.camera)
 camera.start(RES_W, RES_H, fps_cam, shutter_speed, gain, foco_atual, CAM_OFFSET_X, CAM_OFFSET_Y)
+HARDWARE_LUT_ACTIVE = camera.load_hardware_lut(PIPELINE_LUT)
 
 # Padrão Bayer Padrão (Pode ser alterado dinamicamente via painel)
 # Mudando para RG2BGR porque o crop no sensor altera o alinhamento da matriz Bayer, causando a imagem rosa!
@@ -260,8 +261,9 @@ def processo_escrita_disco(fila_in):
             BAYER_MODE = item.get("mode")
             continue
         elif msg_type == "set_lut":
-            global PIPELINE_LUT
+            global PIPELINE_LUT, HARDWARE_LUT_ACTIVE
             PIPELINE_LUT = item.get("lut")
+            HARDWARE_LUT_ACTIVE = item.get("hardware_lut_active", False)
             continue
 
         if msg_type == "audio_chunk":
@@ -313,7 +315,8 @@ def processo_escrita_disco(fila_in):
         # É este processo isolado (que roda em outro núcleo do processador) que faz o trabalho pesado de debayer.
         if len(img_bgr.shape) == 2:
             img_bgr = cv2.cvtColor(img_bgr, BAYER_MODE)
-            img_bgr = cv2.LUT(img_bgr, PIPELINE_LUT)
+            if PIPELINE_LUT is not None and not HARDWARE_LUT_ACTIVE:
+                img_bgr = cv2.LUT(img_bgr, PIPELINE_LUT)
 
         # Salva como JPEG com cores corretas usando libjpeg-turbo C++ nativo (cv2.imwrite):
         # A velocidade de escrita cai de ~35ms para ~3ms por quadro, evitando que o buffer de memória do Python
@@ -457,7 +460,8 @@ def painel_controle():
                 if len(entrada) >= 4:
                     WB_R, WB_G, WB_B = float(entrada[1]), float(entrada[2]), float(entrada[3])
                     PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
-                    fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT})
+                    HARDWARE_LUT_ACTIVE = camera.load_hardware_lut(PIPELINE_LUT)
+                    fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT, "hardware_lut_active": HARDWARE_LUT_ACTIVE})
                     print(f"[ISP] White Balance atualizado para R:{WB_R} G:{WB_G} B:{WB_B}")
                 else:
                     print("[ERRO] Uso: wb [R] [G] [B]. Exemplo: wb 1.5 1.0 1.5")
@@ -470,12 +474,14 @@ def painel_controle():
                     print("[ERRO] Uso: gamma [Y] [C]. Exemplo: gamma 1.0 1.0")
                     continue
                 PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
-                fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT})
+                HARDWARE_LUT_ACTIVE = camera.load_hardware_lut(PIPELINE_LUT)
+                fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT, "hardware_lut_active": HARDWARE_LUT_ACTIVE})
                 print(f"[ISP] Gamma atualizado para Y:{GAMMA_Y} C:{GAMMA_C}")
             elif cmd == 'contrast':
                 CONTRAST = val
                 PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
-                fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT})
+                HARDWARE_LUT_ACTIVE = camera.load_hardware_lut(PIPELINE_LUT)
+                fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT, "hardware_lut_active": HARDWARE_LUT_ACTIVE})
                 print(f"[ISP] Contraste atualizado para {CONTRAST}")
             elif cmd == 'sharp':
                 camera.set_sharpness(val)

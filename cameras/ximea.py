@@ -190,3 +190,31 @@ class XimeaAdapter(CameraProvider):
                 print(f"[XIMEA] Sharpness Atualizado: {value}")
             except Exception as e:
                 print(f"[WARN] Câmera não suporta parâmetro de sharpness direto: {e}")
+
+    def load_hardware_lut(self, lut_array):
+        # A Ximea suporta LUT Enable, LUT Index e LUT Value
+        if not self.cam:
+            return False
+            
+        try:
+            # Verifica se o parâmetro LUTEnable existe
+            # LUT_EN precisa ser ativado no final
+            self.cam.set_param('LUTEnable', 0)
+            
+            # lut_array no OpenCV tem 256 valores (0 a 255)
+            # A câmera ximea espera índices compatíveis com a resolução dela.
+            # Se for MQ042, provavelmente é 10 ou 12 bits.
+            # Aqui vamos assumir que faremos o map dos primeiros 256 valores se o sensor rodar em 8-bit RAW8
+            # Caso não seja suportado, vai disparar exceção no set_param e falhar suavemente.
+            for i in range(min(256, len(lut_array))):
+                self.cam.set_param('LUTIndex', i)
+                # Garantir que é int (no caso do NumPy array)
+                val = int(lut_array[i][0] if len(lut_array.shape) > 1 else lut_array[i])
+                self.cam.set_param('LUTValue', val)
+                
+            self.cam.set_param('LUTEnable', 1)
+            print(f"[XIMEA] LUT de Hardware Carregado com Sucesso!")
+            return True
+        except Exception as e:
+            print(f"[XIMEA] Falha ao injetar LUT no Hardware. Usando LUT via Python/OpenCV. Erro: {e}")
+            return False
