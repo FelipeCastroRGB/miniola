@@ -197,24 +197,35 @@ class XimeaAdapter(CameraProvider):
             return False
             
         try:
-            # Verifica se o parâmetro LUTEnable existe
-            # LUT_EN precisa ser ativado no final
+            # O Erro 41 indica que não podemos alterar LUT_EN com a câmera rodando.
+            # Pausamos a aquisição rapidamente, injetamos a curva, e voltamos a rodar.
+            try:
+                self.cam.stop_acquisition()
+            except:
+                pass
+                
             self.cam.set_param('LUTEnable', 0)
             
             # lut_array no OpenCV tem 256 valores (0 a 255)
             # A câmera ximea espera índices compatíveis com a resolução dela.
-            # Se for MQ042, provavelmente é 10 ou 12 bits.
-            # Aqui vamos assumir que faremos o map dos primeiros 256 valores se o sensor rodar em 8-bit RAW8
-            # Caso não seja suportado, vai disparar exceção no set_param e falhar suavemente.
             for i in range(min(256, len(lut_array))):
                 self.cam.set_param('LUTIndex', i)
-                # Garantir que é int (no caso do NumPy array)
                 val = int(lut_array[i][0] if len(lut_array.shape) > 1 else lut_array[i])
                 self.cam.set_param('LUTValue', val)
                 
             self.cam.set_param('LUTEnable', 1)
+            
+            try:
+                self.cam.start_acquisition()
+            except:
+                pass
+                
             print(f"[XIMEA] LUT de Hardware Carregado com Sucesso!")
             return True
         except Exception as e:
             print(f"[XIMEA] Falha ao injetar LUT no Hardware. Usando LUT via Python/OpenCV. Erro: {e}")
+            try:
+                self.cam.start_acquisition() # Garante que volte a rodar em caso de erro
+            except:
+                pass
             return False
