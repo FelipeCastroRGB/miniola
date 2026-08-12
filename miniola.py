@@ -48,7 +48,7 @@ if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
 
 # Parser de Argumentos
 parser = argparse.ArgumentParser(description="Miniola - Digitalizador e Metrologia de Películas")
-parser.add_argument('--camera', type=str, default='mock', choices=['pi', 'ximea', 'uvc', 'mock'], help='Provedor de câmera a utilizar')
+parser.add_argument('--camera', type=str, default='ximea', choices=['pi', 'ximea', 'uvc', 'mock'], help='Provedor de câmera a utilizar')
 parser.add_argument('--ximea-mode', type=str, default='raw', choices=['raw', 'rgb'], help='Modo de cor interno para Ximea (ISP ligado = rgb)')
 args = parser.parse_args()
 
