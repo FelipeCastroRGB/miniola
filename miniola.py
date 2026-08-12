@@ -140,6 +140,7 @@ BAYER_MODE = cv2.COLOR_BayerBG2BGR
 
 # --- GEOMETRIA DO ROI E ESTADO ---
 GRAVANDO = False
+PLAYBACK_MODE = False        # Visão em tempo real (PLL)
 CALIBRANDO = False           # Trava de segurança da tela
 PROCESSANDO_VIDEO = False    # Alerta o scanner para hibernar
 
@@ -401,7 +402,7 @@ def disparar_processamento():
     print("[SISTEMA] Scanner acordado de volta à vida.")
 
 def painel_controle():
-    global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, CROP_H, CROP_W, ROI_Y, ROI_W, ROI_H, THRESH_VAL
+    global frame_count, GRAVANDO, PLAYBACK_MODE, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, CROP_H, CROP_W, ROI_Y, ROI_W, ROI_H, THRESH_VAL
     global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo, CALIBRANDO
     global ultimo_pitch_medio, PITCH_PADRAO_PX, CV_ENGINE, FPS_PROJECAO, AUDIO_X_OFFSET, AUDIO_READ_W, fps_motor
     global BAYER_MODE, WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST, PIPELINE_LUT
@@ -410,7 +411,8 @@ def painel_controle():
         print("\n" + "═"*60)
         print(f"   MINIOLA - PAINEL DE CONTROLE  |  MOTOR: {CV_ENGINE}")
         print("═"*60)
-        print(" [SISTEMA]   rec (Gravar) | r (Zerar) | proc (Encodar MP4) | rout (Limpar Vídeos)")
+        print(" [SISTEMA]   rec (Gravar) | play [fps] (Playback PLL) | stop (Para) | r (Zerar)")
+        print("             proc (Encodar MP4) | rout (Limpar Vídeos)")
         print(" [IMAGEM]    e [val] (Shutter) | g [val] (Gain) | fps [val] (FPS Cam)")
         print(" [COR]       wb [R] [G] [B] | gamma [Y] [C] | contrast [val] | sharp [val] | bayer [0-3]")
         print(" [FOCO]      k/l (Foco Lente -/+) | af (Auto Foco) | zm [vel] (Foco Z Mecânico) | zs (Stop Z)")
@@ -575,7 +577,21 @@ def painel_controle():
                 if spd > 0: motor.focus_in(spd)
                 else: motor.focus_out(abs(spd))
             elif cmd == 'zs': motor.focus_stop()
+            elif cmd == 'play':
+                PLAYBACK_MODE = True
+                GRAVANDO = False
+                target_fps = float(val) if val > 0 else 24.0
+                camera.set_fps(target_fps)
+                motor.start_pid(target_fps=target_fps)
+                print(f"[PLAYBACK] Iniciado a {target_fps} fps (Free Run da Câmera + PLL do Motor)")
+            elif cmd == 'stop':
+                PLAYBACK_MODE = False
+                GRAVANDO = False
+                motor.stop_pid()
+                motor.stop()
+                print("[SISTEMA] Parada (Stop)")
             elif cmd == 'rec':
+                PLAYBACK_MODE = False
                 toggle_rec()
             elif cmd == 'proc': 
                 if not PROCESSANDO_VIDEO: threading.Thread(target=disparar_processamento, daemon=True).start()
@@ -660,10 +676,15 @@ def logica_scanner():
             furo_detectado_agora = ret["achou_furo"]
 
             if ret["capturar"]:
-                motor.sync_optical_phase()
-                p_inst = ret.get("pitch_instantaneo", -1.0)
-                processar_captura(frame_raw, ret["cx_a"], ret["cy_a"], frame_count, p_inst)
-                frame_count += 1
+                if PLAYBACK_MODE:
+                    erro_y_px = ret["cy_a"] - (LINHA_GATILHO_Y + ly)
+                    motor.update_phase_error(erro_y_px, PITCH_PADRAO_PX)
+                    processar_captura(frame_raw, ret["cx_a"], ret["cy_a"], frame_count, ret.get("pitch_instantaneo", -1.0))
+                else:
+                    motor.sync_optical_phase()
+                    p_inst = ret.get("pitch_instantaneo", -1.0)
+                    processar_captura(frame_raw, ret["cx_a"], ret["cy_a"], frame_count, p_inst)
+                    frame_count += 1
         else:
             roi_color = frame_raw[ly:ly+lh, lx:lx+lw]
             if len(roi_color.shape) == 3:
@@ -722,8 +743,16 @@ def logica_scanner():
                                 soma_centros_y += (pts[i]['cy_g'] + (multiplicador * pitch_instantaneo))
                             cy_a = int(soma_centros_y / qtd)
                         else: cy_a = int(pts[0]['cy_g'] + 150) 
-                        processar_captura(frame_raw, cx_a, cy_a, frame_count)
-                        frame_count += 1
+                        
+                        if PLAYBACK_MODE:
+                            erro_y_px = cy_a - (LINHA_GATILHO_Y + ly)
+                            motor.update_phase_error(erro_y_px, PITCH_PADRAO_PX)
+                            processar_captura(frame_raw, cx_a, cy_a, frame_count)
+                        else:
+                            motor.sync_optical_phase()
+                            processar_captura(frame_raw, cx_a, cy_a, frame_count)
+                            frame_count += 1
+                            
                         contador_perfs_ciclo = 0
 
         if not furo_detectado_agora: perfuracao_na_linha = False

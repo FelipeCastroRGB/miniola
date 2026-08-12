@@ -33,6 +33,12 @@ A solução baseia-se na separação estrita de domínios:
 - Caso o OpenCV sofra um "dropframe" ou uma perfuração esteja completamente rasgada, o software python injetará a "Previsão" baseada no Encoder.
 - Se o filme avançar o equivalente a 1 frame (ex: 4.75mm para 35mm) sem que o OpenCV tenha reportado sucesso, o sistema força a gravação do quadro naquele momento exato, usando a medição física do encoder como fallback. Isso impede a "perda de sincronia".
 
+### 2.4. Modo Playback PLL (Phase-Locked Loop Inverso)
+- Para garantir o visionamento em tempo real (ex: 24 fps) sem instabilidades, a lógica mestre-escravo é invertida.
+- A **Câmera atua como Mestre**: Roda continuamente a uma taxa de quadros fixa (ex: 24.0 fps) gerada pelo seu próprio relógio (Free Run).
+- O **Motor atua como Escravo**: O PID do `motor_controller.py` tenta manter a velocidade em 24 fps e usa a informação do OpenCV como "Erro de Fase".
+- A cada quadro, o OpenCV verifica se a perfuração está acima ou abaixo da `LINHA_GATILHO_Y`. Esse desvio em pixels é convertido para milímetros e injetado no PID como correção de fase (`update_phase_error()`), forçando o motor a acelerar ou frear sutilmente para travar a perfuração no centro da câmera.
+
 ## 3. Modificações de Arquivos Associadas
 - `core/motor_controller.py`: Eliminação do `notify_perforation` como variável do PID. Adoção da lógica de interpolação.
 - `src/miniola_cv.cpp`: O FPS meter acoplado ao gatilho é desabilitado. O OpenCV apenas carimba o quadro atual (Timestamps e Flags) e manda para a fila de gravação `process.py`.

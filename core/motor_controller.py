@@ -40,6 +40,10 @@ class FilmTransportPID:
         self.smoothed_adjustment = 0.0
         self.encoder_history = [] # Janela deslizante para cálculo de velocidade
         
+        # PLL (Phase-Locked Loop)
+        self.phase_error_mm = 0.0
+        self.Kp_phase = 2.5 # Ganho de correção de fase (mm/s por mm de erro)
+        
         self.error_sum = 0.0
         self.last_error = 0.0
         self.last_pid_time = time.time()
@@ -120,6 +124,15 @@ class FilmTransportPID:
         """
         with self.lock:
             return self.encoder_distance_accumulated
+
+    def update_phase_error(self, error_px: float, pixels_per_mm: float):
+        """
+        Recebe o erro de fase (distância do furo detectado até a linha de gatilho).
+        Atualiza o Phase-Locked Loop.
+        """
+        if pixels_per_mm > 0:
+            with self.lock:
+                self.phase_error_mm = error_px / pixels_per_mm
     # --- LOOP PID (Mola Matemática) ---
     def start_pid(self, target_fps=None):
         if not self.connected:
@@ -220,6 +233,14 @@ class FilmTransportPID:
                     self.ramped_target = self.target_mm_s * s_curve
                 else:
                     self.ramped_target = self.target_mm_s
+                
+                # Injeta a compensação do PLL (Phase-Locked Loop) se a rampa já completou a maior parte
+                with self.lock:
+                    if tempo_decorrido > 1.0: # Dá 1 segundo pro motor estabilizar o arranque antes de plugar a fase
+                        phase_correction = self.Kp_phase * self.phase_error_mm
+                        # Limitar a correção de fase para não dar solavancos extremos
+                        phase_correction = max(-self.target_mm_s * 0.2, min(self.target_mm_s * 0.2, phase_correction))
+                        self.ramped_target += phase_correction
                 
                 error = self.ramped_target - self.current_mm_s
                 
