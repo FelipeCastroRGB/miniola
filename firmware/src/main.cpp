@@ -113,7 +113,7 @@ void setup() {
 
   // Configuração e desligamento inicial do Painel de LED
   pinMode(LED_PIN, OUTPUT);
-  analogWriteFreq(30000); // 30kHz para eliminar Flicker da Câmera (Exposições < 1ms)
+  analogWriteFreq(5000); // 5kHz (Limite seguro para o MOSFET de potência)
   analogWrite(LED_PIN, 0);
 
   // Inicializa a UART (Serial2)
