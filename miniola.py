@@ -407,7 +407,7 @@ def painel_controle():
     global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, CROP_H, CROP_W, ROI_Y, ROI_W, ROI_H, THRESH_VAL
     global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo, CALIBRANDO
     global ultimo_pitch_medio, PITCH_PADRAO_PX, CV_ENGINE, FPS_PROJECAO, AUDIO_X_OFFSET, AUDIO_READ_W, fps_motor
-    global BAYER_MODE, WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST, PIPELINE_LUT
+    global BAYER_MODE, WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST, PIPELINE_LUT, UPDATE_HARDWARE_LUT
     
     def print_menu():
         print("\n" + "═"*60)
@@ -464,7 +464,6 @@ def painel_controle():
                     print(f"[COR] Padrão Bayer alterado para o modo {modo}")
             elif cmd == 'wb':
                 if len(entrada) >= 4:
-                    global UPDATE_HARDWARE_LUT
                     WB_R, WB_G, WB_B = float(entrada[1]), float(entrada[2]), float(entrada[3])
                     PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
                     UPDATE_HARDWARE_LUT = True
@@ -480,13 +479,11 @@ def painel_controle():
                 else:
                     print("[ERRO] Uso: gamma [Y] [C]. Exemplo: gamma 1.0 1.0")
                     continue
-                global UPDATE_HARDWARE_LUT
                 PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
                 UPDATE_HARDWARE_LUT = True
                 fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT})
                 print(f"[ISP] Gamma atualizado para Y:{GAMMA_Y} C:{GAMMA_C}")
             elif cmd == 'contrast':
-                global UPDATE_HARDWARE_LUT
                 CONTRAST = val
                 PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
                 UPDATE_HARDWARE_LUT = True
