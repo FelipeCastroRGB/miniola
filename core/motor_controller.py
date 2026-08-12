@@ -233,14 +233,13 @@ class FilmTransportPID:
                     self.ramped_target = self.target_mm_s * s_curve
                 else:
                     self.ramped_target = self.target_mm_s
-                
+
                 # Injeta a compensação do PLL (Phase-Locked Loop) se a rampa já completou a maior parte
-                with self.lock:
-                    if tempo_decorrido > 1.0: # Dá 1 segundo pro motor estabilizar o arranque antes de plugar a fase
-                        phase_correction = self.Kp_phase * self.phase_error_mm
-                        # Limitar a correção de fase para não dar solavancos extremos
-                        phase_correction = max(-self.target_mm_s * 0.2, min(self.target_mm_s * 0.2, phase_correction))
-                        self.ramped_target += phase_correction
+                if tempo_decorrido > 1.0: # Dá 1 segundo pro motor estabilizar o arranque antes de plugar a fase
+                    phase_correction = self.Kp_phase * self.phase_error_mm
+                    # Limitar a correção de fase para não dar solavancos extremos
+                    phase_correction = max(-self.target_mm_s * 0.2, min(self.target_mm_s * 0.2, phase_correction))
+                    self.ramped_target += phase_correction
                 
                 error = self.ramped_target - self.current_mm_s
                 
