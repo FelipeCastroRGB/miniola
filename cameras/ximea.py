@@ -9,13 +9,22 @@ class XimeaAdapter(CameraProvider):
         except ImportError:
             print("[WARN] ximea_api não está instalado. Modo de câmera Ximea inativo.")
 
-    def start(self, res_w, res_h, fps, shutter_speed, gain, lens_position, offset_x=0, offset_y=0):
+    def start(self, res_w, res_h, fps, shutter_speed, gain, lens_position, offset_x=0, offset_y=0, color_mode='raw'):
         if not self.cam: return
         try:
             self.cam.open_device()
-            # Ximea config: 
-            # O RGB24 sufocou a CPU do Raspberry Pi (10 FPS). Voltamos para o formato RAW8 veloz!
-            self.cam.set_imgdataformat('XI_RAW8')
+            self.color_mode = color_mode
+            
+            # Formato de Imagem (RAW8 para OpenCV Debayer, RGB24 para Ximea ISP)
+            try:
+                if self.color_mode == 'rgb':
+                    self.cam.set_imgdataformat('XI_RGB24')
+                    # Ativa AWB (Auto White Balance) apenas no modo RGB por padrão
+                    self.cam.set_param('auto_wb', 1)
+                else:
+                    self.cam.set_imgdataformat('XI_RAW8')
+            except Exception as e:
+                print(f"[WARN] Falha ao definir modo {self.color_mode.upper()} na Ximea: {e}")
             
             # ATIVANDO CORES NO MODO RAW!
             # Para não ficar desbotado/cinza, ligamos o White Balance direto no sensor de hardware.
@@ -113,7 +122,9 @@ class XimeaAdapter(CameraProvider):
             if len(arr.shape) == 3 and arr.shape[2] == 1:
                 arr = arr.squeeze(2)
             elif len(arr.shape) == 3 and arr.shape[2] > 1:
-                arr = arr[:, :, 0]
+                if getattr(self, 'color_mode', 'raw') == 'raw':
+                    arr = arr[:, :, 0]
+                # Se for RGB, mantemos arr.shape == (H, W, 3) intacto.
                 
             return arr
         except Exception as e:
@@ -160,9 +171,9 @@ class XimeaAdapter(CameraProvider):
                 self.cam.set_param('wb_kr', kr)
                 self.cam.set_param('wb_kg', kg)
                 self.cam.set_param('wb_kb', kb)
-                print(f"[XIMEA] White Balance Manual Aplicado: R={kr} G={kg} B={kb}")
+                print(f"[XIMEA ISP] White Balance Manual Aplicado no Hardware: R={kr} G={kg} B={kb}")
             except Exception as e:
-                print(f"[WARN] Falha ao ajustar White Balance: {e}")
+                print(f"[WARN] Falha ao ajustar White Balance na Ximea: {e}")
 
     def set_gamma(self, gamma_y: float, gamma_c: float):
         if self.cam:

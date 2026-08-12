@@ -1,5 +1,5 @@
 class CameraProvider:
-    def start(self, res_w, res_h, fps, shutter_speed, gain, lens_position, offset_x=0, offset_y=0):
+    def start(self, res_w, res_h, fps, shutter_speed, gain, lens_position, offset_x=0, offset_y=0, **kwargs):
         raise NotImplementedError
 
     def stop(self):

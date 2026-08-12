@@ -47,8 +47,9 @@ CAPTURE_PATH = "capturas"
 if not os.path.exists(CAPTURE_PATH): os.makedirs(CAPTURE_PATH)
 
 # Parser de Argumentos
-parser = argparse.ArgumentParser(description="Miniola Scanner")
-parser.add_argument('--camera', type=str, default='ximea', choices=['pi', 'ximea', 'mock'], help='Qual hardware de câmera usar (pi, ximea ou mock)')
+parser = argparse.ArgumentParser(description="Miniola - Digitalizador e Metrologia de Películas")
+parser.add_argument('--camera', type=str, default='mock', choices=['pi', 'ximea', 'uvc', 'mock'], help='Provedor de câmera a utilizar')
+parser.add_argument('--ximea-mode', type=str, default='raw', choices=['raw', 'rgb'], help='Modo de cor interno para Ximea (ISP ligado = rgb)')
 args = parser.parse_args()
 
 CAMERA_MODE = args.camera
@@ -128,8 +129,10 @@ PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
 
 print(f"[SISTEMA] Inicializando provedor de câmera: {args.camera.upper()}")
 camera = get_camera_provider(args.camera)
-camera.start(RES_W, RES_H, fps_cam, shutter_speed, gain, foco_atual, CAM_OFFSET_X, CAM_OFFSET_Y)
-HARDWARE_LUT_ACTIVE = camera.load_hardware_lut(PIPELINE_LUT)
+if args.camera == 'ximea':
+    camera.start(RES_W, RES_H, fps_cam, shutter_speed, gain, foco_atual, CAM_OFFSET_X, CAM_OFFSET_Y, color_mode=args.ximea_mode)
+else:
+    camera.start(RES_W, RES_H, fps_cam, shutter_speed, gain, foco_atual, CAM_OFFSET_X, CAM_OFFSET_Y)
 
 # Padrão Bayer Padrão (Pode ser alterado dinamicamente via painel)
 # Mudando para RG2BGR porque o crop no sensor altera o alinhamento da matriz Bayer, causando a imagem rosa!
@@ -139,7 +142,6 @@ BAYER_MODE = cv2.COLOR_BayerBG2BGR
 GRAVANDO = False
 CALIBRANDO = False           # Trava de segurança da tela
 PROCESSANDO_VIDEO = False    # Alerta o scanner para hibernar
-UPDATE_HARDWARE_LUT = False  # Flag para evitar Race Condition entre a thread CLI e a câmera
 
 FPS_PROJECAO = 24.0          # FPS de reprodução do filme (independente do fps_cam do sensor!)
 ROI_X, ROI_Y = 200, 10
@@ -262,14 +264,9 @@ def processo_escrita_disco(fila_in):
             global BAYER_MODE
             BAYER_MODE = item.get("mode")
             continue
-        elif msg_type == "set_hw_lut_active":
-            global HARDWARE_LUT_ACTIVE
-            HARDWARE_LUT_ACTIVE = item.get("active", False)
-            continue
         elif msg_type == "set_lut":
             global PIPELINE_LUT
             PIPELINE_LUT = item.get("lut")
-            # We don't read hardware_lut_active from here anymore
             continue
 
         if msg_type == "audio_chunk":
@@ -321,7 +318,7 @@ def processo_escrita_disco(fila_in):
         # É este processo isolado (que roda em outro núcleo do processador) que faz o trabalho pesado de debayer.
         if len(img_bgr.shape) == 2:
             img_bgr = cv2.cvtColor(img_bgr, BAYER_MODE)
-            if PIPELINE_LUT is not None and not HARDWARE_LUT_ACTIVE:
+            if PIPELINE_LUT is not None:
                 img_bgr = cv2.LUT(img_bgr, PIPELINE_LUT)
 
         # Salva como JPEG com cores corretas usando libjpeg-turbo C++ nativo (cv2.imwrite):
@@ -407,7 +404,7 @@ def painel_controle():
     global frame_count, GRAVANDO, LINHA_GATILHO_Y, MARGEM_GATILHO, ROI_X, CROP_H, CROP_W, ROI_Y, ROI_W, ROI_H, THRESH_VAL
     global foco_atual, passo_foco, shutter_speed, gain, fps_cam, OFFSET_X, contador_perfs_ciclo, CALIBRANDO
     global ultimo_pitch_medio, PITCH_PADRAO_PX, CV_ENGINE, FPS_PROJECAO, AUDIO_X_OFFSET, AUDIO_READ_W, fps_motor
-    global BAYER_MODE, WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST, PIPELINE_LUT, UPDATE_HARDWARE_LUT
+    global BAYER_MODE, WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST, PIPELINE_LUT
     
     def print_menu():
         print("\n" + "═"*60)
@@ -465,8 +462,11 @@ def painel_controle():
             elif cmd == 'wb':
                 if len(entrada) >= 4:
                     WB_R, WB_G, WB_B = float(entrada[1]), float(entrada[2]), float(entrada[3])
-                    PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
-                    UPDATE_HARDWARE_LUT = True
+                    if args.camera == 'ximea' and args.ximea_mode == 'rgb':
+                        camera.set_white_balance(WB_R, WB_G, WB_B)
+                        PIPELINE_LUT = None
+                    else:
+                        PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
                     fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT})
                     print(f"[ISP] White Balance atualizado para R:{WB_R} G:{WB_G} B:{WB_B}")
                 else:
@@ -479,14 +479,20 @@ def painel_controle():
                 else:
                     print("[ERRO] Uso: gamma [Y] [C]. Exemplo: gamma 1.0 1.0")
                     continue
-                PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
-                UPDATE_HARDWARE_LUT = True
+                if args.camera == 'ximea' and args.ximea_mode == 'rgb':
+                    camera.set_gamma(GAMMA_Y, GAMMA_C)
+                    PIPELINE_LUT = None
+                else:
+                    PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
                 fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT})
                 print(f"[ISP] Gamma atualizado para Y:{GAMMA_Y} C:{GAMMA_C}")
             elif cmd == 'contrast':
                 CONTRAST = val
-                PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
-                UPDATE_HARDWARE_LUT = True
+                if args.camera == 'ximea' and args.ximea_mode == 'rgb':
+                    camera.set_contrast(CONTRAST)
+                    PIPELINE_LUT = None
+                else:
+                    PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
                 fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT})
                 print(f"[ISP] Contraste atualizado para {CONTRAST}")
             elif cmd == 'sharp':
@@ -614,13 +620,6 @@ def logica_scanner():
     buffer_tempos = []
 
     while True:
-        global UPDATE_HARDWARE_LUT
-        if UPDATE_HARDWARE_LUT:
-            UPDATE_HARDWARE_LUT = False
-            global HARDWARE_LUT_ACTIVE
-            HARDWARE_LUT_ACTIVE = camera.load_hardware_lut(PIPELINE_LUT)
-            fila_gravacao.put({"type": "set_hw_lut_active", "active": HARDWARE_LUT_ACTIVE})
-            
         if PROCESSANDO_VIDEO:
             time.sleep(1.0)
             continue
@@ -667,9 +666,13 @@ def logica_scanner():
                 frame_count += 1
         else:
             roi_color = frame_raw[ly:ly+lh, lx:lx+lw]
-            roi_gray = cv_cvt(roi_color, cv2.COLOR_RGB2GRAY)
+            if len(roi_color.shape) == 3:
+                roi_gray = cv_cvt(roi_color, cv2.COLOR_BGR2GRAY)
+            else:
+                roi_gray = roi_color
+                
             roi_small = cv_resize(roi_gray, (0, 0), fx=ESCALA_CV, fy=ESCALA_CV) 
-            _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY) 
+            _, binary_small = cv_thresh(roi_small, THRESH_VAL, 255, cv2.THRESH_BINARY)  
             
             debug_visual = []
             furo_detectado_agora = False
