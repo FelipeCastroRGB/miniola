@@ -206,11 +206,16 @@ class XimeaAdapter(CameraProvider):
                 
             self.cam.set_param('LUTEnable', 0)
             
-            # lut_array no OpenCV tem 256 valores (0 a 255)
-            # A câmera ximea espera índices compatíveis com a resolução dela.
-            for i in range(min(256, len(lut_array))):
+            # lut_array no OpenCV tem shape (1, 256, 3).
+            # Precisamos extrair uma curva 1D (usaremos o canal verde, índice 1)
+            if len(lut_array.shape) == 3:
+                curve = lut_array[0, :, 1]
+            else:
+                curve = lut_array
+                
+            for i in range(min(256, len(curve))):
                 self.cam.set_param('LUTIndex', i)
-                val = int(lut_array[i][0] if len(lut_array.shape) > 1 else lut_array[i])
+                val = int(curve[i])
                 self.cam.set_param('LUTValue', val)
                 
             self.cam.set_param('LUTEnable', 1)

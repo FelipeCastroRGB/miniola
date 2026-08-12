@@ -139,6 +139,8 @@ BAYER_MODE = cv2.COLOR_BayerBG2BGR
 GRAVANDO = False
 CALIBRANDO = False           # Trava de segurança da tela
 PROCESSANDO_VIDEO = False    # Alerta o scanner para hibernar
+UPDATE_HARDWARE_LUT = False  # Flag para evitar Race Condition entre a thread CLI e a câmera
+
 FPS_PROJECAO = 24.0          # FPS de reprodução do filme (independente do fps_cam do sensor!)
 ROI_X, ROI_Y = 200, 10
 ROI_W, ROI_H = 80, 840
@@ -260,10 +262,14 @@ def processo_escrita_disco(fila_in):
             global BAYER_MODE
             BAYER_MODE = item.get("mode")
             continue
+        elif msg_type == "set_hw_lut_active":
+            global HARDWARE_LUT_ACTIVE
+            HARDWARE_LUT_ACTIVE = item.get("active", False)
+            continue
         elif msg_type == "set_lut":
-            global PIPELINE_LUT, HARDWARE_LUT_ACTIVE
+            global PIPELINE_LUT
             PIPELINE_LUT = item.get("lut")
-            HARDWARE_LUT_ACTIVE = item.get("hardware_lut_active", False)
+            # We don't read hardware_lut_active from here anymore
             continue
 
         if msg_type == "audio_chunk":
@@ -458,10 +464,11 @@ def painel_controle():
                     print(f"[COR] Padrão Bayer alterado para o modo {modo}")
             elif cmd == 'wb':
                 if len(entrada) >= 4:
+                    global UPDATE_HARDWARE_LUT
                     WB_R, WB_G, WB_B = float(entrada[1]), float(entrada[2]), float(entrada[3])
                     PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
-                    HARDWARE_LUT_ACTIVE = camera.load_hardware_lut(PIPELINE_LUT)
-                    fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT, "hardware_lut_active": HARDWARE_LUT_ACTIVE})
+                    UPDATE_HARDWARE_LUT = True
+                    fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT})
                     print(f"[ISP] White Balance atualizado para R:{WB_R} G:{WB_G} B:{WB_B}")
                 else:
                     print("[ERRO] Uso: wb [R] [G] [B]. Exemplo: wb 1.5 1.0 1.5")
@@ -473,15 +480,17 @@ def painel_controle():
                 else:
                     print("[ERRO] Uso: gamma [Y] [C]. Exemplo: gamma 1.0 1.0")
                     continue
+                global UPDATE_HARDWARE_LUT
                 PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
-                HARDWARE_LUT_ACTIVE = camera.load_hardware_lut(PIPELINE_LUT)
-                fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT, "hardware_lut_active": HARDWARE_LUT_ACTIVE})
+                UPDATE_HARDWARE_LUT = True
+                fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT})
                 print(f"[ISP] Gamma atualizado para Y:{GAMMA_Y} C:{GAMMA_C}")
             elif cmd == 'contrast':
+                global UPDATE_HARDWARE_LUT
                 CONTRAST = val
                 PIPELINE_LUT = build_color_lut(WB_R, WB_G, WB_B, GAMMA_Y, GAMMA_C, CONTRAST)
-                HARDWARE_LUT_ACTIVE = camera.load_hardware_lut(PIPELINE_LUT)
-                fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT, "hardware_lut_active": HARDWARE_LUT_ACTIVE})
+                UPDATE_HARDWARE_LUT = True
+                fila_gravacao.put({"type": "set_lut", "lut": PIPELINE_LUT})
                 print(f"[ISP] Contraste atualizado para {CONTRAST}")
             elif cmd == 'sharp':
                 camera.set_sharpness(val)
@@ -608,6 +617,13 @@ def logica_scanner():
     buffer_tempos = []
 
     while True:
+        global UPDATE_HARDWARE_LUT
+        if UPDATE_HARDWARE_LUT:
+            UPDATE_HARDWARE_LUT = False
+            global HARDWARE_LUT_ACTIVE
+            HARDWARE_LUT_ACTIVE = camera.load_hardware_lut(PIPELINE_LUT)
+            fila_gravacao.put({"type": "set_hw_lut_active", "active": HARDWARE_LUT_ACTIVE})
+            
         if PROCESSANDO_VIDEO:
             time.sleep(1.0)
             continue
