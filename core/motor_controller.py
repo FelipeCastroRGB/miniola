@@ -25,7 +25,7 @@ class FilmTransportPID:
         self.current_mm_s = 0.0
         
         # Setup do Encoder e Rolete
-        self.roller_diameter = 19.1
+        self.roller_diameter = 26.6
         self.roller_circumference = 3.14159 * self.roller_diameter
         self.encoder_ppr = 600.0
         self.last_encoder_pulses = 0

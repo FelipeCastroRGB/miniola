@@ -90,8 +90,8 @@ class MotorController:
 Na Fase 2, o sistema passará a controlar 2 motores (Feed-in e Take-up) cujas velocidades físicas mudam constantemente devido à variação do diâmetro dos rolos de filme. A arquitetura escolhida (Opção A) define que:
 
 ### 7.1. Medição de Velocidade via Encoder
-O hardware utilizará um **Encoder Rotativo E38S6G5-600B-G24N (600 PPR)** acoplado a um rolete por onde o filme passa. O rolete tem um **diâmetro de 30.5 mm**. O firmware da SKR Pico fará a contagem dos pulsos (usando interrupções rápidas via PIO/registradores no pino de UART) e o módulo Python converterá para velocidade linear (mm/s) através da fórmula:
-`Velocidade (mm/s) = (Pulsos_Lidos / 600) * (PI * 30.5) / Tempo_Decorrido`
+O hardware utilizará um **Encoder Rotativo E38S6G5-600B-G24N (600 PPR)** acoplado a um rolete por onde o filme passa. O rolete tem um **diâmetro de 26.6 mm**. O firmware da SKR Pico fará a contagem dos pulsos (usando interrupções rápidas via PIO/registradores no pino de UART) e o módulo Python converterá para velocidade linear (mm/s) através da fórmula:
+`Velocidade (mm/s) = (Pulsos_Lidos / 600) * (PI * 26.6) / Tempo_Decorrido`
 *Nota: Qualquer acoplamento anterior do cálculo de velocidade com a Visão Computacional (OpenCV) foi **completamente removido** da malha mecânica. Conforme definido na **SPEC-011**, a responsabilidade da velocidade é 100% do Encoder físico.*
 
 ### 7.2. Malha de Controle (PID) em Python e Aceleração (S-Curve)
