@@ -27,7 +27,8 @@ class FilmTransportPID:
         # Setup do Encoder e Rolete
         self.roller_diameter = 26.6
         self.roller_circumference = 3.14159 * self.roller_diameter
-        self.encoder_ppr = 600.0
+        # O Encoder E38S6G5 tem 600 PPR, mas o RP2040 lê em quadratura completa (4 bordas por pulso)
+        self.encoder_ppr = 2400.0
         self.last_encoder_pulses = 0
         self.last_encoder_time = 0.0
         self.encoder_distance_accumulated = 0.0 # Distância percorrida desde a última perfuração vista
@@ -247,8 +248,9 @@ class FilmTransportPID:
                 # Limite anti-windup (Aumentado absurdamente para suportar altas velocidades se o FF errar)
                 self.error_sum = max(-15000, min(15000, self.error_sum))
                 
-                # FEED-FORWARD: O log revelou que ~1835 Hz geram ~344 mm/s. Portanto o multiplicador é 5.33.
-                feed_forward = self.ramped_target * 5.33
+                # FEED-FORWARD: Multiplicador ajustado para a velocidade real.
+                # ~9000 Hz gera ~456 mm/s num núcleo médio de carretel. Multiplicador ~ 20.0
+                feed_forward = self.ramped_target * 20.0
                 
                 # Equação PID baseada no erro de Velocidade Linear
                 raw_adjustment = feed_forward + (self.Kp * error) + (self.Ki * self.error_sum)
